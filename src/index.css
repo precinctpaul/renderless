@@ -397,12 +397,22 @@ input:focus {
   border-bottom: 1px solid #1f2f44;
   padding: 10px 8px;
   text-align: left;
+  vertical-align: middle;
 }
 
 .template-table th {
   color: var(--zinc-400);
   font-size: 12px;
   letter-spacing: 0.04em;
+}
+
+.template-row--active {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+.table-actions {
+  display: inline-flex;
+  gap: 6px;
 }
 
 .protocol-item {
@@ -492,6 +502,11 @@ input:focus {
   border-color: #365f9f;
 }
 
+.icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .creation-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -554,6 +569,16 @@ input:focus {
   gap: 8px;
   min-height: 42px;
   padding: 4px;
+  cursor: grab;
+}
+
+.layer-item--dragging {
+  opacity: 0.45;
+}
+
+.layer-item--drop-target {
+  border-color: #4f86df;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35);
 }
 
 .layer-item__main {
@@ -618,6 +643,17 @@ input:focus {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.stage-toolbar__template-name {
+  color: var(--zinc-300);
+  font-size: 12px;
+}
+
+.stage-toolbar__save-status {
+  color: #86efac;
+  margin-left: auto;
+  font-size: 11px;
 }
 
 .stage-canvas-wrap {

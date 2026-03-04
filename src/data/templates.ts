@@ -273,17 +273,20 @@ export const TEMPLATE_LIBRARY: TemplateDefinition[] = [
     label: 'H_A_Score_001',
     scene: scoreBugScene,
     favorite: true,
+    builtIn: true,
   },
   {
     id: 'template-lower-third',
     label: 'Lower_Third_001',
     scene: lowerThirdScene,
     favorite: true,
+    builtIn: true,
   },
   {
     id: 'template-full-frame',
     label: 'Full_Frame_Stat',
     scene: fullFrameScene,
+    builtIn: true,
   },
 ]
 

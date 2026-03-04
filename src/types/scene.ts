@@ -52,4 +52,6 @@ export interface TemplateDefinition {
   label: string
   scene: SceneDefinition
   favorite?: boolean
+  builtIn?: boolean
+  updatedAt?: number
 }

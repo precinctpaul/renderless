@@ -3,20 +3,27 @@ import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '
 import type { SceneDefinition, StoryState, TemplateDefinition } from '../types/scene'
 
 const STORAGE_KEY = 'renderless.playout.snapshot.v1'
+const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
 const CHANNEL_KEY = 'renderless.playout.sync.v1'
 const INSTANCE_ID = `renderless-${Math.random().toString(36).slice(2)}`
 const CLEAR_TEMPLATE_ID = '__clear__'
-
-const DEFAULT_PREVIEW_TEMPLATE_ID = TEMPLATE_LIBRARY[0]?.id ?? ''
-const DEFAULT_PROGRAM_TEMPLATE_ID = TEMPLATE_LIBRARY[0]?.id ?? ''
+const MAX_UNDO_DEPTH = 80
 
 export type TransitionType = 'cut' | 'fade' | 'lumaWipe'
 
 type ProgramTemplateId = string
 
+type SceneTransformPatch = Partial<Pick<SceneDefinition['layers'][number], 'x' | 'y' | 'width' | 'height'>>
+type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'shape' }>, 'fill' | 'opacity'>>
+type TextStylePatch = Partial<
+  Pick<Extract<SceneDefinition['layers'][number], { kind: 'text' }>, 'text' | 'fontSize' | 'color' | 'opacity'>
+>
+
 interface PersistedPlayoutSnapshot {
   previewTemplateId: string
   programTemplateId: ProgramTemplateId
+  previewScene: SceneDefinition
+  programScene: SceneDefinition
   transitionType: TransitionType
   transitionDurationMs: number
   story: StoryState
@@ -35,6 +42,10 @@ interface PlayoutStore {
   story: StoryState
   onAir: boolean
   updatedAt: number
+  undoStack: SceneDefinition[]
+  redoStack: SceneDefinition[]
+  canUndo: boolean
+  canRedo: boolean
   cuePreview: (templateId: string) => void
   take: () => void
   clearProgram: () => void
@@ -46,18 +57,14 @@ interface PlayoutStore {
   togglePossession: () => void
   nudgeClock: (deltaSeconds: number) => void
   reorderPreviewLayer: (layerId: string, direction: 'forward' | 'backward') => void
-  updatePreviewLayerTransform: (
-    layerId: string,
-    patch: Partial<Pick<SceneDefinition['layers'][number], 'x' | 'y' | 'width' | 'height'>>,
-  ) => void
-  updatePreviewShapeStyle: (
-    layerId: string,
-    patch: Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'shape' }>, 'fill' | 'opacity'>>,
-  ) => void
-  updatePreviewTextStyle: (
-    layerId: string,
-    patch: Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'text' }>, 'text' | 'fontSize' | 'color' | 'opacity'>>,
-  ) => void
+  reorderPreviewLayerToIndex: (layerId: string, targetIndex: number) => void
+  updatePreviewLayerTransform: (layerId: string, patch: SceneTransformPatch) => void
+  updatePreviewShapeStyle: (layerId: string, patch: ShapeStylePatch) => void
+  updatePreviewTextStyle: (layerId: string, patch: TextStylePatch) => void
+  undoPreviewScene: () => void
+  redoPreviewScene: () => void
+  savePreviewTemplate: (name: string) => string | null
+  deleteTemplate: (templateId: string) => void
   resetDemo: () => void
 }
 
@@ -70,12 +77,122 @@ function cloneStory(story: StoryState): StoryState {
   }
 }
 
-function getTemplateById(templateId: string): TemplateDefinition | undefined {
-  return TEMPLATE_LIBRARY.find((template) => template.id === templateId)
+function cloneTemplate(template: TemplateDefinition): TemplateDefinition {
+  return {
+    ...template,
+    scene: cloneScene(template.scene),
+  }
 }
 
-function resolveSceneForTemplate(templateId: string): SceneDefinition {
-  const template = getTemplateById(templateId)
+function createTemplateId(): string {
+  return `template-custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function createSceneId(): string {
+  return `scene-custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function sceneFromUnknown(value: unknown): SceneDefinition | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  try {
+    return cloneScene(value as SceneDefinition)
+  } catch {
+    return null
+  }
+}
+
+function normalizeTemplateFromStorage(rawTemplate: unknown): TemplateDefinition | null {
+  if (!rawTemplate || typeof rawTemplate !== 'object') {
+    return null
+  }
+
+  const record = rawTemplate as Record<string, unknown>
+  const id = typeof record.id === 'string' && record.id.length > 0 ? record.id : null
+  const label = typeof record.label === 'string' && record.label.trim().length > 0 ? record.label.trim() : null
+  const scene = sceneFromUnknown(record.scene)
+
+  if (!id || !label || !scene) {
+    return null
+  }
+
+  const updatedAtRaw = Number(record.updatedAt)
+
+  return {
+    id,
+    label,
+    scene,
+    favorite: Boolean(record.favorite),
+    builtIn: false,
+    updatedAt: Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : Date.now(),
+  }
+}
+
+function readPersistedTemplates(): TemplateDefinition[] {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem(TEMPLATE_STORAGE_KEY)
+    if (!raw) {
+      return []
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map((entry) => normalizeTemplateFromStorage(entry))
+      .filter((entry): entry is TemplateDefinition => entry !== null)
+  } catch {
+    return []
+  }
+}
+
+function buildTemplateCatalog(): TemplateDefinition[] {
+  const builtInTemplates = TEMPLATE_LIBRARY.map((template, index) => ({
+    ...cloneTemplate(template),
+    builtIn: true,
+    updatedAt: template.updatedAt ?? Date.now() - (TEMPLATE_LIBRARY.length - index) * 1_000,
+  }))
+
+  const builtInIds = new Set(builtInTemplates.map((template) => template.id))
+  const customTemplates = readPersistedTemplates().filter((template) => !builtInIds.has(template.id))
+
+  return [...builtInTemplates, ...customTemplates]
+}
+
+function persistCustomTemplates(templates: TemplateDefinition[]) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const customTemplates = templates
+    .filter((template) => !template.builtIn)
+    .map((template) => ({
+      ...cloneTemplate(template),
+      builtIn: false,
+      updatedAt: template.updatedAt ?? Date.now(),
+    }))
+
+  try {
+    window.localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplates))
+  } catch {
+    // Ignore storage failures and continue with in-memory templates.
+  }
+}
+
+function findTemplateById(templates: TemplateDefinition[], templateId: string): TemplateDefinition | undefined {
+  return templates.find((template) => template.id === templateId)
+}
+
+function resolveSceneForTemplate(templates: TemplateDefinition[], templateId: string): SceneDefinition {
+  const template = findTemplateById(templates, templateId)
   return template ? cloneScene(template.scene) : cloneScene(CLEAR_SCENE)
 }
 
@@ -90,9 +207,23 @@ function moveLayerByDelta(scene: SceneDefinition, layerId: string, delta: -1 | 1
     return scene
   }
 
+  return moveLayerToIndex(scene, layerId, targetIndex)
+}
+
+function moveLayerToIndex(scene: SceneDefinition, layerId: string, targetIndex: number): SceneDefinition {
+  const sourceIndex = scene.layers.findIndex((layer) => layer.id === layerId)
+  if (sourceIndex === -1) {
+    return scene
+  }
+
+  const boundedTargetIndex = Math.min(Math.max(Math.round(targetIndex), 0), scene.layers.length - 1)
+  if (sourceIndex === boundedTargetIndex) {
+    return scene
+  }
+
   const nextLayers = [...scene.layers]
   const [movedLayer] = nextLayers.splice(sourceIndex, 1)
-  nextLayers.splice(targetIndex, 0, movedLayer)
+  nextLayers.splice(boundedTargetIndex, 0, movedLayer)
 
   return {
     ...scene,
@@ -118,16 +249,38 @@ function secondsToClock(totalSeconds: number): string {
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
-function normalizeSnapshot(rawSnapshot: Partial<PersistedPlayoutSnapshot> | null): PersistedPlayoutSnapshot {
-  const previewTemplateId = getTemplateById(rawSnapshot?.previewTemplateId ?? '')
-    ? (rawSnapshot?.previewTemplateId ?? DEFAULT_PREVIEW_TEMPLATE_ID)
-    : DEFAULT_PREVIEW_TEMPLATE_ID
+function scenesEqual(a: SceneDefinition, b: SceneDefinition): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
 
-  const incomingProgramTemplateId = rawSnapshot?.programTemplateId ?? DEFAULT_PROGRAM_TEMPLATE_ID
+function pushHistoryFrame(stack: SceneDefinition[], scene: SceneDefinition): SceneDefinition[] {
+  const nextStack = [...stack, cloneScene(scene)]
+  if (nextStack.length <= MAX_UNDO_DEPTH) {
+    return nextStack
+  }
+
+  return nextStack.slice(nextStack.length - MAX_UNDO_DEPTH)
+}
+
+function normalizeSnapshot(
+  rawSnapshot: Partial<PersistedPlayoutSnapshot> | null,
+  templates: TemplateDefinition[],
+  defaultTemplateId: string,
+): PersistedPlayoutSnapshot {
+  const previewTemplateId = findTemplateById(templates, rawSnapshot?.previewTemplateId ?? '')
+    ? (rawSnapshot?.previewTemplateId ?? defaultTemplateId)
+    : defaultTemplateId
+
+  const incomingProgramTemplateId = rawSnapshot?.programTemplateId ?? defaultTemplateId
   const programTemplateId =
-    incomingProgramTemplateId === CLEAR_TEMPLATE_ID || getTemplateById(incomingProgramTemplateId)
+    incomingProgramTemplateId === CLEAR_TEMPLATE_ID || findTemplateById(templates, incomingProgramTemplateId)
       ? incomingProgramTemplateId
-      : DEFAULT_PROGRAM_TEMPLATE_ID
+      : defaultTemplateId
+
+  const previewScene = sceneFromUnknown(rawSnapshot?.previewScene) ?? resolveSceneForTemplate(templates, previewTemplateId)
+  const fallbackProgramScene =
+    programTemplateId === CLEAR_TEMPLATE_ID ? cloneScene(CLEAR_SCENE) : resolveSceneForTemplate(templates, programTemplateId)
+  const programScene = sceneFromUnknown(rawSnapshot?.programScene) ?? fallbackProgramScene
 
   const transitionType =
     rawSnapshot?.transitionType === 'fade' || rawSnapshot?.transitionType === 'lumaWipe'
@@ -153,6 +306,8 @@ function normalizeSnapshot(rawSnapshot: Partial<PersistedPlayoutSnapshot> | null
   return {
     previewTemplateId,
     programTemplateId,
+    previewScene,
+    programScene,
     transitionType,
     transitionDurationMs,
     story,
@@ -165,6 +320,8 @@ function toSnapshot(state: PlayoutStore): PersistedPlayoutSnapshot {
   return {
     previewTemplateId: state.previewTemplateId,
     programTemplateId: state.programTemplateId,
+    previewScene: cloneScene(state.previewScene),
+    programScene: cloneScene(state.programScene),
     transitionType: state.transitionType,
     transitionDurationMs: state.transitionDurationMs,
     story: cloneStory(state.story),
@@ -173,7 +330,7 @@ function toSnapshot(state: PlayoutStore): PersistedPlayoutSnapshot {
   }
 }
 
-function readStoredSnapshot(): PersistedPlayoutSnapshot | null {
+function readStoredSnapshot(): Partial<PersistedPlayoutSnapshot> | null {
   if (typeof window === 'undefined') {
     return null
   }
@@ -184,133 +341,164 @@ function readStoredSnapshot(): PersistedPlayoutSnapshot | null {
       return null
     }
 
-    const parsed = JSON.parse(raw) as Partial<PersistedPlayoutSnapshot>
-    return normalizeSnapshot(parsed)
+    return JSON.parse(raw) as Partial<PersistedPlayoutSnapshot>
   } catch {
     return null
   }
 }
 
-const hydratedSnapshot = normalizeSnapshot(readStoredSnapshot())
+const initialTemplates = buildTemplateCatalog()
+const defaultTemplateId = initialTemplates[0]?.id ?? ''
+const hydratedSnapshot = normalizeSnapshot(readStoredSnapshot(), initialTemplates, defaultTemplateId)
 const initialProgramScene =
   hydratedSnapshot.programTemplateId === CLEAR_TEMPLATE_ID
     ? cloneScene(CLEAR_SCENE)
-    : resolveSceneForTemplate(hydratedSnapshot.programTemplateId)
+    : cloneScene(hydratedSnapshot.programScene)
 
-export const usePlayoutStore = create<PlayoutStore>((set) => ({
-  templates: TEMPLATE_LIBRARY,
-  previewTemplateId: hydratedSnapshot.previewTemplateId,
-  programTemplateId: hydratedSnapshot.programTemplateId,
-  previewScene: resolveSceneForTemplate(hydratedSnapshot.previewTemplateId),
-  programScene: initialProgramScene,
-  transitionType: hydratedSnapshot.transitionType,
-  transitionDurationMs: hydratedSnapshot.transitionDurationMs,
-  story: cloneStory(hydratedSnapshot.story),
-  onAir: hydratedSnapshot.onAir,
-  updatedAt: hydratedSnapshot.updatedAt,
-  cuePreview: (templateId) => {
-    if (!getTemplateById(templateId)) {
-      return
-    }
-
-    set(() => ({
-      previewTemplateId: templateId,
-      previewScene: resolveSceneForTemplate(templateId),
-      updatedAt: Date.now(),
-    }))
-  },
-  take: () => {
-    set((state) => ({
-      programTemplateId: state.previewTemplateId,
-      programScene: resolveSceneForTemplate(state.previewTemplateId),
-      onAir: true,
-      updatedAt: Date.now(),
-    }))
-  },
-  clearProgram: () => {
-    set(() => ({
-      programTemplateId: CLEAR_TEMPLATE_ID,
-      programScene: cloneScene(CLEAR_SCENE),
-      onAir: false,
-      updatedAt: Date.now(),
-    }))
-  },
-  setTransition: (transitionType) => {
-    set(() => ({
-      transitionType,
-      updatedAt: Date.now(),
-    }))
-  },
-  setTransitionDuration: (durationMs) => {
-    set(() => ({
-      transitionDurationMs: Math.min(Math.max(Math.round(durationMs), 0), 1500),
-      updatedAt: Date.now(),
-    }))
-  },
-  adjustScore: (team, delta) => {
+export const usePlayoutStore = create<PlayoutStore>((set, get) => {
+  const commitPreviewScene = (producer: (scene: SceneDefinition) => SceneDefinition) => {
     set((state) => {
-      const key = team === 'home' ? 'homeScore' : 'awayScore'
-      const nextValue = Math.max(0, state.story[key] + delta)
+      const nextScene = producer(state.previewScene)
+      if (scenesEqual(nextScene, state.previewScene)) {
+        return {}
+      }
+
+      const undoStack = pushHistoryFrame(state.undoStack, state.previewScene)
 
       return {
-        story: {
-          ...state.story,
-          [key]: nextValue,
-        },
+        previewScene: cloneScene(nextScene),
+        undoStack,
+        redoStack: [],
+        canUndo: undoStack.length > 0,
+        canRedo: false,
         updatedAt: Date.now(),
       }
     })
-  },
-  setClock: (clock) => {
-    set((state) => ({
-      story: {
-        ...state.story,
-        clock,
-      },
-      updatedAt: Date.now(),
-    }))
-  },
-  resetClock: () => {
-    set((state) => ({
-      story: {
-        ...state.story,
-        clock: DEFAULT_STORY_STATE.clock,
-      },
-      updatedAt: Date.now(),
-    }))
-  },
-  togglePossession: () => {
-    set((state) => ({
-      story: {
-        ...state.story,
-        possession: state.story.possession === 'home' ? 'away' : 'home',
-      },
-      updatedAt: Date.now(),
-    }))
-  },
-  nudgeClock: (deltaSeconds) => {
-    set((state) => {
-      const nextSeconds = parseClockToSeconds(state.story.clock) + deltaSeconds
-      return {
+  }
+
+  return {
+    templates: initialTemplates,
+    previewTemplateId: hydratedSnapshot.previewTemplateId,
+    programTemplateId: hydratedSnapshot.programTemplateId,
+    previewScene: cloneScene(hydratedSnapshot.previewScene),
+    programScene: initialProgramScene,
+    transitionType: hydratedSnapshot.transitionType,
+    transitionDurationMs: hydratedSnapshot.transitionDurationMs,
+    story: cloneStory(hydratedSnapshot.story),
+    onAir: hydratedSnapshot.onAir,
+    updatedAt: hydratedSnapshot.updatedAt,
+    undoStack: [],
+    redoStack: [],
+    canUndo: false,
+    canRedo: false,
+    cuePreview: (templateId) => {
+      set((state) => {
+        if (!findTemplateById(state.templates, templateId)) {
+          return {}
+        }
+
+        return {
+          previewTemplateId: templateId,
+          previewScene: resolveSceneForTemplate(state.templates, templateId),
+          undoStack: [],
+          redoStack: [],
+          canUndo: false,
+          canRedo: false,
+          updatedAt: Date.now(),
+        }
+      })
+    },
+    take: () => {
+      set((state) => ({
+        programTemplateId: state.previewTemplateId,
+        programScene: cloneScene(state.previewScene),
+        onAir: true,
+        updatedAt: Date.now(),
+      }))
+    },
+    clearProgram: () => {
+      set(() => ({
+        programTemplateId: CLEAR_TEMPLATE_ID,
+        programScene: cloneScene(CLEAR_SCENE),
+        onAir: false,
+        updatedAt: Date.now(),
+      }))
+    },
+    setTransition: (transitionType) => {
+      set(() => ({
+        transitionType,
+        updatedAt: Date.now(),
+      }))
+    },
+    setTransitionDuration: (durationMs) => {
+      set(() => ({
+        transitionDurationMs: Math.min(Math.max(Math.round(durationMs), 0), 1500),
+        updatedAt: Date.now(),
+      }))
+    },
+    adjustScore: (team, delta) => {
+      set((state) => {
+        const key = team === 'home' ? 'homeScore' : 'awayScore'
+        const nextValue = Math.max(0, state.story[key] + delta)
+
+        return {
+          story: {
+            ...state.story,
+            [key]: nextValue,
+          },
+          updatedAt: Date.now(),
+        }
+      })
+    },
+    setClock: (clock) => {
+      set((state) => ({
         story: {
           ...state.story,
-          clock: secondsToClock(nextSeconds),
+          clock,
         },
         updatedAt: Date.now(),
-      }
-    })
-  },
-  reorderPreviewLayer: (layerId, direction) => {
-    set((state) => ({
-      previewScene: moveLayerByDelta(state.previewScene, layerId, direction === 'forward' ? 1 : -1),
-      updatedAt: Date.now(),
-    }))
-  },
-  updatePreviewLayerTransform: (layerId, patch) => {
-    set((state) => ({
-      previewScene: {
-        ...state.previewScene,
-        layers: state.previewScene.layers.map((layer) => {
+      }))
+    },
+    resetClock: () => {
+      set((state) => ({
+        story: {
+          ...state.story,
+          clock: DEFAULT_STORY_STATE.clock,
+        },
+        updatedAt: Date.now(),
+      }))
+    },
+    togglePossession: () => {
+      set((state) => ({
+        story: {
+          ...state.story,
+          possession: state.story.possession === 'home' ? 'away' : 'home',
+        },
+        updatedAt: Date.now(),
+      }))
+    },
+    nudgeClock: (deltaSeconds) => {
+      set((state) => {
+        const nextSeconds = parseClockToSeconds(state.story.clock) + deltaSeconds
+        return {
+          story: {
+            ...state.story,
+            clock: secondsToClock(nextSeconds),
+          },
+          updatedAt: Date.now(),
+        }
+      })
+    },
+    reorderPreviewLayer: (layerId, direction) => {
+      commitPreviewScene((scene) => moveLayerByDelta(scene, layerId, direction === 'forward' ? 1 : -1))
+    },
+    reorderPreviewLayerToIndex: (layerId, targetIndex) => {
+      commitPreviewScene((scene) => moveLayerToIndex(scene, layerId, targetIndex))
+    },
+    updatePreviewLayerTransform: (layerId, patch) => {
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => {
           if (layer.id !== layerId) {
             return layer
           }
@@ -323,15 +511,12 @@ export const usePlayoutStore = create<PlayoutStore>((set) => ({
             height: Number.isFinite(patch.height) ? Math.round(Math.max(1, patch.height ?? layer.height)) : layer.height,
           }
         }),
-      },
-      updatedAt: Date.now(),
-    }))
-  },
-  updatePreviewShapeStyle: (layerId, patch) => {
-    set((state) => ({
-      previewScene: {
-        ...state.previewScene,
-        layers: state.previewScene.layers.map((layer) => {
+      }))
+    },
+    updatePreviewShapeStyle: (layerId, patch) => {
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => {
           if (layer.id !== layerId || layer.kind !== 'shape') {
             return layer
           }
@@ -346,15 +531,12 @@ export const usePlayoutStore = create<PlayoutStore>((set) => ({
             opacity: nextOpacity,
           }
         }),
-      },
-      updatedAt: Date.now(),
-    }))
-  },
-  updatePreviewTextStyle: (layerId, patch) => {
-    set((state) => ({
-      previewScene: {
-        ...state.previewScene,
-        layers: state.previewScene.layers.map((layer) => {
+      }))
+    },
+    updatePreviewTextStyle: (layerId, patch) => {
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => {
           if (layer.id !== layerId || layer.kind !== 'text') {
             return layer
           }
@@ -374,32 +556,175 @@ export const usePlayoutStore = create<PlayoutStore>((set) => ({
             opacity: nextOpacity,
           }
         }),
-      },
-      updatedAt: Date.now(),
-    }))
-  },
-  resetDemo: () => {
-    set(() => ({
-      previewTemplateId: DEFAULT_PREVIEW_TEMPLATE_ID,
-      programTemplateId: DEFAULT_PROGRAM_TEMPLATE_ID,
-      previewScene: resolveSceneForTemplate(DEFAULT_PREVIEW_TEMPLATE_ID),
-      programScene: resolveSceneForTemplate(DEFAULT_PROGRAM_TEMPLATE_ID),
-      transitionType: 'cut',
-      transitionDurationMs: 300,
-      story: cloneStory(DEFAULT_STORY_STATE),
-      onAir: false,
-      updatedAt: Date.now(),
-    }))
-  },
-}))
+      }))
+    },
+    undoPreviewScene: () => {
+      set((state) => {
+        if (state.undoStack.length === 0) {
+          return {}
+        }
+
+        const previousScene = state.undoStack[state.undoStack.length - 1]
+        const nextUndoStack = state.undoStack.slice(0, -1)
+        const nextRedoStack = pushHistoryFrame(state.redoStack, state.previewScene)
+
+        return {
+          previewScene: cloneScene(previousScene),
+          undoStack: nextUndoStack,
+          redoStack: nextRedoStack,
+          canUndo: nextUndoStack.length > 0,
+          canRedo: nextRedoStack.length > 0,
+          updatedAt: Date.now(),
+        }
+      })
+    },
+    redoPreviewScene: () => {
+      set((state) => {
+        if (state.redoStack.length === 0) {
+          return {}
+        }
+
+        const nextScene = state.redoStack[state.redoStack.length - 1]
+        const nextRedoStack = state.redoStack.slice(0, -1)
+        const nextUndoStack = pushHistoryFrame(state.undoStack, state.previewScene)
+
+        return {
+          previewScene: cloneScene(nextScene),
+          undoStack: nextUndoStack,
+          redoStack: nextRedoStack,
+          canUndo: nextUndoStack.length > 0,
+          canRedo: nextRedoStack.length > 0,
+          updatedAt: Date.now(),
+        }
+      })
+    },
+    savePreviewTemplate: (name) => {
+      const trimmedName = name.trim()
+      if (!trimmedName) {
+        return null
+      }
+
+      const state = get()
+      const activeTemplate = findTemplateById(state.templates, state.previewTemplateId)
+      const shouldOverwrite = Boolean(activeTemplate && !activeTemplate.builtIn)
+      const templateId = shouldOverwrite && activeTemplate ? activeTemplate.id : createTemplateId()
+      const sceneId = shouldOverwrite && activeTemplate ? activeTemplate.scene.id : createSceneId()
+      const now = Date.now()
+
+      const savedScene = cloneScene({
+        ...state.previewScene,
+        id: sceneId,
+        name: trimmedName,
+      })
+
+      const savedTemplate: TemplateDefinition = {
+        id: templateId,
+        label: trimmedName,
+        scene: savedScene,
+        favorite: activeTemplate?.favorite ?? false,
+        builtIn: false,
+        updatedAt: now,
+      }
+
+      set((currentState) => {
+        const nextTemplates = [...currentState.templates.filter((template) => template.id !== templateId), savedTemplate]
+
+        return {
+          templates: nextTemplates,
+          previewTemplateId: templateId,
+          previewScene: cloneScene(savedScene),
+          undoStack: [],
+          redoStack: [],
+          canUndo: false,
+          canRedo: false,
+          updatedAt: now,
+        }
+      })
+
+      persistCustomTemplates(get().templates)
+      return templateId
+    },
+    deleteTemplate: (templateId) => {
+      const currentTemplate = findTemplateById(get().templates, templateId)
+      if (!currentTemplate || currentTemplate.builtIn) {
+        return
+      }
+
+      set((state) => {
+        const nextTemplates = state.templates.filter((template) => template.id !== templateId)
+        const fallbackTemplateId = nextTemplates[0]?.id ?? ''
+
+        const nextPreviewTemplateId =
+          state.previewTemplateId === templateId
+            ? fallbackTemplateId
+            : (findTemplateById(nextTemplates, state.previewTemplateId)?.id ?? fallbackTemplateId)
+
+        const nextProgramTemplateId =
+          state.programTemplateId === CLEAR_TEMPLATE_ID
+            ? CLEAR_TEMPLATE_ID
+            : state.programTemplateId === templateId
+              ? fallbackTemplateId
+              : (findTemplateById(nextTemplates, state.programTemplateId)?.id ?? fallbackTemplateId)
+
+        const nextPreviewScene = nextPreviewTemplateId
+          ? resolveSceneForTemplate(nextTemplates, nextPreviewTemplateId)
+          : cloneScene(CLEAR_SCENE)
+
+        const nextProgramScene =
+          nextProgramTemplateId === CLEAR_TEMPLATE_ID || !nextProgramTemplateId
+            ? cloneScene(CLEAR_SCENE)
+            : resolveSceneForTemplate(nextTemplates, nextProgramTemplateId)
+
+        return {
+          templates: nextTemplates,
+          previewTemplateId: nextPreviewTemplateId,
+          programTemplateId: nextProgramTemplateId || CLEAR_TEMPLATE_ID,
+          previewScene: nextPreviewScene,
+          programScene: nextProgramScene,
+          undoStack: [],
+          redoStack: [],
+          canUndo: false,
+          canRedo: false,
+          onAir: nextProgramTemplateId !== CLEAR_TEMPLATE_ID && state.onAir,
+          updatedAt: Date.now(),
+        }
+      })
+
+      persistCustomTemplates(get().templates)
+    },
+    resetDemo: () => {
+      set((state) => {
+        const primaryTemplateId = state.templates[0]?.id ?? ''
+
+        return {
+          previewTemplateId: primaryTemplateId,
+          programTemplateId: primaryTemplateId,
+          previewScene: primaryTemplateId ? resolveSceneForTemplate(state.templates, primaryTemplateId) : cloneScene(CLEAR_SCENE),
+          programScene: primaryTemplateId ? resolveSceneForTemplate(state.templates, primaryTemplateId) : cloneScene(CLEAR_SCENE),
+          transitionType: 'cut',
+          transitionDurationMs: 300,
+          story: cloneStory(DEFAULT_STORY_STATE),
+          onAir: false,
+          undoStack: [],
+          redoStack: [],
+          canUndo: false,
+          canRedo: false,
+          updatedAt: Date.now(),
+        }
+      })
+    },
+  }
+})
 
 if (typeof window !== 'undefined') {
   const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(CHANNEL_KEY) : null
   let isApplyingExternalSnapshot = false
 
-  const applyExternalSnapshot = (incomingSnapshot: PersistedPlayoutSnapshot) => {
-    const normalized = normalizeSnapshot(incomingSnapshot)
-    if (normalized.updatedAt <= usePlayoutStore.getState().updatedAt) {
+  const applyExternalSnapshot = (incomingSnapshot: Partial<PersistedPlayoutSnapshot>) => {
+    const state = usePlayoutStore.getState()
+    const defaultId = state.templates[0]?.id ?? ''
+    const normalized = normalizeSnapshot(incomingSnapshot, state.templates, defaultId)
+    if (normalized.updatedAt <= state.updatedAt) {
       return
     }
 
@@ -407,11 +732,11 @@ if (typeof window !== 'undefined') {
     usePlayoutStore.setState({
       previewTemplateId: normalized.previewTemplateId,
       programTemplateId: normalized.programTemplateId,
-      previewScene: resolveSceneForTemplate(normalized.previewTemplateId),
+      previewScene: cloneScene(normalized.previewScene),
       programScene:
         normalized.programTemplateId === CLEAR_TEMPLATE_ID
           ? cloneScene(CLEAR_SCENE)
-          : resolveSceneForTemplate(normalized.programTemplateId),
+          : cloneScene(normalized.programScene),
       transitionType: normalized.transitionType,
       transitionDurationMs: normalized.transitionDurationMs,
       story: cloneStory(normalized.story),
@@ -449,7 +774,7 @@ if (typeof window !== 'undefined') {
       | {
           type?: string
           source?: string
-          snapshot?: PersistedPlayoutSnapshot
+          snapshot?: Partial<PersistedPlayoutSnapshot>
         }
       | undefined
 
@@ -465,15 +790,44 @@ if (typeof window !== 'undefined') {
   })
 
   window.addEventListener('storage', (event) => {
-    if (event.key !== STORAGE_KEY || !event.newValue) {
-      return
+    if (event.key === STORAGE_KEY && event.newValue) {
+      try {
+        const snapshot = JSON.parse(event.newValue) as Partial<PersistedPlayoutSnapshot>
+        applyExternalSnapshot(snapshot)
+      } catch {
+        // Ignore malformed cross-tab payloads.
+      }
     }
 
-    try {
-      const snapshot = JSON.parse(event.newValue) as PersistedPlayoutSnapshot
-      applyExternalSnapshot(snapshot)
-    } catch {
-      // Ignore malformed cross-tab payloads.
+    if (event.key === TEMPLATE_STORAGE_KEY) {
+      const nextTemplates = buildTemplateCatalog()
+
+      usePlayoutStore.setState((state) => {
+        const fallbackTemplateId = nextTemplates[0]?.id ?? ''
+        const previewTemplateId =
+          findTemplateById(nextTemplates, state.previewTemplateId)?.id ?? fallbackTemplateId
+
+        const programTemplateId =
+          state.programTemplateId === CLEAR_TEMPLATE_ID
+            ? CLEAR_TEMPLATE_ID
+            : (findTemplateById(nextTemplates, state.programTemplateId)?.id ?? fallbackTemplateId)
+
+        return {
+          templates: nextTemplates,
+          previewTemplateId,
+          programTemplateId,
+          previewScene:
+            previewTemplateId && previewTemplateId !== state.previewTemplateId
+              ? resolveSceneForTemplate(nextTemplates, previewTemplateId)
+              : state.previewScene,
+          programScene:
+            programTemplateId === CLEAR_TEMPLATE_ID
+              ? cloneScene(CLEAR_SCENE)
+              : programTemplateId && programTemplateId !== state.programTemplateId
+                ? resolveSceneForTemplate(nextTemplates, programTemplateId)
+                : state.programScene,
+        }
+      })
     }
   })
 }

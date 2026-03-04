@@ -1,10 +1,37 @@
-import { Folder, FolderOpen, Puzzle } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Folder, FolderOpen, Puzzle, Trash2 } from 'lucide-react'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const MODES = ['Branded Assets', 'Fonts', 'Templates']
 
+function formatTemplateDate(updatedAt?: number): string {
+  if (!updatedAt || !Number.isFinite(updatedAt)) {
+    return '03/04/2026'
+  }
+
+  return new Date(updatedAt).toLocaleDateString('en-US', {
+    month: '2-digit',
+    day: '2-digit',
+    year: 'numeric',
+  })
+}
+
 export function DashboardPage() {
   const templates = usePlayoutStore((state) => state.templates)
+  const cuePreview = usePlayoutStore((state) => state.cuePreview)
+  const deleteTemplate = usePlayoutStore((state) => state.deleteTemplate)
+  const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
+
+  const [query, setQuery] = useState('')
+
+  const filteredTemplates = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!normalizedQuery) {
+      return templates
+    }
+
+    return templates.filter((template) => template.label.toLowerCase().includes(normalizedQuery))
+  }, [query, templates])
 
   return (
     <section className="screen screen--dashboard">
@@ -40,17 +67,22 @@ export function DashboardPage() {
           </div>
           <div className="tree-row">
             <Folder size={14} />
-            <span>Testing</span>
+            <span>Built-In</span>
           </div>
           <div className="tree-row">
             <Folder size={14} />
-            <span>_old</span>
+            <span>Custom</span>
           </div>
         </div>
 
         <div className="panel panel--table">
           <div className="table-toolbar">
-            <input type="text" value="" placeholder="Search templates" readOnly />
+            <input
+              type="text"
+              value={query}
+              placeholder="Search templates"
+              onChange={(event) => setQuery(event.target.value)}
+            />
             <button type="button" className="btn btn--ghost">
               Import SVG
             </button>
@@ -63,17 +95,35 @@ export function DashboardPage() {
                 <th>Type</th>
                 <th>Dimensions</th>
                 <th>Modified</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {templates.map((template) => (
-                <tr key={template.id}>
+              {filteredTemplates.map((template) => (
+                <tr key={template.id} className={previewTemplateId === template.id ? 'template-row--active' : ''}>
                   <td>{template.label}</td>
-                  <td>Template</td>
+                  <td>{template.builtIn ? 'Template (Built-In)' : 'Template (Custom)'}</td>
                   <td>
                     {template.scene.width}x{template.scene.height}
                   </td>
-                  <td>03/04/2026</td>
+                  <td>{formatTemplateDate(template.updatedAt)}</td>
+                  <td>
+                    <div className="table-actions">
+                      <button type="button" className="btn btn--small btn--ghost" onClick={() => cuePreview(template.id)}>
+                        Load
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--small btn--ghost"
+                        onClick={() => deleteTemplate(template.id)}
+                        disabled={template.builtIn}
+                        title={template.builtIn ? 'Built-in templates cannot be deleted' : 'Delete custom template'}
+                      >
+                        <Trash2 size={13} />
+                        Delete
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -87,7 +137,7 @@ export function DashboardPage() {
           </p>
           <div className="protocol-item">
             <Puzzle size={16} />
-            <span>One package contract per template</span>
+            <span>Custom template saves persist across refreshes</span>
           </div>
         </aside>
       </div>

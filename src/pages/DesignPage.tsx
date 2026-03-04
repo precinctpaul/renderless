@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Move3D, Redo2, Undo2, Upload } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
 import type { SceneLayer } from '../types/scene'
@@ -31,12 +31,23 @@ function layerPositionInfo(layer: SceneLayer, layers: SceneLayer[]) {
 export function DesignPage() {
   const scene = usePlayoutStore((state) => state.previewScene)
   const story = usePlayoutStore((state) => state.story)
+  const templates = usePlayoutStore((state) => state.templates)
+  const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
   const reorderPreviewLayer = usePlayoutStore((state) => state.reorderPreviewLayer)
+  const reorderPreviewLayerToIndex = usePlayoutStore((state) => state.reorderPreviewLayerToIndex)
   const updatePreviewLayerTransform = usePlayoutStore((state) => state.updatePreviewLayerTransform)
   const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
   const updatePreviewTextStyle = usePlayoutStore((state) => state.updatePreviewTextStyle)
+  const undoPreviewScene = usePlayoutStore((state) => state.undoPreviewScene)
+  const redoPreviewScene = usePlayoutStore((state) => state.redoPreviewScene)
+  const canUndo = usePlayoutStore((state) => state.canUndo)
+  const canRedo = usePlayoutStore((state) => state.canRedo)
+  const savePreviewTemplate = usePlayoutStore((state) => state.savePreviewTemplate)
 
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
+  const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null)
+  const [dragTargetLayerId, setDragTargetLayerId] = useState<string | null>(null)
+  const [saveStatus, setSaveStatus] = useState<string>('')
 
   const orderedLayers = useMemo(() => [...scene.layers].reverse(), [scene.layers])
   const activeSelectedLayerId =
@@ -44,6 +55,29 @@ export function DesignPage() {
       ? selectedLayerId
       : (orderedLayers[0]?.id ?? '')
   const selectedLayer = scene.layers.find((layer) => layer.id === activeSelectedLayerId) ?? null
+  const activeTemplate = templates.find((template) => template.id === previewTemplateId) ?? null
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const activeTag = (document.activeElement as HTMLElement | null)?.tagName
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
+        return
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) {
+          redoPreviewScene()
+          return
+        }
+
+        undoPreviewScene()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [redoPreviewScene, undoPreviewScene])
 
   const commitTransformField = (field: 'x' | 'y' | 'width' | 'height', value: string) => {
     if (!selectedLayer) {
@@ -56,6 +90,37 @@ export function DesignPage() {
     }
 
     updatePreviewLayerTransform(selectedLayer.id, { [field]: numericValue })
+  }
+
+  const handleSaveTemplate = () => {
+    const defaultName = activeTemplate?.label ?? scene.name
+    const requestedName = window.prompt('Save template as', defaultName)
+    if (!requestedName) {
+      return
+    }
+
+    const savedTemplateId = savePreviewTemplate(requestedName)
+    if (!savedTemplateId) {
+      setSaveStatus('Template name is required.')
+      return
+    }
+
+    setSaveStatus(`Saved ${requestedName.trim()}.`)
+    window.setTimeout(() => setSaveStatus(''), 1800)
+  }
+
+  const handleDropOnLayer = (targetLayerId: string) => {
+    if (!draggingLayerId || draggingLayerId === targetLayerId) {
+      return
+    }
+
+    const targetListIndex = orderedLayers.findIndex((layer) => layer.id === targetLayerId)
+    if (targetListIndex < 0) {
+      return
+    }
+
+    const targetSceneIndex = scene.layers.length - 1 - targetListIndex
+    reorderPreviewLayerToIndex(draggingLayerId, targetSceneIndex)
   }
 
   return (
@@ -77,10 +142,10 @@ export function DesignPage() {
           </div>
 
           <div className="icon-row">
-            <button type="button" className="icon-btn" aria-label="Undo">
+            <button type="button" className="icon-btn" aria-label="Undo" disabled={!canUndo} onClick={undoPreviewScene}>
               <Undo2 size={15} />
             </button>
-            <button type="button" className="icon-btn" aria-label="Redo">
+            <button type="button" className="icon-btn" aria-label="Redo" disabled={!canRedo} onClick={redoPreviewScene}>
               <Redo2 size={15} />
             </button>
           </div>
@@ -105,9 +170,36 @@ export function DesignPage() {
           <div className="layer-list" role="listbox" aria-label="Layer stack">
             {orderedLayers.map((layer) => {
               const { canMoveForward, canMoveBackward } = layerPositionInfo(layer, scene.layers)
+              const isDragging = draggingLayerId === layer.id
+              const isDropTarget = dragTargetLayerId === layer.id && draggingLayerId !== layer.id
 
               return (
-                <div key={layer.id} className={`layer-item ${activeSelectedLayerId === layer.id ? 'layer-item--active' : ''}`.trim()}>
+                <div
+                  key={layer.id}
+                  className={`layer-item ${activeSelectedLayerId === layer.id ? 'layer-item--active' : ''} ${isDragging ? 'layer-item--dragging' : ''} ${isDropTarget ? 'layer-item--drop-target' : ''}`.trim()}
+                  draggable
+                  onDragStart={(event) => {
+                    setDraggingLayerId(layer.id)
+                    setDragTargetLayerId(layer.id)
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', layer.id)
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = 'move'
+                    setDragTargetLayerId(layer.id)
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    handleDropOnLayer(layer.id)
+                    setDraggingLayerId(null)
+                    setDragTargetLayerId(null)
+                  }}
+                  onDragEnd={() => {
+                    setDraggingLayerId(null)
+                    setDragTargetLayerId(null)
+                  }}
+                >
                   <button type="button" className="layer-item__main" onClick={() => setSelectedLayerId(layer.id)}>
                     <span>{layer.name}</span>
                     <Move3D size={14} />
@@ -153,7 +245,8 @@ export function DesignPage() {
           <div className="stage-toolbar stage-toolbar--top">
             <span className="mono">CANVAS {scene.width} x {scene.height}</span>
             <div className="stage-toolbar__actions">
-              <button type="button" className="btn btn--small btn--accent">
+              <span className="mono stage-toolbar__template-name">{activeTemplate?.label ?? scene.name}</span>
+              <button type="button" className="btn btn--small btn--accent" onClick={handleSaveTemplate}>
                 Save Template
               </button>
               <button type="button" className="btn btn--small btn--ghost">
@@ -176,6 +269,7 @@ export function DesignPage() {
               Snap
             </button>
             <span className="mono">1920x1080 VIRTUAL SPACE</span>
+            {saveStatus ? <span className="mono stage-toolbar__save-status">{saveStatus}</span> : null}
           </div>
 
           <div className="stage-canvas-wrap">
