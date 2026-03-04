@@ -33,6 +33,12 @@ interface PersistedPlayoutSnapshot {
   updatedAt: number
 }
 
+declare global {
+  interface Window {
+    __renderlessSyncCleanup?: () => void
+  }
+}
+
 interface PlayoutStore {
   templates: TemplateDefinition[]
   previewTemplateId: string
@@ -957,6 +963,8 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 })
 
 if (typeof window !== 'undefined') {
+  window.__renderlessSyncCleanup?.()
+
   const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(CHANNEL_KEY) : null
   let isApplyingExternalSnapshot = false
 
@@ -990,14 +998,10 @@ if (typeof window !== 'undefined') {
     isApplyingExternalSnapshot = false
   }
 
-  let lastPublishedUpdatedAt = usePlayoutStore.getState().updatedAt
-
-  usePlayoutStore.subscribe((state) => {
-    if (isApplyingExternalSnapshot || state.updatedAt === lastPublishedUpdatedAt) {
+  const unsubscribe = usePlayoutStore.subscribe((state) => {
+    if (isApplyingExternalSnapshot) {
       return
     }
-
-    lastPublishedUpdatedAt = state.updatedAt
     const snapshot = toSnapshot(state)
 
     try {
@@ -1013,7 +1017,7 @@ if (typeof window !== 'undefined') {
     })
   })
 
-  channel?.addEventListener('message', (event) => {
+  const onChannelMessage = (event: MessageEvent) => {
     const payload = event.data as
       | {
           type?: string
@@ -1031,9 +1035,9 @@ if (typeof window !== 'undefined') {
     }
 
     applyExternalSnapshot(payload.snapshot)
-  })
+  }
 
-  window.addEventListener('storage', (event) => {
+  const onStorage = (event: StorageEvent) => {
     if (event.key === STORAGE_KEY && event.newValue) {
       try {
         const snapshot = JSON.parse(event.newValue) as Partial<PersistedPlayoutSnapshot>
@@ -1073,5 +1077,32 @@ if (typeof window !== 'undefined') {
         }
       })
     }
-  })
+  }
+
+  const recoveryPollHandle = window.setInterval(() => {
+    try {
+      const rawSnapshot = window.localStorage.getItem(STORAGE_KEY)
+      if (!rawSnapshot) {
+        return
+      }
+
+      const parsedSnapshot = JSON.parse(rawSnapshot) as Partial<PersistedPlayoutSnapshot>
+      applyExternalSnapshot(parsedSnapshot)
+    } catch {
+      // Ignore malformed snapshots during periodic recovery checks.
+    }
+  }, 1000)
+
+  channel?.addEventListener('message', onChannelMessage)
+  window.addEventListener('storage', onStorage)
+
+  window.__renderlessSyncCleanup = () => {
+    unsubscribe()
+    window.removeEventListener('storage', onStorage)
+    window.clearInterval(recoveryPollHandle)
+    if (channel) {
+      channel.removeEventListener('message', onChannelMessage)
+      channel.close()
+    }
+  }
 }
