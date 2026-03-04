@@ -110,4 +110,38 @@ describe('Playout reliability and QA regression suite', () => {
 
     expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x).toBe(160)
   })
+
+  test('binding metadata is persisted on template save and in version history', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().updatePreviewTextBinding('text-home-score', 'period')
+    const customTemplateId = usePlayoutStore.getState().savePreviewTemplate('Binding QA Template')
+    expect(customTemplateId).toBeTruthy()
+
+    const savedTemplate = usePlayoutStore.getState().templates.find((template) => template.id === customTemplateId)
+    expect(savedTemplate?.bindings?.includes('period')).toBe(true)
+    expect(savedTemplate?.bindings?.includes('awayScore')).toBe(true)
+
+    usePlayoutStore.getState().updatePreviewTextBinding('text-home-score', 'homeFouls')
+    usePlayoutStore.getState().savePreviewTemplate('Binding QA Template')
+
+    const overwrittenTemplate = usePlayoutStore.getState().templates.find((template) => template.id === customTemplateId)
+    expect(overwrittenTemplate?.version).toBe(2)
+    expect(overwrittenTemplate?.bindings?.includes('homeFouls')).toBe(true)
+    expect(overwrittenTemplate?.versions?.some((entry) => entry.bindings.includes('period'))).toBe(true)
+  })
+
+  test('typed story overrides update non-score schema fields', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().setStoryValue('period', 2)
+    usePlayoutStore.getState().setStoryValue('shotClock', 18)
+    usePlayoutStore.getState().setStoryValue('headline', 'Fast break points')
+
+    const { story } = usePlayoutStore.getState()
+    expect(story.period).toBe(2)
+    expect(story.shotClock).toBe(18)
+    expect(story.headline).toBe('Fast break points')
+  })
 })

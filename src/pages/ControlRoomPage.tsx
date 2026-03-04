@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Copy, Keyboard, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { buildOutputUrl } from '../lib/outputUrls'
+import { STORY_FIELD_DEFS } from '../data/storySchema'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
 
 const TRANSITIONS: Array<{ id: TransitionType; label: string }> = [
@@ -17,6 +18,25 @@ async function copyToClipboard(value: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+function toBoundedInteger(rawValue: string, fallback: number, min?: number, max?: number): number {
+  const numericValue = Number(rawValue)
+  if (!Number.isFinite(numericValue)) {
+    return fallback
+  }
+
+  let nextValue = Math.floor(numericValue)
+
+  if (Number.isFinite(min)) {
+    nextValue = Math.max(nextValue, min ?? nextValue)
+  }
+
+  if (Number.isFinite(max)) {
+    nextValue = Math.min(nextValue, max ?? nextValue)
+  }
+
+  return nextValue
 }
 
 export function ControlRoomPage() {
@@ -36,17 +56,22 @@ export function ControlRoomPage() {
   const setTransition = usePlayoutStore((state) => state.setTransition)
   const setTransitionDuration = usePlayoutStore((state) => state.setTransitionDuration)
   const adjustScore = usePlayoutStore((state) => state.adjustScore)
-  const setClock = usePlayoutStore((state) => state.setClock)
+  const setStoryValue = usePlayoutStore((state) => state.setStoryValue)
   const resetClock = usePlayoutStore((state) => state.resetClock)
   const togglePossession = usePlayoutStore((state) => state.togglePossession)
   const nudgeClock = usePlayoutStore((state) => state.nudgeClock)
 
   const [copyLabel, setCopyLabel] = useState<string>('')
 
+  const typedOverrideFields = useMemo(
+    () => STORY_FIELD_DEFS.filter((field) => !field.quickControl),
+    [],
+  )
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const activeTag = (document.activeElement as HTMLElement | null)?.tagName
-      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') {
         return
       }
 
@@ -186,7 +211,7 @@ export function ControlRoomPage() {
 
         <aside className="panel story-panel">
           <div className="panel-title">STORY CONTROL</div>
-          <p className="panel-subtitle">High-frequency controls for score, clock, and possession.</p>
+          <p className="panel-subtitle">Typed overrides routed through data binding schema.</p>
 
           <div className="score-control">
             <div>
@@ -221,7 +246,7 @@ export function ControlRoomPage() {
             <input
               className="mono"
               value={story.clock}
-              onChange={(event) => setClock(event.target.value)}
+              onChange={(event) => setStoryValue('clock', event.target.value)}
               placeholder="MM:SS"
             />
           </label>
@@ -242,6 +267,67 @@ export function ControlRoomPage() {
             <button type="button" className="btn btn--ghost" onClick={togglePossession}>
               Possession: {story.possession === 'home' ? 'HOME' : 'AWAY'}
             </button>
+          </div>
+
+          <div className="inspector-section story-binding-panel">
+            <div className="inspector-section__label">Data Engine Overrides</div>
+            <div className="override-grid">
+              {typedOverrideFields.map((field) => {
+                const key = field.key
+                const value = story[key]
+
+                if (field.kind === 'number') {
+                  return (
+                    <label key={field.key} className="field-label">
+                      {field.label}
+                      <input
+                        className="mono"
+                        type="number"
+                        min={field.min}
+                        max={field.max}
+                        step={field.step ?? 1}
+                        value={Number(value)}
+                        onChange={(event) =>
+                          setStoryValue(
+                            key,
+                            toBoundedInteger(event.target.value, Number(value), field.min, field.max),
+                          )
+                        }
+                      />
+                    </label>
+                  )
+                }
+
+                if (field.kind === 'enum') {
+                  return (
+                    <label key={field.key} className="field-label">
+                      {field.label}
+                      <select
+                        className="mono"
+                        value={String(value)}
+                        onChange={(event) => setStoryValue(key, event.target.value as typeof value)}
+                      >
+                        {(field.options ?? []).map((option) => (
+                          <option key={String(option.value)} value={String(option.value)}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )
+                }
+
+                return (
+                  <label key={field.key} className="field-label">
+                    {field.label}
+                    <input
+                      value={String(value)}
+                      onChange={(event) => setStoryValue(key, event.target.value as typeof value)}
+                    />
+                  </label>
+                )
+              })}
+            </div>
           </div>
         </aside>
       </div>

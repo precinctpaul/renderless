@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlignCenter, AlignHorizontalDistributeCenter, AlignJustify, AlignVerticalDistributeCenter, ArrowDown, ArrowUp, Move3D, Redo2, Undo2, Upload } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
-import type { SceneLayer } from '../types/scene'
+import type { DataBindingKey, SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
+import { BINDABLE_FIELDS } from '../data/storySchema'
+import { resolveBindingValue } from '../lib/bindings'
 
 const CREATION_ITEMS = ['TEXT', 'SHAPE', 'FIGMA', 'RIVE']
 
@@ -55,6 +57,7 @@ export function DesignPage() {
   const updatePreviewLayersTransform = usePlayoutStore((state) => state.updatePreviewLayersTransform)
   const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
   const updatePreviewTextStyle = usePlayoutStore((state) => state.updatePreviewTextStyle)
+  const updatePreviewTextBinding = usePlayoutStore((state) => state.updatePreviewTextBinding)
   const alignPreviewLayers = usePlayoutStore((state) => state.alignPreviewLayers)
   const distributePreviewLayers = usePlayoutStore((state) => state.distributePreviewLayers)
   const undoPreviewScene = usePlayoutStore((state) => state.undoPreviewScene)
@@ -216,6 +219,10 @@ export function DesignPage() {
   }
 
   const versionHistory = activeTemplate?.versions ?? []
+  const bindingPreviewValue =
+    primarySelectedLayer && primarySelectedLayer.kind === 'text' && primarySelectedLayer.binding
+      ? resolveBindingValue(primarySelectedLayer.binding, story)
+      : ''
 
   return (
     <section className="screen screen--design">
@@ -545,6 +552,31 @@ export function DesignPage() {
                   </>
                 ) : primarySelectedLayer ? (
                   <>
+                    <label>
+                      Binding
+                      <select
+                        className="mono"
+                        value={primarySelectedLayer.binding ?? ''}
+                        onChange={(event) =>
+                          updatePreviewTextBinding(
+                            primarySelectedLayer.id,
+                            event.target.value ? (event.target.value as DataBindingKey) : null,
+                          )
+                        }
+                      >
+                        <option value="">None</option>
+                        {BINDABLE_FIELDS.map((field) => (
+                          <option key={field.key} value={field.key}>
+                            {field.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {primarySelectedLayer.binding ? (
+                      <div className="binding-preview mono">
+                        TOKEN: {primarySelectedLayer.binding} = {bindingPreviewValue || 'n/a'}
+                      </div>
+                    ) : null}
                     <label>
                       Text
                       <input

@@ -732,6 +732,15 @@ select:focus {
   color: var(--zinc-300);
 }
 
+.binding-preview {
+  border: 1px solid #274169;
+  border-radius: 8px;
+  background: #0b1a2e;
+  color: #bfdbfe;
+  font-size: 11px;
+  padding: 6px 8px;
+}
+
 .inspector-empty {
   margin-top: 8px;
   font-size: 13px;
@@ -867,6 +876,16 @@ select:focus {
 
 .story-panel {
   gap: 10px;
+}
+
+.story-binding-panel {
+  margin-top: 4px;
+}
+
+.override-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
 
 .score-control {

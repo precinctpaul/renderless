@@ -94,6 +94,7 @@ export function DashboardPage() {
                 <th>Name</th>
                 <th>Type</th>
                 <th>Version</th>
+                <th>Bindings</th>
                 <th>Dimensions</th>
                 <th>Modified</th>
                 <th>Actions</th>
@@ -105,6 +106,7 @@ export function DashboardPage() {
                   <td>{template.label}</td>
                   <td>{template.builtIn ? 'Template (Built-In)' : 'Template (Custom)'}</td>
                   <td className="mono">v{template.version ?? 1}</td>
+                  <td className="mono">{template.bindings?.length ?? 0}</td>
                   <td>
                     {template.scene.width}x{template.scene.height}
                   </td>

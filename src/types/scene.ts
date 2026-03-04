@@ -1,10 +1,24 @@
-export type DataBindingKey = 'homeScore' | 'awayScore' | 'clock' | 'possession'
+export type DataBindingKey =
+  | 'homeScore'
+  | 'awayScore'
+  | 'clock'
+  | 'possession'
+  | 'period'
+  | 'shotClock'
+  | 'homeFouls'
+  | 'awayFouls'
+  | 'headline'
 
 export interface StoryState {
   homeScore: number
   awayScore: number
   clock: string
   possession: 'home' | 'away'
+  period: number
+  shotClock: number
+  homeFouls: number
+  awayFouls: number
+  headline: string
 }
 
 export interface BaseLayer {
@@ -51,6 +65,7 @@ export interface TemplateVersion {
   version: number
   scene: SceneDefinition
   label: string
+  bindings: DataBindingKey[]
   updatedAt: number
 }
 
@@ -58,6 +73,7 @@ export interface TemplateDefinition {
   id: string
   label: string
   scene: SceneDefinition
+  bindings?: DataBindingKey[]
   favorite?: boolean
   builtIn?: boolean
   version?: number

@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import { useMemo } from 'react'
 import { useElementSize } from '../hooks/useElementSize'
 import type { SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
+import { resolveBindingValue } from '../lib/bindings'
 
 interface SceneRendererProps {
   scene: SceneDefinition
@@ -26,19 +27,7 @@ function resolveText(layer: TextLayer, story: StoryState): string {
   if (!layer.binding) {
     return layer.text
   }
-
-  switch (layer.binding) {
-    case 'homeScore':
-      return String(story.homeScore)
-    case 'awayScore':
-      return String(story.awayScore)
-    case 'clock':
-      return story.clock
-    case 'possession':
-      return story.possession === 'home' ? 'HOME' : 'AWAY'
-    default:
-      return layer.text
-  }
+  return resolveBindingValue(layer.binding, story) || layer.text
 }
 
 function layerStyle(layer: SceneLayer): CSSProperties {

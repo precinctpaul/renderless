@@ -1,11 +1,7 @@
 import type { SceneDefinition, StoryState, TemplateDefinition } from '../types/scene'
+import { STORY_DEFAULTS } from './storySchema'
 
-export const DEFAULT_STORY_STATE: StoryState = {
-  homeScore: 875,
-  awayScore: 827,
-  clock: '11:16',
-  possession: 'home',
-}
+export const DEFAULT_STORY_STATE: StoryState = STORY_DEFAULTS
 
 const scoreBugScene: SceneDefinition = {
   id: 'scene-scorebug',
@@ -168,6 +164,7 @@ const lowerThirdScene: SceneDefinition = {
       width: 900,
       height: 56,
       text: 'Defensive rebound',
+      binding: 'headline',
       color: '#9ca3af',
       fontSize: 38,
       fontFamily: 'Inter, sans-serif',

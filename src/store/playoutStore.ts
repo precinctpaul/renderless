@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
-import type { SceneDefinition, StoryState, TemplateDefinition, TemplateVersion } from '../types/scene'
+import type { DataBindingKey, SceneDefinition, StoryState, TemplateDefinition, TemplateVersion } from '../types/scene'
+import { extractBindingKeys, isDataBindingKey } from '../lib/bindings'
 
 const STORAGE_KEY = 'renderless.playout.snapshot.v1'
 const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
@@ -59,6 +60,8 @@ interface PlayoutStore {
   clearProgram: () => void
   setTransition: (transitionType: TransitionType) => void
   setTransitionDuration: (durationMs: number) => void
+  setStoryValue: <K extends DataBindingKey>(key: K, value: StoryState[K]) => void
+  setStoryValues: (patch: Partial<StoryState>) => void
   adjustScore: (team: 'home' | 'away', delta: number) => void
   setClock: (clock: string) => void
   resetClock: () => void
@@ -72,6 +75,7 @@ interface PlayoutStore {
   updatePreviewLayerTransform: (layerId: string, patch: SceneTransformPatch) => void
   updatePreviewShapeStyle: (layerId: string, patch: ShapeStylePatch) => void
   updatePreviewTextStyle: (layerId: string, patch: TextStylePatch) => void
+  updatePreviewTextBinding: (layerId: string, binding: DataBindingKey | null) => void
   undoPreviewScene: () => void
   redoPreviewScene: () => void
   savePreviewTemplate: (name: string) => string | null
@@ -82,10 +86,8 @@ interface PlayoutStore {
 
 function cloneStory(story: StoryState): StoryState {
   return {
-    homeScore: story.homeScore,
-    awayScore: story.awayScore,
-    clock: story.clock,
-    possession: story.possession,
+    ...DEFAULT_STORY_STATE,
+    ...story,
   }
 }
 
@@ -163,6 +165,9 @@ function normalizeTemplateFromStorage(rawTemplate: unknown): TemplateDefinition 
           const updatedAtEntryRaw = Number(versionRecord.updatedAt)
           const updatedAtEntry =
             Number.isFinite(updatedAtEntryRaw) && updatedAtEntryRaw > 0 ? Math.floor(updatedAtEntryRaw) : Date.now()
+          const bindingsEntry = Array.isArray(versionRecord.bindings)
+            ? versionRecord.bindings.filter((binding): binding is DataBindingKey => isDataBindingKey(binding))
+            : extractBindingKeys(sceneEntry ?? scene)
 
           if (!sceneEntry || versionNumber === null) {
             return null
@@ -172,6 +177,7 @@ function normalizeTemplateFromStorage(rawTemplate: unknown): TemplateDefinition 
             version: versionNumber,
             scene: sceneEntry,
             label: labelEntry,
+            bindings: bindingsEntry,
             updatedAt: updatedAtEntry,
           } satisfies TemplateVersion
         })
@@ -182,6 +188,9 @@ function normalizeTemplateFromStorage(rawTemplate: unknown): TemplateDefinition 
     id,
     label,
     scene,
+    bindings: Array.isArray(record.bindings)
+      ? record.bindings.filter((binding): binding is DataBindingKey => isDataBindingKey(binding))
+      : extractBindingKeys(scene),
     favorite: Boolean(record.favorite),
     builtIn: false,
     version,
@@ -217,6 +226,7 @@ function readPersistedTemplates(): TemplateDefinition[] {
 function buildTemplateCatalog(): TemplateDefinition[] {
   const builtInTemplates = TEMPLATE_LIBRARY.map((template, index) => ({
     ...cloneTemplate(template),
+    bindings: template.bindings ?? extractBindingKeys(template.scene),
     builtIn: true,
     version: template.version ?? 1,
     versions: template.versions ?? [],
@@ -238,6 +248,7 @@ function persistCustomTemplates(templates: TemplateDefinition[]) {
     .filter((template) => !template.builtIn)
     .map((template) => ({
       ...cloneTemplate(template),
+      bindings: template.bindings ?? extractBindingKeys(template.scene),
       builtIn: false,
       updatedAt: template.updatedAt ?? Date.now(),
     }))
@@ -458,10 +469,26 @@ function normalizeSnapshot(
 
   const storyRaw = rawSnapshot?.story
   const story: StoryState = {
-    homeScore: Number.isFinite(Number(storyRaw?.homeScore)) ? Number(storyRaw?.homeScore) : DEFAULT_STORY_STATE.homeScore,
-    awayScore: Number.isFinite(Number(storyRaw?.awayScore)) ? Number(storyRaw?.awayScore) : DEFAULT_STORY_STATE.awayScore,
+    homeScore: Number.isFinite(Number(storyRaw?.homeScore)) ? Math.max(0, Number(storyRaw?.homeScore)) : DEFAULT_STORY_STATE.homeScore,
+    awayScore: Number.isFinite(Number(storyRaw?.awayScore)) ? Math.max(0, Number(storyRaw?.awayScore)) : DEFAULT_STORY_STATE.awayScore,
     clock: typeof storyRaw?.clock === 'string' && storyRaw.clock.length > 0 ? storyRaw.clock : DEFAULT_STORY_STATE.clock,
     possession: storyRaw?.possession === 'away' ? 'away' : 'home',
+    period: Number.isFinite(Number(storyRaw?.period))
+      ? Math.max(1, Math.floor(Number(storyRaw?.period)))
+      : DEFAULT_STORY_STATE.period,
+    shotClock: Number.isFinite(Number(storyRaw?.shotClock))
+      ? Math.max(0, Math.floor(Number(storyRaw?.shotClock)))
+      : DEFAULT_STORY_STATE.shotClock,
+    homeFouls: Number.isFinite(Number(storyRaw?.homeFouls))
+      ? Math.max(0, Math.floor(Number(storyRaw?.homeFouls)))
+      : DEFAULT_STORY_STATE.homeFouls,
+    awayFouls: Number.isFinite(Number(storyRaw?.awayFouls))
+      ? Math.max(0, Math.floor(Number(storyRaw?.awayFouls)))
+      : DEFAULT_STORY_STATE.awayFouls,
+    headline:
+      typeof storyRaw?.headline === 'string' && storyRaw.headline.trim().length > 0
+        ? storyRaw.headline
+        : DEFAULT_STORY_STATE.headline,
   }
 
   const updatedAtRaw = Number(rawSnapshot?.updatedAt)
@@ -597,6 +624,24 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     setTransitionDuration: (durationMs) => {
       set(() => ({
         transitionDurationMs: Math.min(Math.max(Math.round(durationMs), 0), 1500),
+        updatedAt: Date.now(),
+      }))
+    },
+    setStoryValue: (key, value) => {
+      set((state) => ({
+        story: {
+          ...state.story,
+          [key]: value,
+        },
+        updatedAt: Date.now(),
+      }))
+    },
+    setStoryValues: (patch) => {
+      set((state) => ({
+        story: {
+          ...state.story,
+          ...patch,
+        },
         updatedAt: Date.now(),
       }))
     },
@@ -737,6 +782,21 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }),
       }))
     },
+    updatePreviewTextBinding: (layerId, binding) => {
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => {
+          if (layer.id !== layerId || layer.kind !== 'text') {
+            return layer
+          }
+
+          return {
+            ...layer,
+            binding: binding ?? undefined,
+          }
+        }),
+      }))
+    },
     undoPreviewScene: () => {
       set((state) => {
         if (state.undoStack.length === 0) {
@@ -797,6 +857,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               version: activeTemplate.version ?? 1,
               scene: cloneScene(activeTemplate.scene),
               label: activeTemplate.label,
+              bindings: activeTemplate.bindings ?? extractBindingKeys(activeTemplate.scene),
               updatedAt: activeTemplate.updatedAt ?? now,
             }
           : null
@@ -811,6 +872,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         id: templateId,
         label: trimmedName,
         scene: savedScene,
+        bindings: extractBindingKeys(savedScene),
         favorite: activeTemplate?.favorite ?? false,
         builtIn: false,
         version: nextVersion,
@@ -857,6 +919,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         version: currentVersion,
         scene: fallbackVersionScene,
         label: template.label,
+        bindings: template.bindings ?? extractBindingKeys(template.scene),
         updatedAt: template.updatedAt ?? now,
       }
 
@@ -866,6 +929,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           ...targetVersion.scene,
           id: template.scene.id,
         }),
+        bindings: targetVersion.bindings ?? extractBindingKeys(targetVersion.scene),
         builtIn: false,
         version: nextVersion,
         versions: clampVersionHistory([...(template.versions ?? []), snapshotOfCurrentVersion]),
