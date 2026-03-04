@@ -8,7 +8,9 @@ import type {
 import { extractBindingKeys, isDataBindingKey } from './bindings'
 
 export const TEMPLATE_PACKAGE_KIND = 'renderless.template-package'
-export const TEMPLATE_PACKAGE_VERSION = 1
+export const TEMPLATE_PACKAGE_VERSION = 2
+export const TEMPLATE_PACKAGE_CHECKSUM_ALGORITHM = 'fnv1a-32'
+export const TEMPLATE_PACKAGE_SIGNATURE_ALGORITHM = 'fnv1a-32-hmac-lite'
 
 interface TemplatePackageMetadata {
   templateId: string
@@ -31,9 +33,21 @@ interface TemplatePackageVersionEntry {
   scenegraph: SceneDefinition
 }
 
+interface TemplatePackageIntegrity {
+  checksum: {
+    algorithm: typeof TEMPLATE_PACKAGE_CHECKSUM_ALGORITHM
+    value: string
+  }
+  signature?: {
+    algorithm: typeof TEMPLATE_PACKAGE_SIGNATURE_ALGORITHM
+    keyId: string
+    value: string
+  }
+}
+
 export interface TemplatePackageV1 {
   kind: typeof TEMPLATE_PACKAGE_KIND
-  contractVersion: typeof TEMPLATE_PACKAGE_VERSION
+  contractVersion: 1
   exportedAt: number
   metadata: TemplatePackageMetadata
   bindings: DataBindingKey[]
@@ -41,9 +55,41 @@ export interface TemplatePackageV1 {
   history: TemplatePackageVersionEntry[]
 }
 
+export interface TemplatePackageV2 {
+  kind: typeof TEMPLATE_PACKAGE_KIND
+  contractVersion: typeof TEMPLATE_PACKAGE_VERSION
+  exportedAt: number
+  metadata: TemplatePackageMetadata
+  bindings: DataBindingKey[]
+  scenegraph: SceneDefinition
+  history: TemplatePackageVersionEntry[]
+  integrity: TemplatePackageIntegrity
+}
+
+export type TemplatePackage = TemplatePackageV2
+
+export interface TemplatePackageSigningConfig {
+  keyId: string
+  secret: string
+}
+
+interface TemplatePackageParseOptions {
+  signingSecret?: string
+  verifySignature?: boolean
+}
+
+interface TemplatePackageMigrateResult {
+  ok: true
+  value: TemplatePackageV2
+  migrated: boolean
+  migrationTrail: string[]
+}
+
 type TemplatePackageParseResult =
-  | { ok: true; value: TemplatePackageV1 }
+  | TemplatePackageMigrateResult
   | { ok: false; error: string }
+
+type UnsignedTemplatePackage = Omit<TemplatePackageV2, 'integrity'>
 
 function cloneValue<T>(value: T): T {
   if (typeof structuredClone === 'function') {
@@ -51,6 +97,40 @@ function cloneValue<T>(value: T): T {
   }
 
   return JSON.parse(JSON.stringify(value)) as T
+}
+
+function stableValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => stableValue(entry))
+  }
+
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return Object.keys(record)
+      .sort()
+      .reduce<Record<string, unknown>>((accumulator, key) => {
+        accumulator[key] = stableValue(record[key])
+        return accumulator
+      }, {})
+  }
+
+  return value
+}
+
+function canonicalizeUnsignedPackage(value: UnsignedTemplatePackage): string {
+  return JSON.stringify(stableValue(value))
+}
+
+function hashFnv1a32(value: string): string {
+  let hash = 0x811c9dc5
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+    hash >>>= 0
+  }
+
+  return hash.toString(16).padStart(8, '0')
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -239,7 +319,72 @@ function parseVersionEntry(rawVersion: unknown): TemplatePackageVersionEntry | n
   }
 }
 
-function createPackageFromTemplateRecord(record: Record<string, unknown>): TemplatePackageV1 | null {
+function asSigningConfig(config: TemplatePackageSigningConfig | null | undefined): TemplatePackageSigningConfig | null {
+  const keyId = asNonEmptyString(config?.keyId)
+  const secret = asNonEmptyString(config?.secret)
+
+  if (!keyId || !secret) {
+    return null
+  }
+
+  return {
+    keyId,
+    secret,
+  }
+}
+
+function signChecksum(
+  checksum: string,
+  signingConfig: TemplatePackageSigningConfig,
+): NonNullable<TemplatePackageIntegrity['signature']> {
+  const signatureInput = `${signingConfig.keyId}:${signingConfig.secret}:${checksum}`
+
+  return {
+    algorithm: TEMPLATE_PACKAGE_SIGNATURE_ALGORITHM,
+    keyId: signingConfig.keyId,
+    value: hashFnv1a32(signatureInput),
+  }
+}
+
+function attachIntegrity(
+  unsignedPackage: UnsignedTemplatePackage,
+  signingConfig?: TemplatePackageSigningConfig | null,
+): TemplatePackageV2 {
+  const canonicalPayload = canonicalizeUnsignedPackage(unsignedPackage)
+  const checksum = hashFnv1a32(canonicalPayload)
+  const normalizedSigningConfig = asSigningConfig(signingConfig)
+
+  return {
+    ...unsignedPackage,
+    integrity: {
+      checksum: {
+        algorithm: TEMPLATE_PACKAGE_CHECKSUM_ALGORITHM,
+        value: checksum,
+      },
+      ...(normalizedSigningConfig ? { signature: signChecksum(checksum, normalizedSigningConfig) } : {}),
+    },
+  }
+}
+
+function unsignedPackageFromTemplatePackageV1(templatePackage: TemplatePackageV1): UnsignedTemplatePackage {
+  return {
+    kind: TEMPLATE_PACKAGE_KIND,
+    contractVersion: TEMPLATE_PACKAGE_VERSION,
+    exportedAt: templatePackage.exportedAt,
+    metadata: cloneValue(templatePackage.metadata),
+    bindings: [...templatePackage.bindings],
+    scenegraph: cloneValue(templatePackage.scenegraph),
+    history: templatePackage.history.map((entry) => ({
+      version: entry.version,
+      label: entry.label,
+      updatedAt: entry.updatedAt,
+      bindings: [...entry.bindings],
+      scenegraph: cloneValue(entry.scenegraph),
+    })),
+  }
+}
+
+function parseLegacyTemplateRecord(record: Record<string, unknown>): TemplatePackageV1 | null {
   const id = asNonEmptyString(record.id)
   const label = asNonEmptyString(record.label)
   const scenegraph = parseScene(record.scene)
@@ -273,7 +418,7 @@ function createPackageFromTemplateRecord(record: Record<string, unknown>): Templ
 
   return {
     kind: TEMPLATE_PACKAGE_KIND,
-    contractVersion: TEMPLATE_PACKAGE_VERSION,
+    contractVersion: 1,
     exportedAt: Date.now(),
     metadata: {
       templateId: id,
@@ -293,7 +438,193 @@ function createPackageFromTemplateRecord(record: Record<string, unknown>): Templ
   }
 }
 
-export function buildTemplatePackage(template: TemplateDefinition): TemplatePackageV1 {
+function parseTemplatePackageV1(record: Record<string, unknown>): TemplatePackageV1 | null {
+  if (record.kind !== TEMPLATE_PACKAGE_KIND || asPositiveInteger(record.contractVersion, 0) !== 1) {
+    return null
+  }
+
+  const metadataRecord = asRecord(record.metadata)
+  if (!metadataRecord) {
+    return null
+  }
+
+  const scenegraph = parseScene(record.scenegraph)
+  if (!scenegraph) {
+    return null
+  }
+
+  const templateId = asNonEmptyString(metadataRecord.templateId)
+  const label = asNonEmptyString(metadataRecord.label)
+  const sceneId = asNonEmptyString(metadataRecord.sceneId)
+  const sceneName = asNonEmptyString(metadataRecord.sceneName)
+  const sizeRecord = asRecord(metadataRecord.size)
+  const sizeWidth = asFiniteNumber(sizeRecord?.width)
+  const sizeHeight = asFiniteNumber(sizeRecord?.height)
+
+  if (!templateId || !label || !sceneId || !sceneName || sizeWidth === null || sizeHeight === null) {
+    return null
+  }
+
+  const templateVersion = asPositiveInteger(metadataRecord.templateVersion, 1)
+  const updatedAt = asPositiveInteger(metadataRecord.updatedAt, Date.now())
+  const exportedAt = asPositiveInteger(record.exportedAt, Date.now())
+  const bindings = normalizeBindings(record.bindings, scenegraph)
+  const history = Array.isArray(record.history)
+    ? record.history
+        .map((entry) => parseVersionEntry(entry))
+        .filter((entry): entry is TemplatePackageVersionEntry => entry !== null)
+    : []
+
+  return {
+    kind: TEMPLATE_PACKAGE_KIND,
+    contractVersion: 1,
+    exportedAt,
+    metadata: {
+      templateId,
+      label,
+      sceneId,
+      sceneName,
+      size: {
+        width: Math.round(Math.max(1, sizeWidth)),
+        height: Math.round(Math.max(1, sizeHeight)),
+      },
+      templateVersion,
+      updatedAt,
+    },
+    bindings,
+    scenegraph: cloneValue(scenegraph),
+    history,
+  }
+}
+
+function parseTemplatePackageV2(record: Record<string, unknown>): TemplatePackageV2 | null {
+  if (record.kind !== TEMPLATE_PACKAGE_KIND || asPositiveInteger(record.contractVersion, 0) !== TEMPLATE_PACKAGE_VERSION) {
+    return null
+  }
+
+  const metadataRecord = asRecord(record.metadata)
+  const integrityRecord = asRecord(record.integrity)
+  if (!metadataRecord || !integrityRecord) {
+    return null
+  }
+
+  const scenegraph = parseScene(record.scenegraph)
+  if (!scenegraph) {
+    return null
+  }
+
+  const templateId = asNonEmptyString(metadataRecord.templateId)
+  const label = asNonEmptyString(metadataRecord.label)
+  const sceneId = asNonEmptyString(metadataRecord.sceneId)
+  const sceneName = asNonEmptyString(metadataRecord.sceneName)
+  const sizeRecord = asRecord(metadataRecord.size)
+  const sizeWidth = asFiniteNumber(sizeRecord?.width)
+  const sizeHeight = asFiniteNumber(sizeRecord?.height)
+  const checksumRecord = asRecord(integrityRecord.checksum)
+  const checksumAlgorithm = asNonEmptyString(checksumRecord?.algorithm)
+  const checksumValue = asNonEmptyString(checksumRecord?.value)
+  const signatureRecord = asRecord(integrityRecord.signature)
+
+  if (
+    !templateId ||
+    !label ||
+    !sceneId ||
+    !sceneName ||
+    sizeWidth === null ||
+    sizeHeight === null ||
+    checksumAlgorithm !== TEMPLATE_PACKAGE_CHECKSUM_ALGORITHM ||
+    !checksumValue
+  ) {
+    return null
+  }
+
+  const signature: TemplatePackageIntegrity['signature'] =
+    signatureRecord && asNonEmptyString(signatureRecord.algorithm) === TEMPLATE_PACKAGE_SIGNATURE_ALGORITHM
+      ? {
+          algorithm: TEMPLATE_PACKAGE_SIGNATURE_ALGORITHM,
+          keyId: asNonEmptyString(signatureRecord.keyId) ?? '',
+          value: asNonEmptyString(signatureRecord.value) ?? '',
+        }
+      : undefined
+
+  const normalizedSignature = signature && signature.keyId.length > 0 && signature.value.length > 0 ? signature : undefined
+
+  return {
+    kind: TEMPLATE_PACKAGE_KIND,
+    contractVersion: TEMPLATE_PACKAGE_VERSION,
+    exportedAt: asPositiveInteger(record.exportedAt, Date.now()),
+    metadata: {
+      templateId,
+      label,
+      sceneId,
+      sceneName,
+      size: {
+        width: Math.round(Math.max(1, sizeWidth)),
+        height: Math.round(Math.max(1, sizeHeight)),
+      },
+      templateVersion: asPositiveInteger(metadataRecord.templateVersion, 1),
+      updatedAt: asPositiveInteger(metadataRecord.updatedAt, Date.now()),
+    },
+    bindings: normalizeBindings(record.bindings, scenegraph),
+    scenegraph: cloneValue(scenegraph),
+    history: Array.isArray(record.history)
+      ? record.history
+          .map((entry) => parseVersionEntry(entry))
+          .filter((entry): entry is TemplatePackageVersionEntry => entry !== null)
+      : [],
+    integrity: {
+      checksum: {
+        algorithm: TEMPLATE_PACKAGE_CHECKSUM_ALGORITHM,
+        value: checksumValue,
+      },
+      ...(normalizedSignature ? { signature: normalizedSignature } : {}),
+    },
+  }
+}
+
+function verifyChecksum(templatePackage: TemplatePackageV2): boolean {
+  const unsignedPackage: UnsignedTemplatePackage = {
+    kind: templatePackage.kind,
+    contractVersion: templatePackage.contractVersion,
+    exportedAt: templatePackage.exportedAt,
+    metadata: cloneValue(templatePackage.metadata),
+    bindings: [...templatePackage.bindings],
+    scenegraph: cloneValue(templatePackage.scenegraph),
+    history: templatePackage.history.map((entry) => ({
+      version: entry.version,
+      label: entry.label,
+      updatedAt: entry.updatedAt,
+      bindings: [...entry.bindings],
+      scenegraph: cloneValue(entry.scenegraph),
+    })),
+  }
+
+  const expectedChecksum = hashFnv1a32(canonicalizeUnsignedPackage(unsignedPackage))
+  return expectedChecksum === templatePackage.integrity.checksum.value
+}
+
+function verifySignature(templatePackage: TemplatePackageV2, signingSecret: string): boolean {
+  const signature = templatePackage.integrity.signature
+  if (!signature) {
+    return false
+  }
+
+  const expectedSignature = signChecksum(templatePackage.integrity.checksum.value, {
+    keyId: signature.keyId,
+    secret: signingSecret,
+  })
+
+  return expectedSignature.value === signature.value
+}
+
+function migrateV1Package(templatePackageV1: TemplatePackageV1): TemplatePackageV2 {
+  return attachIntegrity(unsignedPackageFromTemplatePackageV1(templatePackageV1))
+}
+
+export function buildTemplatePackage(
+  template: TemplateDefinition,
+  signingConfig?: TemplatePackageSigningConfig | null,
+): TemplatePackageV2 {
   const scenegraph = cloneValue(template.scene)
   const history = (template.versions ?? []).map((entry) => ({
     version: asPositiveInteger(entry.version, 1),
@@ -305,7 +636,7 @@ export function buildTemplatePackage(template: TemplateDefinition): TemplatePack
   const templateVersion = asPositiveInteger(template.version, 1)
   const updatedAt = asPositiveInteger(template.updatedAt, Date.now())
 
-  return {
+  const unsignedPackage: UnsignedTemplatePackage = {
     kind: TEMPLATE_PACKAGE_KIND,
     contractVersion: TEMPLATE_PACKAGE_VERSION,
     exportedAt: Date.now(),
@@ -325,85 +656,109 @@ export function buildTemplatePackage(template: TemplateDefinition): TemplatePack
     scenegraph,
     history,
   }
+
+  return attachIntegrity(unsignedPackage, signingConfig)
 }
 
-export function parseTemplatePackage(rawPackage: unknown): TemplatePackageParseResult {
+export function parseTemplatePackage(
+  rawPackage: unknown,
+  options?: TemplatePackageParseOptions,
+): TemplatePackageParseResult {
   const record = asRecord(rawPackage)
   if (!record) {
     return { ok: false, error: 'Package must be a JSON object.' }
   }
 
-  const maybeLegacyTemplate = createPackageFromTemplateRecord(record)
-  if (maybeLegacyTemplate) {
-    return { ok: true, value: maybeLegacyTemplate }
+  const legacyTemplate = parseLegacyTemplateRecord(record)
+  if (legacyTemplate) {
+    return {
+      ok: true,
+      value: migrateV1Package(legacyTemplate),
+      migrated: true,
+      migrationTrail: ['legacy-template -> package-v1', 'package-v1 -> package-v2'],
+    }
   }
 
-  if (record.kind !== TEMPLATE_PACKAGE_KIND) {
-    return { ok: false, error: `Unsupported package kind. Expected "${TEMPLATE_PACKAGE_KIND}".` }
+  const packageV1 = parseTemplatePackageV1(record)
+  if (packageV1) {
+    return {
+      ok: true,
+      value: migrateV1Package(packageV1),
+      migrated: true,
+      migrationTrail: ['package-v1 -> package-v2'],
+    }
   }
 
-  if (asPositiveInteger(record.contractVersion, 0) !== TEMPLATE_PACKAGE_VERSION) {
-    return { ok: false, error: `Unsupported contract version. Expected v${TEMPLATE_PACKAGE_VERSION}.` }
+  const packageV2 = parseTemplatePackageV2(record)
+  if (!packageV2) {
+    return {
+      ok: false,
+      error: `Unsupported package contract. Expected ${TEMPLATE_PACKAGE_KIND} v1/v${TEMPLATE_PACKAGE_VERSION}.`,
+    }
   }
 
-  const metadataRecord = asRecord(record.metadata)
-  if (!metadataRecord) {
-    return { ok: false, error: 'Package metadata is missing.' }
+  if (!verifyChecksum(packageV2)) {
+    return { ok: false, error: 'Package checksum verification failed.' }
   }
 
-  const scenegraph = parseScene(record.scenegraph)
-  if (!scenegraph) {
-    return { ok: false, error: 'Scenegraph payload is invalid.' }
+  const shouldVerifySignature = Boolean(options?.verifySignature)
+  if (shouldVerifySignature) {
+    const signingSecret = asNonEmptyString(options?.signingSecret)
+    if (!packageV2.integrity.signature) {
+      return { ok: false, error: 'Package is unsigned and cannot pass strict signature verification.' }
+    }
+    if (!signingSecret) {
+      return { ok: false, error: 'Signature verification requires a signing secret.' }
+    }
+    if (!verifySignature(packageV2, signingSecret)) {
+      return { ok: false, error: 'Package signature verification failed.' }
+    }
   }
-
-  const templateId = asNonEmptyString(metadataRecord.templateId)
-  const label = asNonEmptyString(metadataRecord.label)
-  const sceneId = asNonEmptyString(metadataRecord.sceneId)
-  const sceneName = asNonEmptyString(metadataRecord.sceneName)
-  const sizeRecord = asRecord(metadataRecord.size)
-  const sizeWidth = asFiniteNumber(sizeRecord?.width)
-  const sizeHeight = asFiniteNumber(sizeRecord?.height)
-
-  if (!templateId || !label || !sceneId || !sceneName || sizeWidth === null || sizeHeight === null) {
-    return { ok: false, error: 'Package metadata fields are invalid.' }
-  }
-
-  const templateVersion = asPositiveInteger(metadataRecord.templateVersion, 1)
-  const updatedAt = asPositiveInteger(metadataRecord.updatedAt, Date.now())
-  const exportedAt = asPositiveInteger(record.exportedAt, Date.now())
-  const bindings = normalizeBindings(record.bindings, scenegraph)
-  const history = Array.isArray(record.history)
-    ? record.history
-        .map((entry) => parseVersionEntry(entry))
-        .filter((entry): entry is TemplatePackageVersionEntry => entry !== null)
-    : []
 
   return {
     ok: true,
-    value: {
-      kind: TEMPLATE_PACKAGE_KIND,
-      contractVersion: TEMPLATE_PACKAGE_VERSION,
-      exportedAt,
-      metadata: {
-        templateId,
-        label,
-        sceneId,
-        sceneName,
-        size: {
-          width: scenegraph.width,
-          height: scenegraph.height,
-        },
-        templateVersion,
-        updatedAt,
-      },
-      bindings,
-      scenegraph: cloneValue(scenegraph),
-      history,
-    },
+    value: packageV2,
+    migrated: false,
+    migrationTrail: [],
   }
 }
 
-export function templateFromPackage(templatePackage: TemplatePackageV1): TemplateDefinition {
+export function migrateTemplatePackage(
+  rawPackage: unknown,
+  signingConfig?: TemplatePackageSigningConfig | null,
+): TemplatePackageParseResult {
+  const parsedPackage = parseTemplatePackage(rawPackage)
+  if (!parsedPackage.ok) {
+    return parsedPackage
+  }
+
+  if (!signingConfig) {
+    return parsedPackage
+  }
+
+  const unsignedPackage: UnsignedTemplatePackage = {
+    kind: parsedPackage.value.kind,
+    contractVersion: parsedPackage.value.contractVersion,
+    exportedAt: parsedPackage.value.exportedAt,
+    metadata: cloneValue(parsedPackage.value.metadata),
+    bindings: [...parsedPackage.value.bindings],
+    scenegraph: cloneValue(parsedPackage.value.scenegraph),
+    history: parsedPackage.value.history.map((entry) => ({
+      version: entry.version,
+      label: entry.label,
+      updatedAt: entry.updatedAt,
+      bindings: [...entry.bindings],
+      scenegraph: cloneValue(entry.scenegraph),
+    })),
+  }
+
+  return {
+    ...parsedPackage,
+    value: attachIntegrity(unsignedPackage, signingConfig),
+  }
+}
+
+export function templateFromPackage(templatePackage: TemplatePackage): TemplateDefinition {
   const versions: TemplateVersion[] = templatePackage.history.map((entry) => ({
     version: entry.version,
     label: entry.label,
@@ -419,6 +774,8 @@ export function templateFromPackage(templatePackage: TemplatePackageV1): Templat
       ...templatePackage.scenegraph,
       id: templatePackage.metadata.sceneId,
       name: templatePackage.metadata.sceneName,
+      width: templatePackage.metadata.size.width,
+      height: templatePackage.metadata.size.height,
     }),
     bindings: [...templatePackage.bindings],
     builtIn: false,

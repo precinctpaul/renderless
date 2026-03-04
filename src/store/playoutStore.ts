@@ -4,14 +4,18 @@ import type { DataBindingKey, SceneDefinition, StoryState, TemplateDefinition, T
 import { extractBindingKeys, isDataBindingKey } from '../lib/bindings'
 import {
   buildTemplatePackage,
+  migrateTemplatePackage,
   parseTemplatePackage,
   templateFromPackage,
-  type TemplatePackageV1,
+  type TemplatePackage,
+  type TemplatePackageSigningConfig,
 } from '../lib/templatePackages'
 
 const STORAGE_KEY = 'renderless.playout.snapshot.v1'
 const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
 const CHANNEL_KEY = 'renderless.playout.sync.v1'
+const TRANSPORT_STORAGE_KEY = 'renderless.playout.transport.v1'
+const PACKAGE_SIGNING_STORAGE_KEY = 'renderless.templates.signing.v1'
 const INSTANCE_ID = `renderless-${Math.random().toString(36).slice(2)}`
 const CLEAR_TEMPLATE_ID = '__clear__'
 const MAX_UNDO_DEPTH = 80
@@ -27,6 +31,19 @@ type TextStylePatch = Partial<
 >
 type LayerAlignMode = 'left' | 'hCenter' | 'right' | 'top' | 'vMiddle' | 'bottom'
 type LayerDistributeAxis = 'horizontal' | 'vertical'
+export type TransportMode = 'local' | 'ws'
+export type TransportConnectionStatus = 'offline' | 'connecting' | 'online' | 'error'
+
+interface TransportConfigState {
+  mode: TransportMode
+  wsUrl: string
+}
+
+interface PackageSigningState {
+  enabled: boolean
+  keyId: string
+  secret: string
+}
 
 interface PersistedPlayoutSnapshot {
   previewTemplateId: string
@@ -38,6 +55,12 @@ interface PersistedPlayoutSnapshot {
   story: StoryState
   onAir: boolean
   updatedAt: number
+}
+
+interface TransportSyncPayload {
+  type: 'renderless-playout-sync'
+  source: string
+  snapshot: PersistedPlayoutSnapshot
 }
 
 declare global {
@@ -61,6 +84,13 @@ interface PlayoutStore {
   redoStack: SceneDefinition[]
   canUndo: boolean
   canRedo: boolean
+  transportMode: TransportMode
+  transportWsUrl: string
+  transportStatus: TransportConnectionStatus
+  transportError: string | null
+  packageSigningEnabled: boolean
+  packageSigningKeyId: string
+  packageSigningSecret: string
   cuePreview: (templateId: string) => void
   take: () => void
   clearProgram: () => void
@@ -85,9 +115,13 @@ interface PlayoutStore {
   undoPreviewScene: () => void
   redoPreviewScene: () => void
   savePreviewTemplate: (name: string) => string | null
-  exportTemplatePackage: (templateId: string) => TemplatePackageV1 | null
-  exportPreviewTemplatePackage: () => TemplatePackageV1
-  importTemplatePackage: (rawPackage: unknown) => { ok: boolean; templateId?: string; error?: string }
+  exportTemplatePackage: (templateId: string) => TemplatePackage | null
+  exportPreviewTemplatePackage: () => TemplatePackage
+  importTemplatePackage: (rawPackage: unknown) => { ok: boolean; templateId?: string; error?: string; migrationTrail?: string[] }
+  setTransportMode: (mode: TransportMode) => void
+  setTransportWsUrl: (url: string) => void
+  setTransportStatus: (status: TransportConnectionStatus, error?: string | null) => void
+  setPackageSigningConfig: (patch: Partial<PackageSigningState>) => void
   restoreTemplateVersion: (templateId: string, version: number) => boolean
   deleteTemplate: (templateId: string) => void
   resetDemo: () => void
@@ -97,6 +131,116 @@ function cloneStory(story: StoryState): StoryState {
   return {
     ...DEFAULT_STORY_STATE,
     ...story,
+  }
+}
+
+function readTransportConfig(): TransportConfigState {
+  if (typeof window === 'undefined') {
+    return {
+      mode: 'local',
+      wsUrl: 'ws://localhost:8787',
+    }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(TRANSPORT_STORAGE_KEY)
+    if (!raw) {
+      return {
+        mode: 'local',
+        wsUrl: 'ws://localhost:8787',
+      }
+    }
+
+    const parsed = JSON.parse(raw) as Partial<TransportConfigState>
+    const mode = parsed.mode === 'ws' ? 'ws' : 'local'
+    const wsUrl = typeof parsed.wsUrl === 'string' && parsed.wsUrl.trim().length > 0 ? parsed.wsUrl.trim() : 'ws://localhost:8787'
+
+    return {
+      mode,
+      wsUrl,
+    }
+  } catch {
+    return {
+      mode: 'local',
+      wsUrl: 'ws://localhost:8787',
+    }
+  }
+}
+
+function persistTransportConfig(config: TransportConfigState) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(TRANSPORT_STORAGE_KEY, JSON.stringify(config))
+  } catch {
+    // Ignore storage failures and continue with in-memory config.
+  }
+}
+
+function readPackageSigningState(): PackageSigningState {
+  if (typeof window === 'undefined') {
+    return {
+      enabled: false,
+      keyId: 'renderless-local',
+      secret: '',
+    }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(PACKAGE_SIGNING_STORAGE_KEY)
+    if (!raw) {
+      return {
+        enabled: false,
+        keyId: 'renderless-local',
+        secret: '',
+      }
+    }
+
+    const parsed = JSON.parse(raw) as Partial<PackageSigningState>
+    const keyId = typeof parsed.keyId === 'string' && parsed.keyId.trim().length > 0 ? parsed.keyId.trim() : 'renderless-local'
+    const secret = typeof parsed.secret === 'string' ? parsed.secret : ''
+    return {
+      enabled: Boolean(parsed.enabled),
+      keyId,
+      secret,
+    }
+  } catch {
+    return {
+      enabled: false,
+      keyId: 'renderless-local',
+      secret: '',
+    }
+  }
+}
+
+function persistPackageSigningState(state: PackageSigningState) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(PACKAGE_SIGNING_STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    // Ignore storage failures and continue with in-memory config.
+  }
+}
+
+function getSigningConfigFromState(state: Pick<PlayoutStore, 'packageSigningEnabled' | 'packageSigningKeyId' | 'packageSigningSecret'>): TemplatePackageSigningConfig | null {
+  if (!state.packageSigningEnabled) {
+    return null
+  }
+
+  const keyId = state.packageSigningKeyId.trim()
+  const secret = state.packageSigningSecret.trim()
+  if (!keyId || !secret) {
+    return null
+  }
+
+  return {
+    keyId,
+    secret,
   }
 }
 
@@ -265,7 +409,7 @@ function readPersistedTemplates(): TemplateDefinition[] {
 
     return parsed
       .map((entry) => {
-        const parsedPackage = parseTemplatePackage(entry)
+        const parsedPackage = migrateTemplatePackage(entry)
         if (parsedPackage.ok) {
           return templateFromPackage(parsedPackage.value)
         }
@@ -294,7 +438,7 @@ function buildTemplateCatalog(): TemplateDefinition[] {
   return [...builtInTemplates, ...customTemplates]
 }
 
-function persistCustomTemplates(templates: TemplateDefinition[]) {
+function persistCustomTemplates(templates: TemplateDefinition[], signingConfig?: TemplatePackageSigningConfig | null) {
   if (typeof window === 'undefined') {
     return
   }
@@ -306,7 +450,7 @@ function persistCustomTemplates(templates: TemplateDefinition[]) {
       bindings: template.bindings ?? extractBindingKeys(template.scene),
       builtIn: false,
       updatedAt: template.updatedAt ?? Date.now(),
-    }))
+    }, signingConfig))
 
   try {
     window.localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplatePackages))
@@ -593,6 +737,8 @@ function readStoredSnapshot(): Partial<PersistedPlayoutSnapshot> | null {
   }
 }
 
+const initialTransportConfig = readTransportConfig()
+const initialPackageSigningState = readPackageSigningState()
 const initialTemplates = buildTemplateCatalog()
 const defaultTemplateId = initialTemplates[0]?.id ?? ''
 const hydratedSnapshot = normalizeSnapshot(readStoredSnapshot(), initialTemplates, defaultTemplateId)
@@ -637,6 +783,13 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     redoStack: [],
     canUndo: false,
     canRedo: false,
+    transportMode: initialTransportConfig.mode,
+    transportWsUrl: initialTransportConfig.wsUrl,
+    transportStatus: 'offline',
+    transportError: null,
+    packageSigningEnabled: initialPackageSigningState.enabled,
+    packageSigningKeyId: initialPackageSigningState.keyId,
+    packageSigningSecret: initialPackageSigningState.secret,
     cuePreview: (templateId) => {
       set((state) => {
         if (!findTemplateById(state.templates, templateId)) {
@@ -950,16 +1103,17 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
 
-      persistCustomTemplates(get().templates)
+      persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
       return templateId
     },
     exportTemplatePackage: (templateId) => {
-      const template = findTemplateById(get().templates, templateId)
+      const state = get()
+      const template = findTemplateById(state.templates, templateId)
       if (!template) {
         return null
       }
 
-      return buildTemplatePackage(template)
+      return buildTemplatePackage(template, getSigningConfigFromState(state))
     },
     exportPreviewTemplatePackage: () => {
       const state = get()
@@ -980,10 +1134,15 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         updatedAt: Date.now(),
       }
 
-      return buildTemplatePackage(fallbackTemplate)
+      return buildTemplatePackage(fallbackTemplate, getSigningConfigFromState(state))
     },
     importTemplatePackage: (rawPackage) => {
-      const parsedPackage = parseTemplatePackage(rawPackage)
+      const state = get()
+      const signingConfig = getSigningConfigFromState(state)
+      const parsedPackage = parseTemplatePackage(rawPackage, {
+        signingSecret: signingConfig?.secret,
+        verifySignature: Boolean(signingConfig),
+      })
       if (!parsedPackage.ok) {
         return {
           ok: false,
@@ -993,7 +1152,6 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       const importedTemplate = templateFromPackage(parsedPackage.value)
       const now = Date.now()
-      const state = get()
 
       const nextTemplateId = createUniqueTemplateId(state.templates, importedTemplate.id)
       const nextSceneId = createUniqueSceneId(state.templates, importedTemplate.scene.id)
@@ -1032,11 +1190,77 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
 
-      persistCustomTemplates(get().templates)
+      persistCustomTemplates(get().templates, signingConfig)
       return {
         ok: true,
         templateId: normalizedImportedTemplate.id,
+        migrationTrail: parsedPackage.migrationTrail,
       }
+    },
+    setTransportMode: (mode) => {
+      set((state) => {
+        const nextMode: TransportMode = mode === 'ws' ? 'ws' : 'local'
+        const nextState = {
+          transportMode: nextMode,
+          transportError: null,
+        }
+
+        persistTransportConfig({
+          mode: nextMode,
+          wsUrl: state.transportWsUrl,
+        })
+
+        return nextState
+      })
+    },
+    setTransportWsUrl: (url) => {
+      set((state) => {
+        const nextUrl = url.trim()
+        persistTransportConfig({
+          mode: state.transportMode,
+          wsUrl: nextUrl,
+        })
+
+        return {
+          transportWsUrl: nextUrl,
+          transportError: null,
+        }
+      })
+    },
+    setTransportStatus: (status, error = null) => {
+      set((state) => {
+        if (state.transportStatus === status && state.transportError === error) {
+          return {}
+        }
+
+        return {
+          transportStatus: status,
+          transportError: error,
+        }
+      })
+    },
+    setPackageSigningConfig: (patch) => {
+      set((state) => {
+        const nextState: PackageSigningState = {
+          enabled: patch.enabled ?? state.packageSigningEnabled,
+          keyId: typeof patch.keyId === 'string' ? patch.keyId : state.packageSigningKeyId,
+          secret: typeof patch.secret === 'string' ? patch.secret : state.packageSigningSecret,
+        }
+
+        persistPackageSigningState(nextState)
+        persistCustomTemplates(state.templates, getSigningConfigFromState({
+          ...state,
+          packageSigningEnabled: nextState.enabled,
+          packageSigningKeyId: nextState.keyId,
+          packageSigningSecret: nextState.secret,
+        }))
+
+        return {
+          packageSigningEnabled: nextState.enabled,
+          packageSigningKeyId: nextState.keyId,
+          packageSigningSecret: nextState.secret,
+        }
+      })
     },
     restoreTemplateVersion: (templateId, version) => {
       const state = get()
@@ -1091,7 +1315,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
 
-      persistCustomTemplates(get().templates)
+      persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
       return true
     },
     deleteTemplate: (templateId) => {
@@ -1140,7 +1364,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
 
-      persistCustomTemplates(get().templates)
+      persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
     },
     resetDemo: () => {
       set((state) => {
@@ -1171,6 +1395,45 @@ if (typeof window !== 'undefined') {
 
   const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel(CHANNEL_KEY) : null
   let isApplyingExternalSnapshot = false
+  let isCleaningUp = false
+  let websocket: WebSocket | null = null
+  let websocketUrl = ''
+  let reconnectHandle: number | null = null
+  let reconnectAttempt = 0
+  let lastPublishedSnapshotJson = ''
+
+  const publishPayloadToWebSocket = (payload: TransportSyncPayload) => {
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    try {
+      websocket.send(JSON.stringify(payload))
+    } catch {
+      usePlayoutStore.getState().setTransportStatus('error', 'Failed to publish websocket payload.')
+    }
+  }
+
+  const closeWebSocket = () => {
+    if (!websocket) {
+      return
+    }
+
+    try {
+      websocket.close()
+    } catch {
+      // Ignore close failures.
+    } finally {
+      websocket = null
+    }
+  }
+
+  const clearReconnect = () => {
+    if (reconnectHandle !== null) {
+      window.clearTimeout(reconnectHandle)
+      reconnectHandle = null
+    }
+  }
 
   const applyExternalSnapshot = (incomingSnapshot: Partial<PersistedPlayoutSnapshot>) => {
     const state = usePlayoutStore.getState()
@@ -1202,33 +1465,152 @@ if (typeof window !== 'undefined') {
     isApplyingExternalSnapshot = false
   }
 
+  const scheduleReconnect = () => {
+    if (isCleaningUp || reconnectHandle !== null) {
+      return
+    }
+
+    const state = usePlayoutStore.getState()
+    if (state.transportMode !== 'ws') {
+      return
+    }
+
+    const delayMs = Math.min(1000 * (2 ** reconnectAttempt), 10_000)
+    reconnectAttempt += 1
+
+    reconnectHandle = window.setTimeout(() => {
+      reconnectHandle = null
+      reconcileWebSocketTransport()
+    }, delayMs)
+  }
+
+  const reconcileWebSocketTransport = () => {
+    if (isCleaningUp) {
+      return
+    }
+
+    const state = usePlayoutStore.getState()
+
+    if (state.transportMode !== 'ws') {
+      clearReconnect()
+      reconnectAttempt = 0
+      closeWebSocket()
+      state.setTransportStatus('offline')
+      return
+    }
+
+    const nextUrl = state.transportWsUrl.trim()
+    if (!/^wss?:\/\//i.test(nextUrl)) {
+      clearReconnect()
+      closeWebSocket()
+      state.setTransportStatus('error', 'WebSocket URL must start with ws:// or wss://')
+      return
+    }
+
+    if (websocket && websocketUrl === nextUrl && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
+      return
+    }
+
+    clearReconnect()
+    closeWebSocket()
+    websocketUrl = nextUrl
+    state.setTransportStatus('connecting')
+
+    try {
+      const nextSocket = new WebSocket(nextUrl)
+      websocket = nextSocket
+
+      nextSocket.addEventListener('open', () => {
+        if (websocket !== nextSocket) {
+          return
+        }
+
+        reconnectAttempt = 0
+        usePlayoutStore.getState().setTransportStatus('online')
+        const snapshot = toSnapshot(usePlayoutStore.getState())
+        publishPayloadToWebSocket({
+          type: 'renderless-playout-sync',
+          source: INSTANCE_ID,
+          snapshot,
+        })
+      })
+
+      nextSocket.addEventListener('message', (event) => {
+        if (websocket !== nextSocket || typeof event.data !== 'string') {
+          return
+        }
+
+        try {
+          const payload = JSON.parse(event.data) as Partial<TransportSyncPayload>
+          if (payload.type !== 'renderless-playout-sync' || payload.source === INSTANCE_ID || !payload.snapshot) {
+            return
+          }
+
+          applyExternalSnapshot(payload.snapshot)
+        } catch {
+          // Ignore malformed websocket messages.
+        }
+      })
+
+      nextSocket.addEventListener('close', () => {
+        if (websocket === nextSocket) {
+          websocket = null
+        }
+
+        if (isCleaningUp) {
+          return
+        }
+
+        const currentState = usePlayoutStore.getState()
+        currentState.setTransportStatus('offline')
+        if (currentState.transportMode === 'ws') {
+          scheduleReconnect()
+        }
+      })
+
+      nextSocket.addEventListener('error', () => {
+        if (websocket !== nextSocket) {
+          return
+        }
+
+        usePlayoutStore.getState().setTransportStatus('error', 'WebSocket transport error.')
+      })
+    } catch {
+      state.setTransportStatus('error', 'WebSocket connection failed to initialize.')
+      scheduleReconnect()
+    }
+  }
+
   const unsubscribe = usePlayoutStore.subscribe((state) => {
     if (isApplyingExternalSnapshot) {
       return
     }
+
     const snapshot = toSnapshot(state)
+    const serializedSnapshot = JSON.stringify(snapshot)
+    if (serializedSnapshot === lastPublishedSnapshotJson) {
+      return
+    }
+
+    lastPublishedSnapshotJson = serializedSnapshot
+    const payload: TransportSyncPayload = {
+      type: 'renderless-playout-sync',
+      source: INSTANCE_ID,
+      snapshot,
+    }
 
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot))
+      window.localStorage.setItem(STORAGE_KEY, serializedSnapshot)
     } catch {
       // Ignore storage failures and continue with in-memory state.
     }
 
-    channel?.postMessage({
-      type: 'renderless-playout-sync',
-      source: INSTANCE_ID,
-      snapshot,
-    })
+    channel?.postMessage(payload)
+    publishPayloadToWebSocket(payload)
   })
 
   const onChannelMessage = (event: MessageEvent) => {
-    const payload = event.data as
-      | {
-          type?: string
-          source?: string
-          snapshot?: Partial<PersistedPlayoutSnapshot>
-        }
-      | undefined
+    const payload = event.data as Partial<TransportSyncPayload> | undefined
 
     if (!payload || payload.type !== 'renderless-playout-sync') {
       return
@@ -1281,6 +1663,24 @@ if (typeof window !== 'undefined') {
         }
       })
     }
+
+    if (event.key === TRANSPORT_STORAGE_KEY) {
+      const transportConfig = readTransportConfig()
+      usePlayoutStore.setState(() => ({
+        transportMode: transportConfig.mode,
+        transportWsUrl: transportConfig.wsUrl,
+      }))
+      reconcileWebSocketTransport()
+    }
+
+    if (event.key === PACKAGE_SIGNING_STORAGE_KEY) {
+      const signingState = readPackageSigningState()
+      usePlayoutStore.setState(() => ({
+        packageSigningEnabled: signingState.enabled,
+        packageSigningKeyId: signingState.keyId,
+        packageSigningSecret: signingState.secret,
+      }))
+    }
   }
 
   const recoveryPollHandle = window.setInterval(() => {
@@ -1297,13 +1697,22 @@ if (typeof window !== 'undefined') {
     }
   }, 1000)
 
+  const transportPollHandle = window.setInterval(() => {
+    reconcileWebSocketTransport()
+  }, 1000)
+
   channel?.addEventListener('message', onChannelMessage)
   window.addEventListener('storage', onStorage)
+  reconcileWebSocketTransport()
 
   window.__renderlessSyncCleanup = () => {
+    isCleaningUp = true
+    clearReconnect()
     unsubscribe()
     window.removeEventListener('storage', onStorage)
     window.clearInterval(recoveryPollHandle)
+    window.clearInterval(transportPollHandle)
+    closeWebSocket()
     if (channel) {
       channel.removeEventListener('message', onChannelMessage)
       channel.close()

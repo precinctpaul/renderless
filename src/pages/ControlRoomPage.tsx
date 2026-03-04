@@ -49,6 +49,10 @@ export function ControlRoomPage() {
   const transitionDurationMs = usePlayoutStore((state) => state.transitionDurationMs)
   const story = usePlayoutStore((state) => state.story)
   const onAir = usePlayoutStore((state) => state.onAir)
+  const transportMode = usePlayoutStore((state) => state.transportMode)
+  const transportWsUrl = usePlayoutStore((state) => state.transportWsUrl)
+  const transportStatus = usePlayoutStore((state) => state.transportStatus)
+  const transportError = usePlayoutStore((state) => state.transportError)
 
   const cuePreview = usePlayoutStore((state) => state.cuePreview)
   const take = usePlayoutStore((state) => state.take)
@@ -57,6 +61,8 @@ export function ControlRoomPage() {
   const setTransitionDuration = usePlayoutStore((state) => state.setTransitionDuration)
   const adjustScore = usePlayoutStore((state) => state.adjustScore)
   const setStoryValue = usePlayoutStore((state) => state.setStoryValue)
+  const setTransportMode = usePlayoutStore((state) => state.setTransportMode)
+  const setTransportWsUrl = usePlayoutStore((state) => state.setTransportWsUrl)
   const resetClock = usePlayoutStore((state) => state.resetClock)
   const togglePossession = usePlayoutStore((state) => state.togglePossession)
   const nudgeClock = usePlayoutStore((state) => state.nudgeClock)
@@ -327,6 +333,42 @@ export function ControlRoomPage() {
                   </label>
                 )
               })}
+            </div>
+          </div>
+
+          <div className="inspector-section transport-panel">
+            <div className="inspector-section__label">Cross-Device Transport</div>
+            <div className="story-actions">
+              <button
+                type="button"
+                className={`btn btn--small ${transportMode === 'local' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                onClick={() => setTransportMode('local')}
+              >
+                Local
+              </button>
+              <button
+                type="button"
+                className={`btn btn--small ${transportMode === 'ws' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                onClick={() => setTransportMode('ws')}
+              >
+                WebSocket
+              </button>
+            </div>
+
+            <label className="field-label mono">
+              WS URL
+              <input
+                className="mono"
+                value={transportWsUrl}
+                placeholder="ws://localhost:8787"
+                onChange={(event) => setTransportWsUrl(event.target.value)}
+                disabled={transportMode !== 'ws'}
+              />
+            </label>
+
+            <div className="transport-status mono">
+              STATUS: {transportStatus.toUpperCase()}
+              {transportError ? ` | ${transportError}` : ''}
             </div>
           </div>
         </aside>

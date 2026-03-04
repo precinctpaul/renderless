@@ -894,6 +894,16 @@ select:focus {
   gap: 8px;
 }
 
+.transport-panel {
+  margin-top: 4px;
+}
+
+.transport-status {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #93c5fd;
+}
+
 .score-control {
   display: grid;
   grid-template-columns: 1fr 1fr;

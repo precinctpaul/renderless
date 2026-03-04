@@ -21,6 +21,10 @@ export function DashboardPage() {
   const cuePreview = usePlayoutStore((state) => state.cuePreview)
   const deleteTemplate = usePlayoutStore((state) => state.deleteTemplate)
   const importTemplatePackage = usePlayoutStore((state) => state.importTemplatePackage)
+  const packageSigningEnabled = usePlayoutStore((state) => state.packageSigningEnabled)
+  const packageSigningKeyId = usePlayoutStore((state) => state.packageSigningKeyId)
+  const packageSigningSecret = usePlayoutStore((state) => state.packageSigningSecret)
+  const setPackageSigningConfig = usePlayoutStore((state) => state.setPackageSigningConfig)
   const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
 
   const [query, setQuery] = useState('')
@@ -45,6 +49,7 @@ export function DashboardPage() {
     setIsImporting(true)
     let importedCount = 0
     let failedCount = 0
+    let migratedCount = 0
 
     for (const file of Array.from(files)) {
       try {
@@ -56,6 +61,9 @@ export function DashboardPage() {
           const result = importTemplatePackage(entry)
           if (result.ok) {
             importedCount += 1
+            if (result.migrationTrail && result.migrationTrail.length > 0) {
+              migratedCount += 1
+            }
           } else {
             failedCount += 1
           }
@@ -66,11 +74,17 @@ export function DashboardPage() {
     }
 
     if (importedCount > 0 && failedCount === 0) {
-      setImportStatus(`Imported ${importedCount} template package(s).`)
+      setImportStatus(
+        migratedCount > 0
+          ? `Imported ${importedCount} package(s), migrated ${migratedCount} to v2.`
+          : `Imported ${importedCount} template package(s).`,
+      )
     } else if (importedCount > 0) {
-      setImportStatus(`Imported ${importedCount} package(s), ${failedCount} failed validation.`)
+      setImportStatus(
+        `Imported ${importedCount} package(s), ${failedCount} failed validation${migratedCount > 0 ? `, migrated ${migratedCount}.` : '.'}`,
+      )
     } else {
-      setImportStatus('Import failed. Package contract must be renderless.template-package v1.')
+      setImportStatus('Import failed. Package contract must be renderless.template-package v2.')
     }
 
     setIsImporting(false)
@@ -199,12 +213,42 @@ export function DashboardPage() {
         <aside className="panel panel--right">
           <div className="panel-title">Templates Protocol</div>
           <p>
-            Package contract: <span className="mono">scenegraph + bindings + metadata</span> with deterministic v1
-            parsing.
+            Package contract: <span className="mono">scenegraph + bindings + metadata + integrity</span> with v1/v2
+            migration tooling.
           </p>
           <div className="protocol-item">
             <Puzzle size={16} />
-            <span>Import/export uses renderless.template-package v1</span>
+            <span>Import/export uses renderless.template-package v2</span>
+          </div>
+
+          <div className="inspector-section signing-panel">
+            <div className="inspector-section__label">Package Signing</div>
+            <div className="story-actions">
+              <button
+                type="button"
+                className={`btn btn--small ${packageSigningEnabled ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                onClick={() => setPackageSigningConfig({ enabled: !packageSigningEnabled })}
+              >
+                {packageSigningEnabled ? 'Enabled' : 'Disabled'}
+              </button>
+            </div>
+            <label className="field-label">
+              Key ID
+              <input
+                className="mono"
+                value={packageSigningKeyId}
+                onChange={(event) => setPackageSigningConfig({ keyId: event.target.value })}
+              />
+            </label>
+            <label className="field-label">
+              Shared Secret
+              <input
+                className="mono"
+                type="password"
+                value={packageSigningSecret}
+                onChange={(event) => setPackageSigningConfig({ secret: event.target.value })}
+              />
+            </label>
           </div>
         </aside>
       </div>

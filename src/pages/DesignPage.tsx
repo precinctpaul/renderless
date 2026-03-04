@@ -5,7 +5,7 @@ import type { DataBindingKey, SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 import { BINDABLE_FIELDS } from '../data/storySchema'
 import { resolveBindingValue } from '../lib/bindings'
-import type { TemplatePackageV1 } from '../lib/templatePackages'
+import type { TemplatePackage } from '../lib/templatePackages'
 
 const CREATION_ITEMS = ['TEXT', 'SHAPE', 'FIGMA', 'RIVE']
 
@@ -57,7 +57,7 @@ function slugifyFileName(rawValue: string): string {
   return normalized || 'template-package'
 }
 
-function downloadTemplatePackageFile(templatePackage: TemplatePackageV1) {
+function downloadTemplatePackageFile(templatePackage: TemplatePackage) {
   const fileName = `${slugifyFileName(templatePackage.metadata.label)}.rltpl.json`
   const payload = JSON.stringify(templatePackage, null, 2)
   const blob = new Blob([payload], { type: 'application/json' })

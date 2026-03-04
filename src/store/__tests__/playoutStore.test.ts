@@ -146,7 +146,7 @@ describe('Playout reliability and QA regression suite', () => {
     expect(story.headline).toBe('Fast break points')
   })
 
-  test('custom templates are persisted in template package contract v1', async () => {
+  test('custom templates are persisted in template package contract v2 with integrity metadata', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
     usePlayoutStore.getState().cuePreview('template-scorebug')
@@ -159,6 +159,7 @@ describe('Playout reliability and QA regression suite', () => {
     const parsedTemplates = JSON.parse(serializedTemplates ?? '[]') as Array<{
       kind?: string
       contractVersion?: number
+      integrity?: { checksum?: { algorithm?: string; value?: string } }
       metadata?: { label?: string; size?: { width?: number; height?: number } }
       scenegraph?: { width?: number; height?: number }
       bindings?: string[]
@@ -167,11 +168,54 @@ describe('Playout reliability and QA regression suite', () => {
     expect(Array.isArray(parsedTemplates)).toBe(true)
     expect(parsedTemplates.length).toBeGreaterThan(0)
     expect(parsedTemplates[0]?.kind).toBe('renderless.template-package')
-    expect(parsedTemplates[0]?.contractVersion).toBe(1)
+    expect(parsedTemplates[0]?.contractVersion).toBe(2)
+    expect(parsedTemplates[0]?.integrity?.checksum?.algorithm).toBe('fnv1a-32')
+    expect(parsedTemplates[0]?.integrity?.checksum?.value).toMatch(/^[a-f0-9]{8}$/)
     expect(parsedTemplates[0]?.metadata?.label).toBe('Package QA Template')
     expect(parsedTemplates[0]?.metadata?.size?.width).toBe(1920)
     expect(parsedTemplates[0]?.scenegraph?.height).toBe(1080)
     expect(parsedTemplates[0]?.bindings?.includes('homeScore')).toBe(true)
+  })
+
+  test('v1 package payload migrates into v2 contract on import', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    const v2Package = usePlayoutStore.getState().exportPreviewTemplatePackage()
+    const v1Package = {
+      ...v2Package,
+      contractVersion: 1 as const,
+    }
+    delete (v1Package as { integrity?: unknown }).integrity
+
+    const importResult = usePlayoutStore.getState().importTemplatePackage(v1Package)
+    expect(importResult.ok).toBe(true)
+    expect(importResult.migrationTrail?.includes('package-v1 -> package-v2')).toBe(true)
+  })
+
+  test('signed package export/import enforces shared-secret verification when enabled', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().setPackageSigningConfig({
+      enabled: true,
+      keyId: 'truck-a',
+      secret: 'top-secret',
+    })
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    const signedPackage = usePlayoutStore.getState().exportPreviewTemplatePackage()
+    expect(signedPackage.integrity.signature?.keyId).toBe('truck-a')
+
+    const validImport = usePlayoutStore.getState().importTemplatePackage(signedPackage)
+    expect(validImport.ok).toBe(true)
+
+    usePlayoutStore.getState().setPackageSigningConfig({
+      secret: 'wrong-secret',
+    })
+
+    const invalidImport = usePlayoutStore.getState().importTemplatePackage(signedPackage)
+    expect(invalidImport.ok).toBe(false)
+    expect(invalidImport.error).toContain('signature')
   })
 
   test('template package import round-trips scenegraph and binding metadata', async () => {
@@ -192,6 +236,19 @@ describe('Playout reliability and QA regression suite', () => {
     expect(importedTemplate?.bindings?.includes('period')).toBe(true)
   })
 
+  test('transport settings switch between local and websocket modes', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().setTransportMode('ws')
+    usePlayoutStore.getState().setTransportWsUrl('ws://127.0.0.1:8787')
+
+    expect(usePlayoutStore.getState().transportMode).toBe('ws')
+    expect(usePlayoutStore.getState().transportWsUrl).toBe('ws://127.0.0.1:8787')
+
+    usePlayoutStore.getState().setTransportMode('local')
+    expect(usePlayoutStore.getState().transportMode).toBe('local')
+  })
+
   test('invalid template package payload is rejected during import', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
@@ -201,6 +258,6 @@ describe('Playout reliability and QA regression suite', () => {
     })
 
     expect(importResult.ok).toBe(false)
-    expect(importResult.error).toContain('Unsupported contract version')
+    expect(importResult.error).toContain('Unsupported package contract')
   })
 })
