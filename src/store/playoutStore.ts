@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
-import type { SceneDefinition, StoryState, TemplateDefinition } from '../types/scene'
+import type { SceneDefinition, StoryState, TemplateDefinition, TemplateVersion } from '../types/scene'
 
 const STORAGE_KEY = 'renderless.playout.snapshot.v1'
 const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
@@ -18,6 +18,8 @@ type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], {
 type TextStylePatch = Partial<
   Pick<Extract<SceneDefinition['layers'][number], { kind: 'text' }>, 'text' | 'fontSize' | 'color' | 'opacity'>
 >
+type LayerAlignMode = 'left' | 'hCenter' | 'right' | 'top' | 'vMiddle' | 'bottom'
+type LayerDistributeAxis = 'horizontal' | 'vertical'
 
 interface PersistedPlayoutSnapshot {
   previewTemplateId: string
@@ -58,12 +60,16 @@ interface PlayoutStore {
   nudgeClock: (deltaSeconds: number) => void
   reorderPreviewLayer: (layerId: string, direction: 'forward' | 'backward') => void
   reorderPreviewLayerToIndex: (layerId: string, targetIndex: number) => void
+  updatePreviewLayersTransform: (layerIds: string[], patch: SceneTransformPatch) => void
+  alignPreviewLayers: (layerIds: string[], mode: LayerAlignMode) => void
+  distributePreviewLayers: (layerIds: string[], axis: LayerDistributeAxis) => void
   updatePreviewLayerTransform: (layerId: string, patch: SceneTransformPatch) => void
   updatePreviewShapeStyle: (layerId: string, patch: ShapeStylePatch) => void
   updatePreviewTextStyle: (layerId: string, patch: TextStylePatch) => void
   undoPreviewScene: () => void
   redoPreviewScene: () => void
   savePreviewTemplate: (name: string) => string | null
+  restoreTemplateVersion: (templateId: string, version: number) => boolean
   deleteTemplate: (templateId: string) => void
   resetDemo: () => void
 }
@@ -81,6 +87,10 @@ function cloneTemplate(template: TemplateDefinition): TemplateDefinition {
   return {
     ...template,
     scene: cloneScene(template.scene),
+    versions: (template.versions ?? []).map((versionEntry) => ({
+      ...versionEntry,
+      scene: cloneScene(versionEntry.scene),
+    })),
   }
 }
 
@@ -90,6 +100,14 @@ function createTemplateId(): string {
 
 function createSceneId(): string {
   return `scene-custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function clampVersionHistory(versions: TemplateVersion[]): TemplateVersion[] {
+  if (versions.length <= 50) {
+    return versions
+  }
+
+  return versions.slice(versions.length - 50)
 }
 
 function sceneFromUnknown(value: unknown): SceneDefinition | null {
@@ -119,6 +137,40 @@ function normalizeTemplateFromStorage(rawTemplate: unknown): TemplateDefinition 
   }
 
   const updatedAtRaw = Number(record.updatedAt)
+  const versionRaw = Number(record.version)
+  const version = Number.isFinite(versionRaw) && versionRaw > 0 ? Math.floor(versionRaw) : 1
+
+  const versions = Array.isArray(record.versions)
+    ? record.versions
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return null
+          }
+
+          const versionRecord = entry as Record<string, unknown>
+          const sceneEntry = sceneFromUnknown(versionRecord.scene)
+          const versionNumberRaw = Number(versionRecord.version)
+          const versionNumber = Number.isFinite(versionNumberRaw) && versionNumberRaw > 0 ? Math.floor(versionNumberRaw) : null
+          const labelEntry = typeof versionRecord.label === 'string' && versionRecord.label.trim().length > 0
+            ? versionRecord.label.trim()
+            : label
+          const updatedAtEntryRaw = Number(versionRecord.updatedAt)
+          const updatedAtEntry =
+            Number.isFinite(updatedAtEntryRaw) && updatedAtEntryRaw > 0 ? Math.floor(updatedAtEntryRaw) : Date.now()
+
+          if (!sceneEntry || versionNumber === null) {
+            return null
+          }
+
+          return {
+            version: versionNumber,
+            scene: sceneEntry,
+            label: labelEntry,
+            updatedAt: updatedAtEntry,
+          } satisfies TemplateVersion
+        })
+        .filter((entry): entry is TemplateVersion => entry !== null)
+    : []
 
   return {
     id,
@@ -126,6 +178,8 @@ function normalizeTemplateFromStorage(rawTemplate: unknown): TemplateDefinition 
     scene,
     favorite: Boolean(record.favorite),
     builtIn: false,
+    version,
+    versions: clampVersionHistory(versions),
     updatedAt: Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : Date.now(),
   }
 }
@@ -158,6 +212,8 @@ function buildTemplateCatalog(): TemplateDefinition[] {
   const builtInTemplates = TEMPLATE_LIBRARY.map((template, index) => ({
     ...cloneTemplate(template),
     builtIn: true,
+    version: template.version ?? 1,
+    versions: template.versions ?? [],
     updatedAt: template.updatedAt ?? Date.now() - (TEMPLATE_LIBRARY.length - index) * 1_000,
   }))
 
@@ -228,6 +284,108 @@ function moveLayerToIndex(scene: SceneDefinition, layerId: string, targetIndex: 
   return {
     ...scene,
     layers: nextLayers,
+  }
+}
+
+function applyTransformPatchToLayer(layer: SceneDefinition['layers'][number], patch: SceneTransformPatch) {
+  return {
+    ...layer,
+    x: Number.isFinite(patch.x) ? Math.round(Math.max(0, patch.x ?? layer.x)) : layer.x,
+    y: Number.isFinite(patch.y) ? Math.round(Math.max(0, patch.y ?? layer.y)) : layer.y,
+    width: Number.isFinite(patch.width) ? Math.round(Math.max(1, patch.width ?? layer.width)) : layer.width,
+    height: Number.isFinite(patch.height) ? Math.round(Math.max(1, patch.height ?? layer.height)) : layer.height,
+  }
+}
+
+function getSelectedLayers(scene: SceneDefinition, layerIds: string[]): SceneDefinition['layers'] {
+  const selectedIdSet = new Set(layerIds)
+  return scene.layers.filter((layer) => selectedIdSet.has(layer.id))
+}
+
+function alignLayersByMode(scene: SceneDefinition, layerIds: string[], mode: LayerAlignMode): SceneDefinition {
+  const selectedLayers = getSelectedLayers(scene, layerIds)
+  if (selectedLayers.length < 2) {
+    return scene
+  }
+
+  const leftEdge = Math.min(...selectedLayers.map((layer) => layer.x))
+  const rightEdge = Math.max(...selectedLayers.map((layer) => layer.x + layer.width))
+  const topEdge = Math.min(...selectedLayers.map((layer) => layer.y))
+  const bottomEdge = Math.max(...selectedLayers.map((layer) => layer.y + layer.height))
+  const horizontalCenter = (leftEdge + rightEdge) / 2
+  const verticalCenter = (topEdge + bottomEdge) / 2
+  const selectedIdSet = new Set(layerIds)
+
+  return {
+    ...scene,
+    layers: scene.layers.map((layer) => {
+      if (!selectedIdSet.has(layer.id)) {
+        return layer
+      }
+
+      switch (mode) {
+        case 'left':
+          return { ...layer, x: Math.round(leftEdge) }
+        case 'hCenter':
+          return { ...layer, x: Math.round(horizontalCenter - layer.width / 2) }
+        case 'right':
+          return { ...layer, x: Math.round(rightEdge - layer.width) }
+        case 'top':
+          return { ...layer, y: Math.round(topEdge) }
+        case 'vMiddle':
+          return { ...layer, y: Math.round(verticalCenter - layer.height / 2) }
+        case 'bottom':
+          return { ...layer, y: Math.round(bottomEdge - layer.height) }
+        default:
+          return layer
+      }
+    }),
+  }
+}
+
+function distributeLayers(scene: SceneDefinition, layerIds: string[], axis: LayerDistributeAxis): SceneDefinition {
+  const selectedLayers = getSelectedLayers(scene, layerIds)
+  if (selectedLayers.length < 3) {
+    return scene
+  }
+
+  const sortedLayers = [...selectedLayers].sort((a, b) => (axis === 'horizontal' ? a.x - b.x : a.y - b.y))
+  const firstLayer = sortedLayers[0]
+  const lastLayer = sortedLayers[sortedLayers.length - 1]
+
+  if (!firstLayer || !lastLayer) {
+    return scene
+  }
+
+  const start = axis === 'horizontal' ? firstLayer.x : firstLayer.y
+  const end = axis === 'horizontal' ? lastLayer.x : lastLayer.y
+  const step = (end - start) / (sortedLayers.length - 1)
+  const nextById = new Map<string, { x?: number; y?: number }>()
+
+  sortedLayers.forEach((layer, index) => {
+    const nextValue = Math.round(start + step * index)
+    if (axis === 'horizontal') {
+      nextById.set(layer.id, { x: nextValue })
+      return
+    }
+
+    nextById.set(layer.id, { y: nextValue })
+  })
+
+  return {
+    ...scene,
+    layers: scene.layers.map((layer) => {
+      const entry = nextById.get(layer.id)
+      if (!entry) {
+        return layer
+      }
+
+      return {
+        ...layer,
+        x: Number.isFinite(entry.x) ? Math.max(0, Math.round(entry.x ?? layer.x)) : layer.x,
+        y: Number.isFinite(entry.y) ? Math.max(0, Math.round(entry.y ?? layer.y)) : layer.y,
+      }
+    }),
   }
 }
 
@@ -495,22 +653,37 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     reorderPreviewLayerToIndex: (layerId, targetIndex) => {
       commitPreviewScene((scene) => moveLayerToIndex(scene, layerId, targetIndex))
     },
+    updatePreviewLayersTransform: (layerIds, patch) => {
+      if (layerIds.length === 0) {
+        return
+      }
+
+      commitPreviewScene((scene) => {
+        const selectedIdSet = new Set(layerIds)
+        return {
+          ...scene,
+          layers: scene.layers.map((layer) => (selectedIdSet.has(layer.id) ? applyTransformPatchToLayer(layer, patch) : layer)),
+        }
+      })
+    },
+    alignPreviewLayers: (layerIds, mode) => {
+      if (layerIds.length < 2) {
+        return
+      }
+
+      commitPreviewScene((scene) => alignLayersByMode(scene, layerIds, mode))
+    },
+    distributePreviewLayers: (layerIds, axis) => {
+      if (layerIds.length < 3) {
+        return
+      }
+
+      commitPreviewScene((scene) => distributeLayers(scene, layerIds, axis))
+    },
     updatePreviewLayerTransform: (layerId, patch) => {
       commitPreviewScene((scene) => ({
         ...scene,
-        layers: scene.layers.map((layer) => {
-          if (layer.id !== layerId) {
-            return layer
-          }
-
-          return {
-            ...layer,
-            x: Number.isFinite(patch.x) ? Math.round(Math.max(0, patch.x ?? layer.x)) : layer.x,
-            y: Number.isFinite(patch.y) ? Math.round(Math.max(0, patch.y ?? layer.y)) : layer.y,
-            width: Number.isFinite(patch.width) ? Math.round(Math.max(1, patch.width ?? layer.width)) : layer.width,
-            height: Number.isFinite(patch.height) ? Math.round(Math.max(1, patch.height ?? layer.height)) : layer.height,
-          }
-        }),
+        layers: scene.layers.map((layer) => (layer.id === layerId ? applyTransformPatchToLayer(layer, patch) : layer)),
       }))
     },
     updatePreviewShapeStyle: (layerId, patch) => {
@@ -610,6 +783,17 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       const templateId = shouldOverwrite && activeTemplate ? activeTemplate.id : createTemplateId()
       const sceneId = shouldOverwrite && activeTemplate ? activeTemplate.scene.id : createSceneId()
       const now = Date.now()
+      const nextVersion = shouldOverwrite ? (activeTemplate?.version ?? 1) + 1 : 1
+      const previousVersions = shouldOverwrite ? (activeTemplate?.versions ?? []) : []
+      const snapshotOfPriorVersion: TemplateVersion | null =
+        shouldOverwrite && activeTemplate
+          ? {
+              version: activeTemplate.version ?? 1,
+              scene: cloneScene(activeTemplate.scene),
+              label: activeTemplate.label,
+              updatedAt: activeTemplate.updatedAt ?? now,
+            }
+          : null
 
       const savedScene = cloneScene({
         ...state.previewScene,
@@ -623,6 +807,8 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         scene: savedScene,
         favorite: activeTemplate?.favorite ?? false,
         builtIn: false,
+        version: nextVersion,
+        versions: clampVersionHistory(snapshotOfPriorVersion ? [...previousVersions, snapshotOfPriorVersion] : previousVersions),
         updatedAt: now,
       }
 
@@ -643,6 +829,60 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       persistCustomTemplates(get().templates)
       return templateId
+    },
+    restoreTemplateVersion: (templateId, version) => {
+      const state = get()
+      const template = findTemplateById(state.templates, templateId)
+      if (!template || template.builtIn) {
+        return false
+      }
+
+      const targetVersion = (template.versions ?? []).find((entry) => entry.version === version)
+      if (!targetVersion) {
+        return false
+      }
+
+      const now = Date.now()
+      const currentVersion = template.version ?? 1
+      const nextVersion = currentVersion + 1
+      const fallbackVersionScene = cloneScene(template.scene)
+
+      const snapshotOfCurrentVersion: TemplateVersion = {
+        version: currentVersion,
+        scene: fallbackVersionScene,
+        label: template.label,
+        updatedAt: template.updatedAt ?? now,
+      }
+
+      const restoredTemplate: TemplateDefinition = {
+        ...template,
+        scene: cloneScene({
+          ...targetVersion.scene,
+          id: template.scene.id,
+        }),
+        builtIn: false,
+        version: nextVersion,
+        versions: clampVersionHistory([...(template.versions ?? []), snapshotOfCurrentVersion]),
+        updatedAt: now,
+      }
+
+      set((currentState) => {
+        const nextTemplates = currentState.templates.map((entry) =>
+          entry.id === restoredTemplate.id ? restoredTemplate : entry,
+        )
+
+        return {
+          templates: nextTemplates,
+          previewScene:
+            currentState.previewTemplateId === restoredTemplate.id
+              ? cloneScene(restoredTemplate.scene)
+              : currentState.previewScene,
+          updatedAt: now,
+        }
+      })
+
+      persistCustomTemplates(get().templates)
+      return true
     },
     deleteTemplate: (templateId) => {
       const currentTemplate = findTemplateById(get().templates, templateId)
@@ -741,6 +981,10 @@ if (typeof window !== 'undefined') {
       transitionDurationMs: normalized.transitionDurationMs,
       story: cloneStory(normalized.story),
       onAir: normalized.onAir,
+      undoStack: [],
+      redoStack: [],
+      canUndo: false,
+      canRedo: false,
       updatedAt: normalized.updatedAt,
     })
     isApplyingExternalSnapshot = false

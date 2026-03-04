@@ -274,6 +274,8 @@ export const TEMPLATE_LIBRARY: TemplateDefinition[] = [
     scene: scoreBugScene,
     favorite: true,
     builtIn: true,
+    version: 1,
+    versions: [],
   },
   {
     id: 'template-lower-third',
@@ -281,12 +283,16 @@ export const TEMPLATE_LIBRARY: TemplateDefinition[] = [
     scene: lowerThirdScene,
     favorite: true,
     builtIn: true,
+    version: 1,
+    versions: [],
   },
   {
     id: 'template-full-frame',
     label: 'Full_Frame_Stat',
     scene: fullFrameScene,
     builtIn: true,
+    version: 1,
+    versions: [],
   },
 ]
 

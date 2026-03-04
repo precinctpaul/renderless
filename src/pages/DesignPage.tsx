@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Move3D, Redo2, Undo2, Upload } from 'lucide-react'
+import { AlignCenter, AlignHorizontalDistributeCenter, AlignJustify, AlignVerticalDistributeCenter, ArrowDown, ArrowUp, Move3D, Redo2, Undo2, Upload } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
 import type { SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const CREATION_ITEMS = ['TEXT', 'SHAPE', 'FIGMA', 'RIVE']
+
+interface SelectionModifiers {
+  shiftKey: boolean
+  ctrlKey: boolean
+  metaKey: boolean
+}
 
 function toNumberOrNull(value: string): number | null {
   const numericValue = Number(value)
@@ -28,6 +34,16 @@ function layerPositionInfo(layer: SceneLayer, layers: SceneLayer[]) {
   }
 }
 
+function mixedNumberOrValue(layers: SceneLayer[], field: 'x' | 'y' | 'width' | 'height'): string {
+  if (layers.length === 0) {
+    return ''
+  }
+
+  const values = layers.map((layer) => layer[field])
+  const firstValue = values[0]
+  return values.every((value) => value === firstValue) ? String(firstValue) : ''
+}
+
 export function DesignPage() {
   const scene = usePlayoutStore((state) => state.previewScene)
   const story = usePlayoutStore((state) => state.story)
@@ -36,26 +52,43 @@ export function DesignPage() {
   const reorderPreviewLayer = usePlayoutStore((state) => state.reorderPreviewLayer)
   const reorderPreviewLayerToIndex = usePlayoutStore((state) => state.reorderPreviewLayerToIndex)
   const updatePreviewLayerTransform = usePlayoutStore((state) => state.updatePreviewLayerTransform)
+  const updatePreviewLayersTransform = usePlayoutStore((state) => state.updatePreviewLayersTransform)
   const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
   const updatePreviewTextStyle = usePlayoutStore((state) => state.updatePreviewTextStyle)
+  const alignPreviewLayers = usePlayoutStore((state) => state.alignPreviewLayers)
+  const distributePreviewLayers = usePlayoutStore((state) => state.distributePreviewLayers)
   const undoPreviewScene = usePlayoutStore((state) => state.undoPreviewScene)
   const redoPreviewScene = usePlayoutStore((state) => state.redoPreviewScene)
   const canUndo = usePlayoutStore((state) => state.canUndo)
   const canRedo = usePlayoutStore((state) => state.canRedo)
   const savePreviewTemplate = usePlayoutStore((state) => state.savePreviewTemplate)
+  const restoreTemplateVersion = usePlayoutStore((state) => state.restoreTemplateVersion)
 
-  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
+  const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([])
+  const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null)
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null)
   const [dragTargetLayerId, setDragTargetLayerId] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string>('')
+  const [versionToRestore, setVersionToRestore] = useState<string>('')
 
   const orderedLayers = useMemo(() => [...scene.layers].reverse(), [scene.layers])
-  const activeSelectedLayerId =
-    selectedLayerId && scene.layers.some((layer) => layer.id === selectedLayerId)
-      ? selectedLayerId
-      : (orderedLayers[0]?.id ?? '')
-  const selectedLayer = scene.layers.find((layer) => layer.id === activeSelectedLayerId) ?? null
+  const orderedLayerIds = useMemo(() => orderedLayers.map((layer) => layer.id), [orderedLayers])
+
+  const activeSelectedLayerIds = useMemo(
+    () => selectedLayerIds.filter((layerId) => scene.layers.some((layer) => layer.id === layerId)),
+    [scene.layers, selectedLayerIds],
+  )
+
+  const selectedLayers = useMemo(
+    () => scene.layers.filter((layer) => activeSelectedLayerIds.includes(layer.id)),
+    [activeSelectedLayerIds, scene.layers],
+  )
+
+  const primarySelectedLayer = selectedLayers[0] ?? null
   const activeTemplate = templates.find((template) => template.id === previewTemplateId) ?? null
+  const canAlignSelection = selectedLayers.length >= 2
+  const canDistributeSelection = selectedLayers.length >= 3
+  const isMultiSelection = selectedLayers.length > 1
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -79,17 +112,60 @@ export function DesignPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [redoPreviewScene, undoPreviewScene])
 
+  const handleLayerSelection = (layerId: string, modifiers?: SelectionModifiers) => {
+    if (!layerId) {
+      setSelectedLayerIds([])
+      setSelectionAnchorId(null)
+      return
+    }
+
+    const toggle = Boolean(modifiers?.ctrlKey || modifiers?.metaKey)
+    const range = Boolean(modifiers?.shiftKey)
+
+    setSelectedLayerIds((previousSelection) => {
+      const fallbackAnchor = selectionAnchorId && orderedLayerIds.includes(selectionAnchorId) ? selectionAnchorId : layerId
+
+      if (range) {
+        const anchorIndex = orderedLayerIds.indexOf(fallbackAnchor)
+        const targetIndex = orderedLayerIds.indexOf(layerId)
+
+        if (anchorIndex < 0 || targetIndex < 0) {
+          return [layerId]
+        }
+
+        const start = Math.min(anchorIndex, targetIndex)
+        const end = Math.max(anchorIndex, targetIndex)
+        return orderedLayerIds.slice(start, end + 1)
+      }
+
+      if (toggle) {
+        if (previousSelection.includes(layerId)) {
+          return previousSelection.filter((id) => id !== layerId)
+        }
+
+        return [...previousSelection, layerId]
+      }
+
+      return [layerId]
+    })
+
+    if (!range) {
+      setSelectionAnchorId(layerId)
+    }
+  }
+
   const commitTransformField = (field: 'x' | 'y' | 'width' | 'height', value: string) => {
-    if (!selectedLayer) {
-      return
-    }
-
     const numericValue = toNumberOrNull(value)
-    if (numericValue === null) {
+    if (numericValue === null || selectedLayers.length === 0) {
       return
     }
 
-    updatePreviewLayerTransform(selectedLayer.id, { [field]: numericValue })
+    if (selectedLayers.length === 1 && primarySelectedLayer) {
+      updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: numericValue })
+      return
+    }
+
+    updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: numericValue })
   }
 
   const handleSaveTemplate = () => {
@@ -105,8 +181,24 @@ export function DesignPage() {
       return
     }
 
-    setSaveStatus(`Saved ${requestedName.trim()}.`)
-    window.setTimeout(() => setSaveStatus(''), 1800)
+    setSaveStatus(`Saved ${requestedName.trim()} (v${(activeTemplate?.version ?? 0) + 1}).`)
+    window.setTimeout(() => setSaveStatus(''), 2200)
+  }
+
+  const handleRestoreVersion = () => {
+    if (!activeTemplate || !versionToRestore) {
+      return
+    }
+
+    const restored = restoreTemplateVersion(activeTemplate.id, Number(versionToRestore))
+    if (!restored) {
+      setSaveStatus('Version restore failed.')
+      return
+    }
+
+    setSaveStatus(`Restored v${versionToRestore}; current is now v${(activeTemplate.version ?? 1) + 1}.`)
+    setVersionToRestore('')
+    window.setTimeout(() => setSaveStatus(''), 2200)
   }
 
   const handleDropOnLayer = (targetLayerId: string) => {
@@ -122,6 +214,8 @@ export function DesignPage() {
     const targetSceneIndex = scene.layers.length - 1 - targetListIndex
     reorderPreviewLayerToIndex(draggingLayerId, targetSceneIndex)
   }
+
+  const versionHistory = activeTemplate?.versions ?? []
 
   return (
     <section className="screen screen--design">
@@ -172,11 +266,12 @@ export function DesignPage() {
               const { canMoveForward, canMoveBackward } = layerPositionInfo(layer, scene.layers)
               const isDragging = draggingLayerId === layer.id
               const isDropTarget = dragTargetLayerId === layer.id && draggingLayerId !== layer.id
+              const isSelected = activeSelectedLayerIds.includes(layer.id)
 
               return (
                 <div
                   key={layer.id}
-                  className={`layer-item ${activeSelectedLayerId === layer.id ? 'layer-item--active' : ''} ${isDragging ? 'layer-item--dragging' : ''} ${isDropTarget ? 'layer-item--drop-target' : ''}`.trim()}
+                  className={`layer-item ${isSelected ? 'layer-item--active' : ''} ${isDragging ? 'layer-item--dragging' : ''} ${isDropTarget ? 'layer-item--drop-target' : ''}`.trim()}
                   draggable
                   onDragStart={(event) => {
                     setDraggingLayerId(layer.id)
@@ -200,7 +295,17 @@ export function DesignPage() {
                     setDragTargetLayerId(null)
                   }}
                 >
-                  <button type="button" className="layer-item__main" onClick={() => setSelectedLayerId(layer.id)}>
+                  <button
+                    type="button"
+                    className="layer-item__main"
+                    onClick={(event) =>
+                      handleLayerSelection(layer.id, {
+                        shiftKey: event.shiftKey,
+                        ctrlKey: event.ctrlKey,
+                        metaKey: event.metaKey,
+                      })
+                    }
+                  >
                     <span>{layer.name}</span>
                     <Move3D size={14} />
                   </button>
@@ -245,7 +350,9 @@ export function DesignPage() {
           <div className="stage-toolbar stage-toolbar--top">
             <span className="mono">CANVAS {scene.width} x {scene.height}</span>
             <div className="stage-toolbar__actions">
-              <span className="mono stage-toolbar__template-name">{activeTemplate?.label ?? scene.name}</span>
+              <span className="mono stage-toolbar__template-name">
+                {activeTemplate?.label ?? scene.name} | v{activeTemplate?.version ?? 1}
+              </span>
               <button type="button" className="btn btn--small btn--accent" onClick={handleSaveTemplate}>
                 Save Template
               </button>
@@ -253,6 +360,42 @@ export function DesignPage() {
                 Export
               </button>
             </div>
+          </div>
+
+          <div className="stage-toolbar stage-toolbar--subtle">
+            <button type="button" className="btn btn--small btn--ghost" disabled={!canAlignSelection} onClick={() => alignPreviewLayers(activeSelectedLayerIds, 'left')}>
+              <AlignJustify size={14} />
+              Left
+            </button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={!canAlignSelection} onClick={() => alignPreviewLayers(activeSelectedLayerIds, 'hCenter')}>
+              <AlignCenter size={14} />
+              H Center
+            </button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={!canAlignSelection} onClick={() => alignPreviewLayers(activeSelectedLayerIds, 'right')}>
+              <AlignJustify size={14} />
+              Right
+            </button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={!canAlignSelection} onClick={() => alignPreviewLayers(activeSelectedLayerIds, 'top')}>
+              <AlignJustify size={14} />
+              Top
+            </button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={!canAlignSelection} onClick={() => alignPreviewLayers(activeSelectedLayerIds, 'vMiddle')}>
+              <AlignCenter size={14} />
+              V Middle
+            </button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={!canAlignSelection} onClick={() => alignPreviewLayers(activeSelectedLayerIds, 'bottom')}>
+              <AlignJustify size={14} />
+              Bottom
+            </button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={!canDistributeSelection} onClick={() => distributePreviewLayers(activeSelectedLayerIds, 'horizontal')}>
+              <AlignHorizontalDistributeCenter size={14} />
+              Dist H
+            </button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={!canDistributeSelection} onClick={() => distributePreviewLayers(activeSelectedLayerIds, 'vertical')}>
+              <AlignVerticalDistributeCenter size={14} />
+              Dist V
+            </button>
+            <span className="mono">1920x1080 VIRTUAL SPACE</span>
           </div>
 
           <div className="stage-toolbar stage-toolbar--subtle">
@@ -268,7 +411,32 @@ export function DesignPage() {
             <button type="button" className="btn btn--small btn--ghost btn--accent-soft">
               Snap
             </button>
-            <span className="mono">1920x1080 VIRTUAL SPACE</span>
+            {versionHistory.length > 0 ? (
+              <>
+                <select
+                  className="stage-select mono"
+                  value={versionToRestore}
+                  onChange={(event) => setVersionToRestore(event.target.value)}
+                >
+                  <option value="">Restore version</option>
+                  {[...versionHistory]
+                    .sort((a, b) => b.version - a.version)
+                    .map((entry) => (
+                      <option key={entry.version} value={entry.version}>
+                        v{entry.version} ({new Date(entry.updatedAt).toLocaleDateString('en-US')})
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn--small btn--ghost"
+                  disabled={!versionToRestore}
+                  onClick={handleRestoreVersion}
+                >
+                  Restore
+                </button>
+              </>
+            ) : null}
             {saveStatus ? <span className="mono stage-toolbar__save-status">{saveStatus}</span> : null}
           </div>
 
@@ -276,8 +444,8 @@ export function DesignPage() {
             <StageCanvas
               scene={scene}
               story={story}
-              selectedLayerId={activeSelectedLayerId}
-              onSelectLayer={(layerId) => setSelectedLayerId(layerId || null)}
+              selectedLayerIds={activeSelectedLayerIds}
+              onSelectLayer={handleLayerSelection}
             />
           </div>
         </section>
@@ -285,11 +453,13 @@ export function DesignPage() {
         <aside className="panel inspector" aria-label="Layer inspector">
           <div className="panel-title">LAYER INSPECTOR</div>
 
-          {selectedLayer ? (
+          {selectedLayers.length > 0 ? (
             <>
               <div className="inspector-section">
-                <div className="inspector-section__label mono">SELECTED (1)</div>
-                <div className="inspector-layer-name">{selectedLayer.name}</div>
+                <div className="inspector-section__label mono">SELECTED ({selectedLayers.length})</div>
+                <div className="inspector-layer-name">
+                  {isMultiSelection ? 'Multiple Layers' : primarySelectedLayer?.name}
+                </div>
               </div>
 
               <div className="inspector-section">
@@ -300,7 +470,8 @@ export function DesignPage() {
                     <input
                       className="mono"
                       type="number"
-                      value={selectedLayer.x}
+                      value={mixedNumberOrValue(selectedLayers, 'x')}
+                      placeholder="mixed"
                       onChange={(event) => commitTransformField('x', event.target.value)}
                     />
                   </label>
@@ -309,7 +480,8 @@ export function DesignPage() {
                     <input
                       className="mono"
                       type="number"
-                      value={selectedLayer.y}
+                      value={mixedNumberOrValue(selectedLayers, 'y')}
+                      placeholder="mixed"
                       onChange={(event) => commitTransformField('y', event.target.value)}
                     />
                   </label>
@@ -319,7 +491,8 @@ export function DesignPage() {
                       className="mono"
                       type="number"
                       min={1}
-                      value={selectedLayer.width}
+                      value={mixedNumberOrValue(selectedLayers, 'width')}
+                      placeholder="mixed"
                       onChange={(event) => commitTransformField('width', event.target.value)}
                     />
                   </label>
@@ -329,7 +502,8 @@ export function DesignPage() {
                       className="mono"
                       type="number"
                       min={1}
-                      value={selectedLayer.height}
+                      value={mixedNumberOrValue(selectedLayers, 'height')}
+                      placeholder="mixed"
                       onChange={(event) => commitTransformField('height', event.target.value)}
                     />
                   </label>
@@ -338,14 +512,16 @@ export function DesignPage() {
 
               <div className="inspector-section">
                 <div className="inspector-section__label">Style</div>
-                {'fill' in selectedLayer ? (
+                {isMultiSelection ? (
+                  <div className="inspector-empty">Style editing is available for single-layer selection only.</div>
+                ) : primarySelectedLayer && 'fill' in primarySelectedLayer ? (
                   <>
                     <label>
                       Fill
                       <input
                         className="mono"
-                        value={selectedLayer.fill}
-                        onChange={(event) => updatePreviewShapeStyle(selectedLayer.id, { fill: event.target.value })}
+                        value={primarySelectedLayer.fill}
+                        onChange={(event) => updatePreviewShapeStyle(primarySelectedLayer.id, { fill: event.target.value })}
                       />
                     </label>
                     <label>
@@ -355,33 +531,33 @@ export function DesignPage() {
                         type="number"
                         min={0}
                         max={100}
-                        value={asPercent(selectedLayer.opacity)}
+                        value={asPercent(primarySelectedLayer.opacity)}
                         onChange={(event) => {
                           const nextPercent = toNumberOrNull(event.target.value)
                           if (nextPercent === null) {
                             return
                           }
 
-                          updatePreviewShapeStyle(selectedLayer.id, { opacity: fromPercent(nextPercent) })
+                          updatePreviewShapeStyle(primarySelectedLayer.id, { opacity: fromPercent(nextPercent) })
                         }}
                       />
                     </label>
                   </>
-                ) : (
+                ) : primarySelectedLayer ? (
                   <>
                     <label>
                       Text
                       <input
-                        value={selectedLayer.text}
-                        onChange={(event) => updatePreviewTextStyle(selectedLayer.id, { text: event.target.value })}
+                        value={primarySelectedLayer.text}
+                        onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { text: event.target.value })}
                       />
                     </label>
                     <label>
                       Color
                       <input
                         className="mono"
-                        value={selectedLayer.color}
-                        onChange={(event) => updatePreviewTextStyle(selectedLayer.id, { color: event.target.value })}
+                        value={primarySelectedLayer.color}
+                        onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { color: event.target.value })}
                       />
                     </label>
                     <label>
@@ -390,14 +566,14 @@ export function DesignPage() {
                         className="mono"
                         type="number"
                         min={8}
-                        value={selectedLayer.fontSize}
+                        value={primarySelectedLayer.fontSize}
                         onChange={(event) => {
                           const nextFontSize = toNumberOrNull(event.target.value)
                           if (nextFontSize === null) {
                             return
                           }
 
-                          updatePreviewTextStyle(selectedLayer.id, { fontSize: nextFontSize })
+                          updatePreviewTextStyle(primarySelectedLayer.id, { fontSize: nextFontSize })
                         }}
                       />
                     </label>
@@ -408,23 +584,23 @@ export function DesignPage() {
                         type="number"
                         min={0}
                         max={100}
-                        value={asPercent(selectedLayer.opacity)}
+                        value={asPercent(primarySelectedLayer.opacity)}
                         onChange={(event) => {
                           const nextPercent = toNumberOrNull(event.target.value)
                           if (nextPercent === null) {
                             return
                           }
 
-                          updatePreviewTextStyle(selectedLayer.id, { opacity: fromPercent(nextPercent) })
+                          updatePreviewTextStyle(primarySelectedLayer.id, { opacity: fromPercent(nextPercent) })
                         }}
                       />
                     </label>
                   </>
-                )}
+                ) : null}
               </div>
             </>
           ) : (
-            <div className="inspector-empty">Select a layer to inspect virtual pixel values.</div>
+            <div className="inspector-empty">Select one or more layers to inspect and edit virtual pixel values.</div>
           )}
         </aside>
       </div>

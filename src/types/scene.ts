@@ -47,11 +47,20 @@ export interface SceneDefinition {
   layers: SceneLayer[]
 }
 
+export interface TemplateVersion {
+  version: number
+  scene: SceneDefinition
+  label: string
+  updatedAt: number
+}
+
 export interface TemplateDefinition {
   id: string
   label: string
   scene: SceneDefinition
   favorite?: boolean
   builtIn?: boolean
+  version?: number
+  versions?: TemplateVersion[]
   updatedAt?: number
 }

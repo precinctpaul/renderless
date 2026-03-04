@@ -47,7 +47,8 @@ a {
 }
 
 button,
-input {
+input,
+select {
   font-family: inherit;
 }
 
@@ -62,6 +63,21 @@ input {
 }
 
 input:focus {
+  outline: none;
+  border-color: var(--blue-500);
+  background: #101b31;
+}
+
+select {
+  border: 1px solid var(--zinc-800);
+  border-radius: 8px;
+  background: #0b1324;
+  color: var(--zinc-100);
+  padding: 0.45rem 0.56rem;
+  transition: border-color 200ms ease-in-out, background 200ms ease-in-out;
+}
+
+select:focus {
   outline: none;
   border-color: var(--blue-500);
   background: #101b31;
@@ -654,6 +670,13 @@ input:focus {
   color: #86efac;
   margin-left: auto;
   font-size: 11px;
+}
+
+.stage-select {
+  min-height: 30px;
+  font-size: 11px;
+  border-color: #274169;
+  background: #0e1d34;
 }
 
 .stage-canvas-wrap {

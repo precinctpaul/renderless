@@ -8,10 +8,18 @@ interface SceneRendererProps {
   story: StoryState
   checkerboard?: boolean
   selectedLayerId?: string
+  selectedLayerIds?: string[]
   showSelection?: boolean
   showSafeZone?: boolean
   className?: string
-  onSelectLayer?: (layerId: string) => void
+  onSelectLayer?: (
+    layerId: string,
+    modifiers?: {
+      shiftKey: boolean
+      ctrlKey: boolean
+      metaKey: boolean
+    },
+  ) => void
 }
 
 function resolveText(layer: TextLayer, story: StoryState): string {
@@ -70,6 +78,7 @@ export function SceneRenderer({
   story,
   checkerboard = false,
   selectedLayerId,
+  selectedLayerIds,
   showSelection = false,
   showSafeZone = false,
   className,
@@ -83,15 +92,26 @@ export function SceneRenderer({
     return Math.min(widthScale, heightScale)
   }, [containerSize.height, containerSize.width, scene.height, scene.width])
 
-  const selectedLayer = showSelection
-    ? scene.layers.find((layer) => layer.id === selectedLayerId && layer.visible)
-    : undefined
+  const selectedIdSet = useMemo(() => {
+    const ids = selectedLayerIds?.length ? selectedLayerIds : selectedLayerId ? [selectedLayerId] : []
+    return new Set(ids)
+  }, [selectedLayerId, selectedLayerIds])
+
+  const selectedLayers = showSelection
+    ? scene.layers.filter((layer) => selectedIdSet.has(layer.id) && layer.visible)
+    : []
 
   return (
     <div
       ref={containerRef}
       className={`scene-renderer ${checkerboard ? 'scene-renderer--checkerboard' : ''} ${className ?? ''}`.trim()}
-      onMouseDown={() => onSelectLayer?.('')}
+      onMouseDown={() =>
+        onSelectLayer?.('', {
+          shiftKey: false,
+          ctrlKey: false,
+          metaKey: false,
+        })
+      }
     >
       <div
         className="scene-renderer__stage"
@@ -109,7 +129,11 @@ export function SceneRenderer({
             style={layerStyle(layer)}
             onMouseDown={(event) => {
               event.stopPropagation()
-              onSelectLayer?.(layer.id)
+              onSelectLayer?.(layer.id, {
+                shiftKey: event.shiftKey,
+                ctrlKey: event.ctrlKey,
+                metaKey: event.metaKey,
+              })
             }}
           >
             {layer.kind === 'text' ? resolveText(layer, story) : null}
@@ -128,8 +152,9 @@ export function SceneRenderer({
           />
         ) : null}
 
-        {selectedLayer ? (
+        {selectedLayers.map((selectedLayer) => (
           <div
+            key={selectedLayer.id}
             className="scene-renderer__selection"
             style={{
               left: selectedLayer.x,
@@ -138,7 +163,7 @@ export function SceneRenderer({
               height: selectedLayer.height,
             }}
           />
-        ) : null}
+        ))}
       </div>
     </div>
   )

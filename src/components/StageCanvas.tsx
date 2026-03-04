@@ -5,15 +5,24 @@ interface StageCanvasProps {
   scene: SceneDefinition
   story: StoryState
   selectedLayerId?: string
+  selectedLayerIds?: string[]
   showGrid?: boolean
   showSafeZone?: boolean
-  onSelectLayer?: (layerId: string) => void
+  onSelectLayer?: (
+    layerId: string,
+    modifiers?: {
+      shiftKey: boolean
+      ctrlKey: boolean
+      metaKey: boolean
+    },
+  ) => void
 }
 
 export function StageCanvas({
   scene,
   story,
   selectedLayerId,
+  selectedLayerIds,
   showGrid = true,
   showSafeZone = true,
   onSelectLayer,
@@ -24,6 +33,7 @@ export function StageCanvas({
         scene={scene}
         story={story}
         selectedLayerId={selectedLayerId}
+        selectedLayerIds={selectedLayerIds}
         onSelectLayer={onSelectLayer}
         showSelection
         showSafeZone={showSafeZone}

@@ -93,6 +93,7 @@ export function DashboardPage() {
               <tr>
                 <th>Name</th>
                 <th>Type</th>
+                <th>Version</th>
                 <th>Dimensions</th>
                 <th>Modified</th>
                 <th>Actions</th>
@@ -103,6 +104,7 @@ export function DashboardPage() {
                 <tr key={template.id} className={previewTemplateId === template.id ? 'template-row--active' : ''}>
                   <td>{template.label}</td>
                   <td>{template.builtIn ? 'Template (Built-In)' : 'Template (Custom)'}</td>
+                  <td className="mono">v{template.version ?? 1}</td>
                   <td>
                     {template.scene.width}x{template.scene.height}
                   </td>
