@@ -2,6 +2,12 @@ import { create } from 'zustand'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
 import type { DataBindingKey, SceneDefinition, StoryState, TemplateDefinition, TemplateVersion } from '../types/scene'
 import { extractBindingKeys, isDataBindingKey } from '../lib/bindings'
+import {
+  buildTemplatePackage,
+  parseTemplatePackage,
+  templateFromPackage,
+  type TemplatePackageV1,
+} from '../lib/templatePackages'
 
 const STORAGE_KEY = 'renderless.playout.snapshot.v1'
 const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
@@ -79,6 +85,9 @@ interface PlayoutStore {
   undoPreviewScene: () => void
   redoPreviewScene: () => void
   savePreviewTemplate: (name: string) => string | null
+  exportTemplatePackage: (templateId: string) => TemplatePackageV1 | null
+  exportPreviewTemplatePackage: () => TemplatePackageV1
+  importTemplatePackage: (rawPackage: unknown) => { ok: boolean; templateId?: string; error?: string }
   restoreTemplateVersion: (templateId: string, version: number) => boolean
   deleteTemplate: (templateId: string) => void
   resetDemo: () => void
@@ -108,6 +117,45 @@ function createTemplateId(): string {
 
 function createSceneId(): string {
   return `scene-custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function createUniqueTemplateId(templates: TemplateDefinition[], preferredId: string): string {
+  const normalizedPreferredId = preferredId.trim()
+  if (normalizedPreferredId.length === 0) {
+    return createTemplateId()
+  }
+
+  const existingIds = new Set(templates.map((template) => template.id))
+  if (!existingIds.has(normalizedPreferredId)) {
+    return normalizedPreferredId
+  }
+
+  let suffix = 1
+  let candidateId = `${normalizedPreferredId}-${suffix}`
+  while (existingIds.has(candidateId)) {
+    suffix += 1
+    candidateId = `${normalizedPreferredId}-${suffix}`
+  }
+
+  return candidateId
+}
+
+function createUniqueSceneId(templates: TemplateDefinition[], preferredId: string): string {
+  const normalizedPreferredId = preferredId.trim()
+  const existingSceneIds = new Set(templates.map((template) => template.scene.id))
+
+  if (normalizedPreferredId.length > 0 && !existingSceneIds.has(normalizedPreferredId)) {
+    return normalizedPreferredId
+  }
+
+  let suffix = 1
+  let candidateId = normalizedPreferredId.length > 0 ? `${normalizedPreferredId}-${suffix}` : createSceneId()
+  while (existingSceneIds.has(candidateId)) {
+    suffix += 1
+    candidateId = normalizedPreferredId.length > 0 ? `${normalizedPreferredId}-${suffix}` : createSceneId()
+  }
+
+  return candidateId
 }
 
 function clampVersionHistory(versions: TemplateVersion[]): TemplateVersion[] {
@@ -216,7 +264,14 @@ function readPersistedTemplates(): TemplateDefinition[] {
     }
 
     return parsed
-      .map((entry) => normalizeTemplateFromStorage(entry))
+      .map((entry) => {
+        const parsedPackage = parseTemplatePackage(entry)
+        if (parsedPackage.ok) {
+          return templateFromPackage(parsedPackage.value)
+        }
+
+        return normalizeTemplateFromStorage(entry)
+      })
       .filter((entry): entry is TemplateDefinition => entry !== null)
   } catch {
     return []
@@ -244,9 +299,9 @@ function persistCustomTemplates(templates: TemplateDefinition[]) {
     return
   }
 
-  const customTemplates = templates
+  const customTemplatePackages = templates
     .filter((template) => !template.builtIn)
-    .map((template) => ({
+    .map((template) => buildTemplatePackage({
       ...cloneTemplate(template),
       bindings: template.bindings ?? extractBindingKeys(template.scene),
       builtIn: false,
@@ -254,7 +309,7 @@ function persistCustomTemplates(templates: TemplateDefinition[]) {
     }))
 
   try {
-    window.localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplates))
+    window.localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(customTemplatePackages))
   } catch {
     // Ignore storage failures and continue with in-memory templates.
   }
@@ -897,6 +952,91 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       persistCustomTemplates(get().templates)
       return templateId
+    },
+    exportTemplatePackage: (templateId) => {
+      const template = findTemplateById(get().templates, templateId)
+      if (!template) {
+        return null
+      }
+
+      return buildTemplatePackage(template)
+    },
+    exportPreviewTemplatePackage: () => {
+      const state = get()
+      const activeTemplate = findTemplateById(state.templates, state.previewTemplateId)
+      const fallbackTemplate: TemplateDefinition = {
+        id: activeTemplate?.id ?? createTemplateId(),
+        label: activeTemplate?.label ?? state.previewScene.name,
+        scene: cloneScene({
+          ...state.previewScene,
+          id: activeTemplate?.scene.id ?? createSceneId(),
+          name: activeTemplate?.label ?? state.previewScene.name,
+        }),
+        bindings: extractBindingKeys(state.previewScene),
+        favorite: activeTemplate?.favorite ?? false,
+        builtIn: false,
+        version: activeTemplate?.version ?? 1,
+        versions: activeTemplate?.versions ?? [],
+        updatedAt: Date.now(),
+      }
+
+      return buildTemplatePackage(fallbackTemplate)
+    },
+    importTemplatePackage: (rawPackage) => {
+      const parsedPackage = parseTemplatePackage(rawPackage)
+      if (!parsedPackage.ok) {
+        return {
+          ok: false,
+          error: parsedPackage.error,
+        }
+      }
+
+      const importedTemplate = templateFromPackage(parsedPackage.value)
+      const now = Date.now()
+      const state = get()
+
+      const nextTemplateId = createUniqueTemplateId(state.templates, importedTemplate.id)
+      const nextSceneId = createUniqueSceneId(state.templates, importedTemplate.scene.id)
+
+      const normalizedImportedTemplate: TemplateDefinition = {
+        ...importedTemplate,
+        id: nextTemplateId,
+        scene: cloneScene({
+          ...importedTemplate.scene,
+          id: nextSceneId,
+        }),
+        builtIn: false,
+        favorite: false,
+        version: importedTemplate.version ?? 1,
+        bindings: importedTemplate.bindings ?? extractBindingKeys(importedTemplate.scene),
+        versions: (importedTemplate.versions ?? []).map((entry) => ({
+          ...entry,
+          scene: cloneScene(entry.scene),
+          bindings: entry.bindings ?? extractBindingKeys(entry.scene),
+        })),
+        updatedAt: importedTemplate.updatedAt ?? now,
+      }
+
+      set((currentState) => {
+        const nextTemplates = [...currentState.templates, normalizedImportedTemplate]
+
+        return {
+          templates: nextTemplates,
+          previewTemplateId: normalizedImportedTemplate.id,
+          previewScene: cloneScene(normalizedImportedTemplate.scene),
+          undoStack: [],
+          redoStack: [],
+          canUndo: false,
+          canRedo: false,
+          updatedAt: now,
+        }
+      })
+
+      persistCustomTemplates(get().templates)
+      return {
+        ok: true,
+        templateId: normalizedImportedTemplate.id,
+      }
     },
     restoreTemplateVersion: (templateId, version) => {
       const state = get()

@@ -5,6 +5,7 @@ import type { DataBindingKey, SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 import { BINDABLE_FIELDS } from '../data/storySchema'
 import { resolveBindingValue } from '../lib/bindings'
+import type { TemplatePackageV1 } from '../lib/templatePackages'
 
 const CREATION_ITEMS = ['TEXT', 'SHAPE', 'FIGMA', 'RIVE']
 
@@ -46,6 +47,28 @@ function mixedNumberOrValue(layers: SceneLayer[], field: 'x' | 'y' | 'width' | '
   return values.every((value) => value === firstValue) ? String(firstValue) : ''
 }
 
+function slugifyFileName(rawValue: string): string {
+  const normalized = rawValue
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return normalized || 'template-package'
+}
+
+function downloadTemplatePackageFile(templatePackage: TemplatePackageV1) {
+  const fileName = `${slugifyFileName(templatePackage.metadata.label)}.rltpl.json`
+  const payload = JSON.stringify(templatePackage, null, 2)
+  const blob = new Blob([payload], { type: 'application/json' })
+  const objectUrl = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = objectUrl
+  anchor.download = fileName
+  anchor.click()
+  window.URL.revokeObjectURL(objectUrl)
+}
+
 export function DesignPage() {
   const scene = usePlayoutStore((state) => state.previewScene)
   const story = usePlayoutStore((state) => state.story)
@@ -65,6 +88,7 @@ export function DesignPage() {
   const canUndo = usePlayoutStore((state) => state.canUndo)
   const canRedo = usePlayoutStore((state) => state.canRedo)
   const savePreviewTemplate = usePlayoutStore((state) => state.savePreviewTemplate)
+  const exportPreviewTemplatePackage = usePlayoutStore((state) => state.exportPreviewTemplatePackage)
   const restoreTemplateVersion = usePlayoutStore((state) => state.restoreTemplateVersion)
 
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([])
@@ -201,6 +225,13 @@ export function DesignPage() {
 
     setSaveStatus(`Restored v${versionToRestore}; current is now v${(activeTemplate.version ?? 1) + 1}.`)
     setVersionToRestore('')
+    window.setTimeout(() => setSaveStatus(''), 2200)
+  }
+
+  const handleExportPackage = () => {
+    const templatePackage = exportPreviewTemplatePackage()
+    downloadTemplatePackageFile(templatePackage)
+    setSaveStatus(`Exported package ${templatePackage.metadata.label}.rltpl.json`)
     window.setTimeout(() => setSaveStatus(''), 2200)
   }
 
@@ -363,8 +394,8 @@ export function DesignPage() {
               <button type="button" className="btn btn--small btn--accent" onClick={handleSaveTemplate}>
                 Save Template
               </button>
-              <button type="button" className="btn btn--small btn--ghost">
-                Export
+              <button type="button" className="btn btn--small btn--ghost" onClick={handleExportPackage}>
+                Export Package
               </button>
             </div>
           </div>

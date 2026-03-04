@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Folder, FolderOpen, Puzzle, Trash2 } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { Folder, FolderOpen, Puzzle, Trash2, Upload } from 'lucide-react'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const MODES = ['Branded Assets', 'Fonts', 'Templates']
@@ -20,9 +20,13 @@ export function DashboardPage() {
   const templates = usePlayoutStore((state) => state.templates)
   const cuePreview = usePlayoutStore((state) => state.cuePreview)
   const deleteTemplate = usePlayoutStore((state) => state.deleteTemplate)
+  const importTemplatePackage = usePlayoutStore((state) => state.importTemplatePackage)
   const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
 
   const [query, setQuery] = useState('')
+  const [importStatus, setImportStatus] = useState('')
+  const [isImporting, setIsImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const filteredTemplates = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -32,6 +36,46 @@ export function DashboardPage() {
 
     return templates.filter((template) => template.label.toLowerCase().includes(normalizedQuery))
   }, [query, templates])
+
+  const handleImportFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) {
+      return
+    }
+
+    setIsImporting(true)
+    let importedCount = 0
+    let failedCount = 0
+
+    for (const file of Array.from(files)) {
+      try {
+        const rawText = await file.text()
+        const parsedJson = JSON.parse(rawText) as unknown
+        const packageEntries = Array.isArray(parsedJson) ? parsedJson : [parsedJson]
+
+        packageEntries.forEach((entry) => {
+          const result = importTemplatePackage(entry)
+          if (result.ok) {
+            importedCount += 1
+          } else {
+            failedCount += 1
+          }
+        })
+      } catch {
+        failedCount += 1
+      }
+    }
+
+    if (importedCount > 0 && failedCount === 0) {
+      setImportStatus(`Imported ${importedCount} template package(s).`)
+    } else if (importedCount > 0) {
+      setImportStatus(`Imported ${importedCount} package(s), ${failedCount} failed validation.`)
+    } else {
+      setImportStatus('Import failed. Package contract must be renderless.template-package v1.')
+    }
+
+    setIsImporting(false)
+    window.setTimeout(() => setImportStatus(''), 2600)
+  }
 
   return (
     <section className="screen screen--dashboard">
@@ -83,10 +127,28 @@ export function DashboardPage() {
               placeholder="Search templates"
               onChange={(event) => setQuery(event.target.value)}
             />
-            <button type="button" className="btn btn--ghost">
-              Import SVG
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={isImporting}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload size={14} />
+              {isImporting ? 'Importing...' : 'Import Package'}
             </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,.rltpl,.rltpl.json"
+              multiple
+              style={{ display: 'none' }}
+              onChange={(event) => {
+                void handleImportFiles(event.target.files)
+                event.target.value = ''
+              }}
+            />
           </div>
+          {importStatus ? <div className="table-toolbar__status mono">{importStatus}</div> : null}
 
           <table className="template-table">
             <thead>
@@ -137,11 +199,12 @@ export function DashboardPage() {
         <aside className="panel panel--right">
           <div className="panel-title">Templates Protocol</div>
           <p>
-            Templates are saved compositions (<span className="mono">layers + canvas + bindings</span>), not raw assets.
+            Package contract: <span className="mono">scenegraph + bindings + metadata</span> with deterministic v1
+            parsing.
           </p>
           <div className="protocol-item">
             <Puzzle size={16} />
-            <span>Custom template saves persist across refreshes</span>
+            <span>Import/export uses renderless.template-package v1</span>
           </div>
         </aside>
       </div>

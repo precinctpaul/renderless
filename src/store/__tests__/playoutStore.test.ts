@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 
 const SNAPSHOT_KEY = 'renderless.playout.snapshot.v1'
+const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
 
 function getLayerPosition(scene: { layers: Array<{ id: string; x: number; y: number }> }, layerId: string) {
   const layer = scene.layers.find((entry) => entry.id === layerId)
@@ -143,5 +144,63 @@ describe('Playout reliability and QA regression suite', () => {
     expect(story.period).toBe(2)
     expect(story.shotClock).toBe(18)
     expect(story.headline).toBe('Fast break points')
+  })
+
+  test('custom templates are persisted in template package contract v1', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().savePreviewTemplate('Package QA Template')
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+    const serializedTemplates = window.localStorage.getItem(TEMPLATE_STORAGE_KEY)
+    expect(serializedTemplates).toBeTruthy()
+
+    const parsedTemplates = JSON.parse(serializedTemplates ?? '[]') as Array<{
+      kind?: string
+      contractVersion?: number
+      metadata?: { label?: string; size?: { width?: number; height?: number } }
+      scenegraph?: { width?: number; height?: number }
+      bindings?: string[]
+    }>
+
+    expect(Array.isArray(parsedTemplates)).toBe(true)
+    expect(parsedTemplates.length).toBeGreaterThan(0)
+    expect(parsedTemplates[0]?.kind).toBe('renderless.template-package')
+    expect(parsedTemplates[0]?.contractVersion).toBe(1)
+    expect(parsedTemplates[0]?.metadata?.label).toBe('Package QA Template')
+    expect(parsedTemplates[0]?.metadata?.size?.width).toBe(1920)
+    expect(parsedTemplates[0]?.scenegraph?.height).toBe(1080)
+    expect(parsedTemplates[0]?.bindings?.includes('homeScore')).toBe(true)
+  })
+
+  test('template package import round-trips scenegraph and binding metadata', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().updatePreviewTextBinding('text-home-score', 'period')
+    const exportedPackage = usePlayoutStore.getState().exportPreviewTemplatePackage()
+    const importResult = usePlayoutStore.getState().importTemplatePackage(exportedPackage)
+
+    expect(importResult.ok).toBe(true)
+    expect(importResult.templateId).toBeTruthy()
+
+    const importedTemplate = usePlayoutStore.getState().templates.find((template) => template.id === importResult.templateId)
+    expect(importedTemplate).toBeTruthy()
+    expect(importedTemplate?.scene.width).toBe(1920)
+    expect(importedTemplate?.scene.height).toBe(1080)
+    expect(importedTemplate?.bindings?.includes('period')).toBe(true)
+  })
+
+  test('invalid template package payload is rejected during import', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    const importResult = usePlayoutStore.getState().importTemplatePackage({
+      kind: 'renderless.template-package',
+      contractVersion: 999,
+    })
+
+    expect(importResult.ok).toBe(false)
+    expect(importResult.error).toContain('Unsupported contract version')
   })
 })

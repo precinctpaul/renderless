@@ -402,6 +402,12 @@ select:focus {
   margin-bottom: 10px;
 }
 
+.table-toolbar__status {
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: #86efac;
+}
+
 .template-table {
   width: 100%;
   border-collapse: collapse;
