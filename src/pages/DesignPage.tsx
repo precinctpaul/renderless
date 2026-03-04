@@ -1,17 +1,41 @@
 import { useMemo, useState } from 'react'
-import { Move3D, Redo2, Undo2, Upload } from 'lucide-react'
+import { ArrowDown, ArrowUp, Move3D, Redo2, Undo2, Upload } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
+import type { SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const CREATION_ITEMS = ['TEXT', 'SHAPE', 'FIGMA', 'RIVE']
 
-function displayNumber(value: number): string {
-  return Number.isFinite(value) ? `${Math.round(value)}` : '0'
+function toNumberOrNull(value: string): number | null {
+  const numericValue = Number(value)
+  return Number.isFinite(numericValue) ? numericValue : null
+}
+
+function asPercent(opacity: number): number {
+  return Math.round(opacity * 100)
+}
+
+function fromPercent(percent: number): number {
+  return Math.min(Math.max(percent, 0), 100) / 100
+}
+
+function layerPositionInfo(layer: SceneLayer, layers: SceneLayer[]) {
+  const index = layers.findIndex((entry) => entry.id === layer.id)
+
+  return {
+    canMoveForward: index >= 0 && index < layers.length - 1,
+    canMoveBackward: index > 0,
+  }
 }
 
 export function DesignPage() {
   const scene = usePlayoutStore((state) => state.previewScene)
   const story = usePlayoutStore((state) => state.story)
+  const reorderPreviewLayer = usePlayoutStore((state) => state.reorderPreviewLayer)
+  const updatePreviewLayerTransform = usePlayoutStore((state) => state.updatePreviewLayerTransform)
+  const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
+  const updatePreviewTextStyle = usePlayoutStore((state) => state.updatePreviewTextStyle)
+
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
 
   const orderedLayers = useMemo(() => [...scene.layers].reverse(), [scene.layers])
@@ -20,6 +44,19 @@ export function DesignPage() {
       ? selectedLayerId
       : (orderedLayers[0]?.id ?? '')
   const selectedLayer = scene.layers.find((layer) => layer.id === activeSelectedLayerId) ?? null
+
+  const commitTransformField = (field: 'x' | 'y' | 'width' | 'height', value: string) => {
+    if (!selectedLayer) {
+      return
+    }
+
+    const numericValue = toNumberOrNull(value)
+    if (numericValue === null) {
+      return
+    }
+
+    updatePreviewLayerTransform(selectedLayer.id, { [field]: numericValue })
+  }
 
   return (
     <section className="screen screen--design">
@@ -66,17 +103,44 @@ export function DesignPage() {
           </div>
 
           <div className="layer-list" role="listbox" aria-label="Layer stack">
-            {orderedLayers.map((layer) => (
-              <button
-                key={layer.id}
-                type="button"
-                className={`layer-item ${activeSelectedLayerId === layer.id ? 'layer-item--active' : ''}`.trim()}
-                onClick={() => setSelectedLayerId(layer.id)}
-              >
-                <span>{layer.name}</span>
-                <Move3D size={14} />
-              </button>
-            ))}
+            {orderedLayers.map((layer) => {
+              const { canMoveForward, canMoveBackward } = layerPositionInfo(layer, scene.layers)
+
+              return (
+                <div key={layer.id} className={`layer-item ${activeSelectedLayerId === layer.id ? 'layer-item--active' : ''}`.trim()}>
+                  <button type="button" className="layer-item__main" onClick={() => setSelectedLayerId(layer.id)}>
+                    <span>{layer.name}</span>
+                    <Move3D size={14} />
+                  </button>
+                  <div className="layer-item__order">
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn--mini"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        reorderPreviewLayer(layer.id, 'forward')
+                      }}
+                      disabled={!canMoveForward}
+                      aria-label="Move layer up"
+                    >
+                      <ArrowUp size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn icon-btn--mini"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        reorderPreviewLayer(layer.id, 'backward')
+                      }}
+                      disabled={!canMoveBackward}
+                      aria-label="Move layer down"
+                    >
+                      <ArrowDown size={12} />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           <button type="button" className="btn btn--ghost btn--small">
@@ -139,19 +203,41 @@ export function DesignPage() {
                 <div className="transform-grid">
                   <label>
                     X
-                    <input className="mono" value={displayNumber(selectedLayer.x)} readOnly />
+                    <input
+                      className="mono"
+                      type="number"
+                      value={selectedLayer.x}
+                      onChange={(event) => commitTransformField('x', event.target.value)}
+                    />
                   </label>
                   <label>
                     Y
-                    <input className="mono" value={displayNumber(selectedLayer.y)} readOnly />
+                    <input
+                      className="mono"
+                      type="number"
+                      value={selectedLayer.y}
+                      onChange={(event) => commitTransformField('y', event.target.value)}
+                    />
                   </label>
                   <label>
                     W
-                    <input className="mono" value={displayNumber(selectedLayer.width)} readOnly />
+                    <input
+                      className="mono"
+                      type="number"
+                      min={1}
+                      value={selectedLayer.width}
+                      onChange={(event) => commitTransformField('width', event.target.value)}
+                    />
                   </label>
                   <label>
                     H
-                    <input className="mono" value={displayNumber(selectedLayer.height)} readOnly />
+                    <input
+                      className="mono"
+                      type="number"
+                      min={1}
+                      value={selectedLayer.height}
+                      onChange={(event) => commitTransformField('height', event.target.value)}
+                    />
                   </label>
                 </div>
               </div>
@@ -159,19 +245,85 @@ export function DesignPage() {
               <div className="inspector-section">
                 <div className="inspector-section__label">Style</div>
                 {'fill' in selectedLayer ? (
-                  <label>
-                    Fill
-                    <input className="mono" value={selectedLayer.fill} readOnly />
-                  </label>
+                  <>
+                    <label>
+                      Fill
+                      <input
+                        className="mono"
+                        value={selectedLayer.fill}
+                        onChange={(event) => updatePreviewShapeStyle(selectedLayer.id, { fill: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Opacity
+                      <input
+                        className="mono"
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={asPercent(selectedLayer.opacity)}
+                        onChange={(event) => {
+                          const nextPercent = toNumberOrNull(event.target.value)
+                          if (nextPercent === null) {
+                            return
+                          }
+
+                          updatePreviewShapeStyle(selectedLayer.id, { opacity: fromPercent(nextPercent) })
+                        }}
+                      />
+                    </label>
+                  </>
                 ) : (
                   <>
                     <label>
                       Text
-                      <input value={selectedLayer.text} readOnly />
+                      <input
+                        value={selectedLayer.text}
+                        onChange={(event) => updatePreviewTextStyle(selectedLayer.id, { text: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Color
+                      <input
+                        className="mono"
+                        value={selectedLayer.color}
+                        onChange={(event) => updatePreviewTextStyle(selectedLayer.id, { color: event.target.value })}
+                      />
                     </label>
                     <label>
                       Font Size
-                      <input className="mono" value={displayNumber(selectedLayer.fontSize)} readOnly />
+                      <input
+                        className="mono"
+                        type="number"
+                        min={8}
+                        value={selectedLayer.fontSize}
+                        onChange={(event) => {
+                          const nextFontSize = toNumberOrNull(event.target.value)
+                          if (nextFontSize === null) {
+                            return
+                          }
+
+                          updatePreviewTextStyle(selectedLayer.id, { fontSize: nextFontSize })
+                        }}
+                      />
+                    </label>
+                    <label>
+                      Opacity
+                      <input
+                        className="mono"
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={asPercent(selectedLayer.opacity)}
+                        onChange={(event) => {
+                          const nextPercent = toNumberOrNull(event.target.value)
+                          if (nextPercent === null) {
+                            return
+                          }
+
+                          updatePreviewTextStyle(selectedLayer.id, { opacity: fromPercent(nextPercent) })
+                        }}
+                      />
                     </label>
                   </>
                 )}

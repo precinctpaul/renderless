@@ -44,6 +44,20 @@ interface PlayoutStore {
   setClock: (clock: string) => void
   resetClock: () => void
   togglePossession: () => void
+  nudgeClock: (deltaSeconds: number) => void
+  reorderPreviewLayer: (layerId: string, direction: 'forward' | 'backward') => void
+  updatePreviewLayerTransform: (
+    layerId: string,
+    patch: Partial<Pick<SceneDefinition['layers'][number], 'x' | 'y' | 'width' | 'height'>>,
+  ) => void
+  updatePreviewShapeStyle: (
+    layerId: string,
+    patch: Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'shape' }>, 'fill' | 'opacity'>>,
+  ) => void
+  updatePreviewTextStyle: (
+    layerId: string,
+    patch: Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'text' }>, 'text' | 'fontSize' | 'color' | 'opacity'>>,
+  ) => void
   resetDemo: () => void
 }
 
@@ -63,6 +77,45 @@ function getTemplateById(templateId: string): TemplateDefinition | undefined {
 function resolveSceneForTemplate(templateId: string): SceneDefinition {
   const template = getTemplateById(templateId)
   return template ? cloneScene(template.scene) : cloneScene(CLEAR_SCENE)
+}
+
+function moveLayerByDelta(scene: SceneDefinition, layerId: string, delta: -1 | 1): SceneDefinition {
+  const sourceIndex = scene.layers.findIndex((layer) => layer.id === layerId)
+  if (sourceIndex === -1) {
+    return scene
+  }
+
+  const targetIndex = sourceIndex + delta
+  if (targetIndex < 0 || targetIndex >= scene.layers.length) {
+    return scene
+  }
+
+  const nextLayers = [...scene.layers]
+  const [movedLayer] = nextLayers.splice(sourceIndex, 1)
+  nextLayers.splice(targetIndex, 0, movedLayer)
+
+  return {
+    ...scene,
+    layers: nextLayers,
+  }
+}
+
+function parseClockToSeconds(clock: string): number {
+  const [minutesRaw, secondsRaw] = clock.split(':')
+  const minutes = Number(minutesRaw)
+  const seconds = Number(secondsRaw)
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
+    return 0
+  }
+
+  return Math.max(0, minutes * 60 + seconds)
+}
+
+function secondsToClock(totalSeconds: number): string {
+  const clamped = Math.max(0, Math.floor(totalSeconds))
+  const minutes = Math.floor(clamped / 60)
+  const seconds = clamped % 60
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
 }
 
 function normalizeSnapshot(rawSnapshot: Partial<PersistedPlayoutSnapshot> | null): PersistedPlayoutSnapshot {
@@ -231,6 +284,96 @@ export const usePlayoutStore = create<PlayoutStore>((set) => ({
       story: {
         ...state.story,
         possession: state.story.possession === 'home' ? 'away' : 'home',
+      },
+      updatedAt: Date.now(),
+    }))
+  },
+  nudgeClock: (deltaSeconds) => {
+    set((state) => {
+      const nextSeconds = parseClockToSeconds(state.story.clock) + deltaSeconds
+      return {
+        story: {
+          ...state.story,
+          clock: secondsToClock(nextSeconds),
+        },
+        updatedAt: Date.now(),
+      }
+    })
+  },
+  reorderPreviewLayer: (layerId, direction) => {
+    set((state) => ({
+      previewScene: moveLayerByDelta(state.previewScene, layerId, direction === 'forward' ? 1 : -1),
+      updatedAt: Date.now(),
+    }))
+  },
+  updatePreviewLayerTransform: (layerId, patch) => {
+    set((state) => ({
+      previewScene: {
+        ...state.previewScene,
+        layers: state.previewScene.layers.map((layer) => {
+          if (layer.id !== layerId) {
+            return layer
+          }
+
+          return {
+            ...layer,
+            x: Number.isFinite(patch.x) ? Math.round(Math.max(0, patch.x ?? layer.x)) : layer.x,
+            y: Number.isFinite(patch.y) ? Math.round(Math.max(0, patch.y ?? layer.y)) : layer.y,
+            width: Number.isFinite(patch.width) ? Math.round(Math.max(1, patch.width ?? layer.width)) : layer.width,
+            height: Number.isFinite(patch.height) ? Math.round(Math.max(1, patch.height ?? layer.height)) : layer.height,
+          }
+        }),
+      },
+      updatedAt: Date.now(),
+    }))
+  },
+  updatePreviewShapeStyle: (layerId, patch) => {
+    set((state) => ({
+      previewScene: {
+        ...state.previewScene,
+        layers: state.previewScene.layers.map((layer) => {
+          if (layer.id !== layerId || layer.kind !== 'shape') {
+            return layer
+          }
+
+          const nextOpacity = Number.isFinite(patch.opacity)
+            ? Math.min(Math.max(patch.opacity ?? layer.opacity, 0), 1)
+            : layer.opacity
+
+          return {
+            ...layer,
+            fill: typeof patch.fill === 'string' && patch.fill.length > 0 ? patch.fill : layer.fill,
+            opacity: nextOpacity,
+          }
+        }),
+      },
+      updatedAt: Date.now(),
+    }))
+  },
+  updatePreviewTextStyle: (layerId, patch) => {
+    set((state) => ({
+      previewScene: {
+        ...state.previewScene,
+        layers: state.previewScene.layers.map((layer) => {
+          if (layer.id !== layerId || layer.kind !== 'text') {
+            return layer
+          }
+
+          const nextFontSize = Number.isFinite(patch.fontSize)
+            ? Math.round(Math.max(8, patch.fontSize ?? layer.fontSize))
+            : layer.fontSize
+          const nextOpacity = Number.isFinite(patch.opacity)
+            ? Math.min(Math.max(patch.opacity ?? layer.opacity, 0), 1)
+            : layer.opacity
+
+          return {
+            ...layer,
+            text: typeof patch.text === 'string' ? patch.text : layer.text,
+            color: typeof patch.color === 'string' && patch.color.length > 0 ? patch.color : layer.color,
+            fontSize: nextFontSize,
+            opacity: nextOpacity,
+          }
+        }),
       },
       updatedAt: Date.now(),
     }))

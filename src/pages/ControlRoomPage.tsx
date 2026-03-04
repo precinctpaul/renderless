@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Copy, Star } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Copy, Keyboard, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { buildOutputUrl } from '../lib/outputUrls'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
@@ -39,8 +39,31 @@ export function ControlRoomPage() {
   const setClock = usePlayoutStore((state) => state.setClock)
   const resetClock = usePlayoutStore((state) => state.resetClock)
   const togglePossession = usePlayoutStore((state) => state.togglePossession)
+  const nudgeClock = usePlayoutStore((state) => state.nudgeClock)
 
   const [copyLabel, setCopyLabel] = useState<string>('')
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const activeTag = (document.activeElement as HTMLElement | null)?.tagName
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') {
+        return
+      }
+
+      if (event.code === 'Space') {
+        event.preventDefault()
+        take()
+      }
+
+      if (event.key === 'c' || event.key === 'C') {
+        event.preventDefault()
+        clearProgram()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [clearProgram, take])
 
   const copyFeedUrl = async (follow: 'preview' | 'program') => {
     const copied = await copyToClipboard(buildOutputUrl(follow))
@@ -55,7 +78,7 @@ export function ControlRoomPage() {
       <div className="control-layout">
         <aside className="panel rundown-panel">
           <div className="panel-title">RUNDOWN</div>
-          <p className="panel-subtitle">Cue templates to Preview. TAKE pushes Preview to Program.</p>
+          <p className="panel-subtitle">Cue to Preview. TAKE pushes Preview to Program.</p>
 
           <div className="rundown-list">
             {templates.map((template) => {
@@ -83,7 +106,7 @@ export function ControlRoomPage() {
         <section className="panel monitors-panel">
           <div className="monitor-header">
             <span className="panel-title">MONITORS</span>
-            <span className="mono">16:9 LOCKED</span>
+            <span className="mono">25 / 45 / 30 LAYOUT LOCK</span>
           </div>
 
           <article className="monitor-tile">
@@ -123,10 +146,10 @@ export function ControlRoomPage() {
             </label>
 
             <div className="take-group">
-              <button type="button" className="btn btn--take btn--wide" onClick={take}>
+              <button type="button" className="btn btn--take btn--wide btn--tactile" onClick={take}>
                 TAKE
               </button>
-              <button type="button" className="btn btn--ghost btn--wide" onClick={clearProgram}>
+              <button type="button" className="btn btn--ghost btn--wide btn--tactile" onClick={clearProgram}>
                 CLEAR
               </button>
             </div>
@@ -153,12 +176,17 @@ export function ControlRoomPage() {
             </div>
           </article>
 
-          {copyLabel ? <div className="copy-status mono">{copyLabel}</div> : null}
+          <div className="hotkey-strip mono">
+            <Keyboard size={14} />
+            <span>SPACE = TAKE</span>
+            <span>C = CLEAR</span>
+            {copyLabel ? <span className="copy-status">{copyLabel}</span> : null}
+          </div>
         </section>
 
         <aside className="panel story-panel">
           <div className="panel-title">STORY CONTROL</div>
-          <p className="panel-subtitle">High-frequency overrides only. Data engine owns the rest.</p>
+          <p className="panel-subtitle">High-frequency controls for score, clock, and possession.</p>
 
           <div className="score-control">
             <div>
@@ -197,6 +225,15 @@ export function ControlRoomPage() {
               placeholder="MM:SS"
             />
           </label>
+
+          <div className="story-actions">
+            <button type="button" className="btn btn--ghost" onClick={() => nudgeClock(5)}>
+              +00:05
+            </button>
+            <button type="button" className="btn btn--ghost" onClick={() => nudgeClock(-5)}>
+              -00:05
+            </button>
+          </div>
 
           <div className="story-actions">
             <button type="button" className="btn btn--ghost" onClick={resetClock}>
