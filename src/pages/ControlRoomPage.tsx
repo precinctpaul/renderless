@@ -47,6 +47,7 @@ export function ControlRoomPage() {
   const programScene = usePlayoutStore((state) => state.programScene)
   const transitionType = usePlayoutStore((state) => state.transitionType)
   const transitionDurationMs = usePlayoutStore((state) => state.transitionDurationMs)
+  const transitionInProgress = usePlayoutStore((state) => state.transitionInProgress)
   const story = usePlayoutStore((state) => state.story)
   const onAir = usePlayoutStore((state) => state.onAir)
   const transportMode = usePlayoutStore((state) => state.transportMode)
@@ -73,6 +74,11 @@ export function ControlRoomPage() {
     () => STORY_FIELD_DEFS.filter((field) => !field.quickControl),
     [],
   )
+  const quickLaunchTemplates = useMemo(() => {
+    const favorites = templates.filter((template) => template.favorite)
+    return (favorites.length > 0 ? favorites : templates).slice(0, 6)
+  }, [templates])
+  const hasTemplates = templates.length > 0
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -112,32 +118,64 @@ export function ControlRoomPage() {
           <p className="panel-subtitle">Cue to Preview. TAKE pushes Preview to Program.</p>
 
           <div className="rundown-list">
+            {!hasTemplates ? <div className="rundown-empty">No templates available.</div> : null}
             {templates.map((template) => {
               const isPreview = previewTemplateId === template.id
               const isProgram = programTemplateId === template.id
+              const statusTokens: string[] = []
+
+              if (isPreview) {
+                statusTokens.push('PVW')
+              }
+
+              if (isProgram) {
+                statusTokens.push('PGM')
+              }
 
               return (
                 <button
                   key={template.id}
                   type="button"
-                  className={`rundown-item ${isPreview ? 'rundown-item--preview' : ''}`.trim()}
+                  className={`rundown-item ${isPreview ? 'rundown-item--preview' : ''} ${isProgram ? 'rundown-item--program' : ''}`.trim()}
                   onClick={() => cuePreview(template.id)}
                 >
                   <span>{template.label}</span>
                   <span className="rundown-status">
                     {template.favorite ? <Star size={13} /> : null}
-                    {isProgram ? 'PGM' : isPreview ? 'PVW' : ''}
+                    {statusTokens.length > 0 ? <span className="mono">{statusTokens.join(' / ')}</span> : null}
                   </span>
                 </button>
               )
             })}
+          </div>
+
+          <div className="rundown-launch">
+            <div className="inspector-section__label">Quick Launch</div>
+            <div className="rundown-launch-grid">
+              {quickLaunchTemplates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className={`btn btn--small ${previewTemplateId === template.id ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                  onClick={() => cuePreview(template.id)}
+                  disabled={transitionInProgress}
+                >
+                  {template.label}
+                </button>
+              ))}
+            </div>
           </div>
         </aside>
 
         <section className="panel monitors-panel">
           <div className="monitor-header">
             <span className="panel-title">MONITORS</span>
-            <span className="mono">25 / 45 / 30 LAYOUT LOCK</span>
+            <div className="monitor-header__meta">
+              <span className={`badge badge--mono ${transitionInProgress ? 'badge--transition' : ''}`.trim()}>
+                {transitionInProgress ? 'TRANSITIONING' : 'READY'}
+              </span>
+              <span className="mono">25 / 45 / 30 LAYOUT LOCK</span>
+            </div>
           </div>
 
           <article className="monitor-tile">
@@ -158,6 +196,7 @@ export function ControlRoomPage() {
                   type="button"
                   className={`btn btn--small ${transitionType === transition.id ? 'btn--accent' : 'btn--ghost'}`.trim()}
                   onClick={() => setTransition(transition.id)}
+                  disabled={transitionInProgress}
                 >
                   {transition.label}
                 </button>
@@ -173,14 +212,25 @@ export function ControlRoomPage() {
                 step={50}
                 value={transitionDurationMs}
                 onChange={(event) => setTransitionDuration(Number(event.target.value))}
+                disabled={transitionInProgress}
               />
             </label>
 
             <div className="take-group">
-              <button type="button" className="btn btn--take btn--wide btn--tactile" onClick={take}>
-                TAKE
+              <button
+                type="button"
+                className={`btn btn--take btn--wide btn--tactile ${transitionInProgress ? 'btn--take-pending' : ''}`.trim()}
+                onClick={take}
+                disabled={!hasTemplates || transitionInProgress}
+              >
+                {transitionInProgress ? 'TAKING...' : 'TAKE'}
               </button>
-              <button type="button" className="btn btn--ghost btn--wide btn--tactile" onClick={clearProgram}>
+              <button
+                type="button"
+                className="btn btn--ghost btn--wide btn--tactile"
+                onClick={clearProgram}
+                disabled={!onAir && !transitionInProgress}
+              >
                 CLEAR
               </button>
             </div>
@@ -211,6 +261,7 @@ export function ControlRoomPage() {
             <Keyboard size={14} />
             <span>SPACE = TAKE</span>
             <span>C = CLEAR</span>
+            {transitionInProgress ? <span className="transition-status">TAKE IN PROGRESS</span> : null}
             {copyLabel ? <span className="copy-status">{copyLabel}</span> : null}
           </div>
         </section>

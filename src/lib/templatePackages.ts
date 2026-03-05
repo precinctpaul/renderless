@@ -211,6 +211,10 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
     opacity: Math.min(Math.max(opacity, 0), 1),
     visible,
     rotation: asFiniteNumber(record.rotation) ?? undefined,
+    anchorX: asFiniteNumber(record.anchorX) ?? undefined,
+    anchorY: asFiniteNumber(record.anchorY) ?? undefined,
+    scaleX: asFiniteNumber(record.scaleX) ?? undefined,
+    scaleY: asFiniteNumber(record.scaleY) ?? undefined,
   }
 
   if (kind === 'shape') {

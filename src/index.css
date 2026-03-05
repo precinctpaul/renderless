@@ -9,6 +9,7 @@
   --zinc-700: #334155;
   --zinc-500: #64748b;
   --zinc-400: #94a3b8;
+  --zinc-300: #b7c4d8;
   --zinc-200: #cbd5e1;
   --zinc-100: #f1f5f9;
   --blue-600: #2563eb;
@@ -260,6 +261,11 @@ select:focus {
   color: white;
 }
 
+.btn--take-pending {
+  border-color: #7ba7f8;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
 .btn--tactile {
   min-height: 48px;
   font-size: 14px;
@@ -379,6 +385,7 @@ select:focus {
 }
 
 .tree-row {
+  width: 100%;
   min-height: 34px;
   padding: 0 8px;
   border: 1px solid var(--zinc-800);
@@ -388,6 +395,15 @@ select:focus {
   gap: 8px;
   margin-bottom: 8px;
   color: var(--zinc-200);
+  background: #0a1323;
+  text-align: left;
+  cursor: pointer;
+  transition: all 200ms ease-in-out;
+}
+
+.tree-row:hover {
+  border-color: #2f4f7c;
+  background: #0f1b32;
 }
 
 .tree-row--active {
@@ -408,6 +424,15 @@ select:focus {
   color: #86efac;
 }
 
+.dev-tools-panel {
+  border: 1px solid var(--zinc-800);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .template-table {
   width: 100%;
   border-collapse: collapse;
@@ -426,6 +451,10 @@ select:focus {
   color: var(--zinc-400);
   font-size: 12px;
   letter-spacing: 0.04em;
+}
+
+.template-table tbody tr {
+  cursor: pointer;
 }
 
 .template-row--active {
@@ -698,7 +727,67 @@ select:focus {
 .stage-canvas {
   width: 100%;
   height: 100%;
+  position: relative;
   overflow: hidden;
+}
+
+.asset-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.stage-ruler {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.stage-ruler span {
+  position: absolute;
+  font-size: 10px;
+  color: #93c5fd;
+}
+
+.stage-ruler--top {
+  left: 10px;
+  right: 10px;
+  top: 6px;
+  height: 14px;
+}
+
+.stage-ruler--left {
+  top: 20px;
+  bottom: 10px;
+  left: 2px;
+  width: 42px;
+}
+
+.stage-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.stage-guide {
+  position: absolute;
+  background: rgba(59, 130, 246, 0.55);
+}
+
+.stage-guide--h {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+}
+
+.stage-guide--v {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
 }
 
 .inspector-section {
@@ -781,12 +870,38 @@ select:focus {
   gap: 8px;
 }
 
+.rundown-item--program {
+  border-color: #6b2124;
+  box-shadow: inset 0 0 0 1px rgba(220, 38, 38, 0.35);
+}
+
 .rundown-status {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   color: var(--zinc-300);
   font-size: 11px;
+}
+
+.rundown-empty {
+  border: 1px dashed var(--zinc-700);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--zinc-400);
+  text-align: center;
+}
+
+.rundown-launch {
+  margin-top: 10px;
+  border-top: 1px solid #1f2d43;
+  padding-top: 10px;
+}
+
+.rundown-launch-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 
 .monitors-panel {
@@ -801,6 +916,18 @@ select:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.monitor-header__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge--transition {
+  color: #dbeafe;
+  border-color: #1d4ed8;
+  background: #172554;
 }
 
 .monitor-tile {
@@ -878,6 +1005,11 @@ select:focus {
 .copy-status {
   font-size: 11px;
   color: #86efac;
+}
+
+.transition-status {
+  font-size: 11px;
+  color: #93c5fd;
 }
 
 .story-panel {

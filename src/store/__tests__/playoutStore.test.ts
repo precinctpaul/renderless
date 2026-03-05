@@ -50,6 +50,52 @@ describe('Playout reliability and QA regression suite', () => {
     expect(getLayerPosition(refreshedState.programScene, 'shape-home-block').x).toBe(420)
   })
 
+  test('non-cut transitions defer program switch and expose in-progress state', async () => {
+    vi.useFakeTimers()
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().clearProgram()
+    usePlayoutStore.getState().setTransition('fade')
+    usePlayoutStore.getState().setTransitionDuration(300)
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 512 })
+
+    usePlayoutStore.getState().take()
+
+    expect(usePlayoutStore.getState().transitionInProgress).toBe(true)
+    expect(usePlayoutStore.getState().onAir).toBe(false)
+
+    vi.advanceTimersByTime(299)
+    expect(usePlayoutStore.getState().programTemplateId).not.toBe('template-scorebug')
+    expect(usePlayoutStore.getState().transitionInProgress).toBe(true)
+
+    vi.advanceTimersByTime(1)
+    expect(usePlayoutStore.getState().programTemplateId).toBe('template-scorebug')
+    expect(getLayerPosition(usePlayoutStore.getState().programScene, 'shape-home-block').x).toBe(512)
+    expect(usePlayoutStore.getState().transitionInProgress).toBe(false)
+    expect(usePlayoutStore.getState().onAir).toBe(true)
+  })
+
+  test('stale in-progress transition snapshots recover on cold start', async () => {
+    const staleSnapshot = {
+      previewTemplateId: 'template-scorebug',
+      programTemplateId: 'template-scorebug',
+      transitionType: 'fade',
+      transitionDurationMs: 300,
+      transitionInProgress: true,
+      onAir: true,
+      updatedAt: Date.now() - 10_000,
+    }
+    window.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(staleSnapshot))
+
+    const { usePlayoutStore } = await loadStoreModule()
+    const state = usePlayoutStore.getState()
+
+    expect(state.transitionInProgress).toBe(false)
+    expect(state.transitionDurationMs).toBe(300)
+    expect(state.transitionType).toBe('fade')
+  })
+
   test('undo and redo revert and reapply scene edits deterministically', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 

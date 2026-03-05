@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { SceneRenderer } from './SceneRenderer'
 import type { SceneDefinition, StoryState } from '../types/scene'
 
@@ -8,6 +9,10 @@ interface StageCanvasProps {
   selectedLayerIds?: string[]
   showGrid?: boolean
   showSafeZone?: boolean
+  showRulers?: boolean
+  showGuides?: boolean
+  snapToGrid?: boolean
+  interactionMode?: 'select' | 'pan'
   onSelectLayer?: (
     layerId: string,
     modifiers?: {
@@ -16,6 +21,7 @@ interface StageCanvasProps {
       metaKey: boolean
     },
   ) => void
+  onMoveLayers?: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
 }
 
 export function StageCanvas({
@@ -25,18 +31,68 @@ export function StageCanvas({
   selectedLayerIds,
   showGrid = true,
   showSafeZone = true,
+  showRulers = false,
+  showGuides = false,
+  snapToGrid = false,
+  interactionMode = 'select',
   onSelectLayer,
+  onMoveLayers,
 }: StageCanvasProps) {
+  const [stageOffset, setStageOffset] = useState({ x: 0, y: 0 })
+
+  const rulerTicks = useMemo(() => {
+    const ticks: Array<{ value: number; percent: number }> = []
+    for (let value = 0; value <= 1900; value += 100) {
+      ticks.push({
+        value,
+        percent: value / 1920,
+      })
+    }
+
+    return ticks
+  }, [])
+
   return (
     <div className="stage-canvas">
+      {showRulers ? (
+        <>
+          <div className="stage-ruler stage-ruler--top mono">
+            {rulerTicks.map((tick) => (
+              <span key={tick.value} style={{ left: `${tick.percent * 100}%` }}>
+                {tick.value}
+              </span>
+            ))}
+          </div>
+          <div className="stage-ruler stage-ruler--left mono">
+            {[0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].map((tick) => (
+              <span key={tick} style={{ top: `${(tick / 1080) * 100}%` }}>
+                {tick}
+              </span>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {showGuides ? (
+        <div className="stage-guides">
+          <div className="stage-guide stage-guide--h" />
+          <div className="stage-guide stage-guide--v" />
+        </div>
+      ) : null}
+
       <SceneRenderer
         scene={scene}
         story={story}
         selectedLayerId={selectedLayerId}
         selectedLayerIds={selectedLayerIds}
         onSelectLayer={onSelectLayer}
+        onMoveLayers={onMoveLayers}
+        onPanBy={(delta) => setStageOffset((previous) => ({ x: previous.x + delta.x, y: previous.y + delta.y }))}
         showSelection
         showSafeZone={showSafeZone}
+        snapToGrid={snapToGrid}
+        interactionMode={interactionMode}
+        stageOffsetPx={stageOffset}
         className={showGrid ? 'scene-renderer--grid' : ''}
       />
     </div>

@@ -24,7 +24,12 @@ export type TransitionType = 'cut' | 'fade' | 'lumaWipe'
 
 type ProgramTemplateId = string
 
-type SceneTransformPatch = Partial<Pick<SceneDefinition['layers'][number], 'x' | 'y' | 'width' | 'height'>>
+type SceneTransformPatch = Partial<
+  Pick<
+    SceneDefinition['layers'][number],
+    'x' | 'y' | 'width' | 'height' | 'rotation' | 'anchorX' | 'anchorY' | 'scaleX' | 'scaleY'
+  >
+>
 type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'shape' }>, 'fill' | 'opacity'>>
 type TextStylePatch = Partial<
   Pick<Extract<SceneDefinition['layers'][number], { kind: 'text' }>, 'text' | 'fontSize' | 'color' | 'opacity'>
@@ -52,6 +57,7 @@ interface PersistedPlayoutSnapshot {
   programScene: SceneDefinition
   transitionType: TransitionType
   transitionDurationMs: number
+  transitionInProgress: boolean
   story: StoryState
   onAir: boolean
   updatedAt: number
@@ -77,6 +83,7 @@ interface PlayoutStore {
   programScene: SceneDefinition
   transitionType: TransitionType
   transitionDurationMs: number
+  transitionInProgress: boolean
   story: StoryState
   onAir: boolean
   updatedAt: number
@@ -106,12 +113,15 @@ interface PlayoutStore {
   reorderPreviewLayer: (layerId: string, direction: 'forward' | 'backward') => void
   reorderPreviewLayerToIndex: (layerId: string, targetIndex: number) => void
   updatePreviewLayersTransform: (layerIds: string[], patch: SceneTransformPatch) => void
+  movePreviewLayersByDelta: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
   alignPreviewLayers: (layerIds: string[], mode: LayerAlignMode) => void
   distributePreviewLayers: (layerIds: string[], axis: LayerDistributeAxis) => void
   updatePreviewLayerTransform: (layerId: string, patch: SceneTransformPatch) => void
   updatePreviewShapeStyle: (layerId: string, patch: ShapeStylePatch) => void
   updatePreviewTextStyle: (layerId: string, patch: TextStylePatch) => void
   updatePreviewTextBinding: (layerId: string, binding: DataBindingKey | null) => void
+  renamePreviewLayer: (layerId: string, name: string) => void
+  createPreviewLayer: (kind: 'text' | 'shape') => string | null
   undoPreviewScene: () => void
   redoPreviewScene: () => void
   savePreviewTemplate: (name: string) => string | null
@@ -261,6 +271,10 @@ function createTemplateId(): string {
 
 function createSceneId(): string {
   return `scene-custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function createLayerId(kind: 'text' | 'shape'): string {
+  return `layer-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
 function createUniqueTemplateId(templates: TemplateDefinition[], preferredId: string): string {
@@ -504,12 +518,60 @@ function moveLayerToIndex(scene: SceneDefinition, layerId: string, targetIndex: 
 }
 
 function applyTransformPatchToLayer(layer: SceneDefinition['layers'][number], patch: SceneTransformPatch) {
+  const nextAnchorX = Number.isFinite(patch.anchorX) ? Math.round(Math.max(0, patch.anchorX ?? layer.anchorX ?? 0)) : layer.anchorX
+  const nextAnchorY = Number.isFinite(patch.anchorY) ? Math.round(Math.max(0, patch.anchorY ?? layer.anchorY ?? 0)) : layer.anchorY
+  const nextScaleX = Number.isFinite(patch.scaleX)
+    ? Math.round(Math.min(Math.max(patch.scaleX ?? layer.scaleX ?? 100, 1), 1000))
+    : layer.scaleX
+  const nextScaleY = Number.isFinite(patch.scaleY)
+    ? Math.round(Math.min(Math.max(patch.scaleY ?? layer.scaleY ?? 100, 1), 1000))
+    : layer.scaleY
+  const nextRotation = Number.isFinite(patch.rotation)
+    ? Math.round((patch.rotation ?? layer.rotation ?? 0) * 10) / 10
+    : layer.rotation
+
   return {
     ...layer,
     x: Number.isFinite(patch.x) ? Math.round(Math.max(0, patch.x ?? layer.x)) : layer.x,
     y: Number.isFinite(patch.y) ? Math.round(Math.max(0, patch.y ?? layer.y)) : layer.y,
     width: Number.isFinite(patch.width) ? Math.round(Math.max(1, patch.width ?? layer.width)) : layer.width,
     height: Number.isFinite(patch.height) ? Math.round(Math.max(1, patch.height ?? layer.height)) : layer.height,
+    rotation: nextRotation,
+    anchorX: nextAnchorX,
+    anchorY: nextAnchorY,
+    scaleX: nextScaleX,
+    scaleY: nextScaleY,
+  }
+}
+
+function moveLayersByDelta(
+  scene: SceneDefinition,
+  layerIds: string[],
+  delta: { x: number; y: number },
+  snapToGrid = false,
+): SceneDefinition {
+  const selectedIdSet = new Set(layerIds)
+  const deltaX = Number.isFinite(delta.x) ? delta.x : 0
+  const deltaY = Number.isFinite(delta.y) ? delta.y : 0
+  if (deltaX === 0 && deltaY === 0) {
+    return scene
+  }
+
+  const snap = (value: number) => (snapToGrid ? Math.round(value / 10) * 10 : value)
+
+  return {
+    ...scene,
+    layers: scene.layers.map((layer) => {
+      if (!selectedIdSet.has(layer.id)) {
+        return layer
+      }
+
+      return {
+        ...layer,
+        x: Math.round(Math.max(0, snap(layer.x + deltaX))),
+        y: Math.round(Math.max(0, snap(layer.y + deltaY))),
+      }
+    }),
   }
 }
 
@@ -692,6 +754,8 @@ function normalizeSnapshot(
 
   const updatedAtRaw = Number(rawSnapshot?.updatedAt)
   const updatedAt = Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : Date.now()
+  const transitionInProgress =
+    Boolean(rawSnapshot?.transitionInProgress) && updatedAt + transitionDurationMs + 250 > Date.now()
 
   return {
     previewTemplateId,
@@ -700,6 +764,7 @@ function normalizeSnapshot(
     programScene,
     transitionType,
     transitionDurationMs,
+    transitionInProgress,
     story,
     onAir: Boolean(rawSnapshot?.onAir),
     updatedAt,
@@ -714,6 +779,7 @@ function toSnapshot(state: PlayoutStore): PersistedPlayoutSnapshot {
     programScene: cloneScene(state.programScene),
     transitionType: state.transitionType,
     transitionDurationMs: state.transitionDurationMs,
+    transitionInProgress: state.transitionInProgress,
     story: cloneStory(state.story),
     onAir: state.onAir,
     updatedAt: state.updatedAt,
@@ -748,6 +814,8 @@ const initialProgramScene =
     : cloneScene(hydratedSnapshot.programScene)
 
 export const usePlayoutStore = create<PlayoutStore>((set, get) => {
+  let pendingTakeHandle: ReturnType<typeof setTimeout> | null = null
+
   const commitPreviewScene = (producer: (scene: SceneDefinition) => SceneDefinition) => {
     set((state) => {
       const nextScene = producer(state.previewScene)
@@ -776,6 +844,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     programScene: initialProgramScene,
     transitionType: hydratedSnapshot.transitionType,
     transitionDurationMs: hydratedSnapshot.transitionDurationMs,
+    transitionInProgress: hydratedSnapshot.transitionInProgress,
     story: cloneStory(hydratedSnapshot.story),
     onAir: hydratedSnapshot.onAir,
     updatedAt: hydratedSnapshot.updatedAt,
@@ -808,18 +877,58 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       })
     },
     take: () => {
-      set((state) => ({
-        programTemplateId: state.previewTemplateId,
-        programScene: cloneScene(state.previewScene),
-        onAir: true,
+      const state = get()
+      if (state.transitionInProgress) {
+        return
+      }
+
+      const nextProgramTemplateId = state.previewTemplateId
+      const nextProgramScene = cloneScene(state.previewScene)
+      const shouldDeferTake = state.transitionType !== 'cut' && state.transitionDurationMs > 0
+
+      if (pendingTakeHandle) {
+        clearTimeout(pendingTakeHandle)
+        pendingTakeHandle = null
+      }
+
+      if (!shouldDeferTake) {
+        set(() => ({
+          programTemplateId: nextProgramTemplateId,
+          programScene: nextProgramScene,
+          onAir: true,
+          transitionInProgress: false,
+          updatedAt: Date.now(),
+        }))
+        return
+      }
+
+      set(() => ({
+        transitionInProgress: true,
         updatedAt: Date.now(),
       }))
+
+      pendingTakeHandle = setTimeout(() => {
+        pendingTakeHandle = null
+        set(() => ({
+          programTemplateId: nextProgramTemplateId,
+          programScene: nextProgramScene,
+          onAir: true,
+          transitionInProgress: false,
+          updatedAt: Date.now(),
+        }))
+      }, state.transitionDurationMs)
     },
     clearProgram: () => {
+      if (pendingTakeHandle) {
+        clearTimeout(pendingTakeHandle)
+        pendingTakeHandle = null
+      }
+
       set(() => ({
         programTemplateId: CLEAR_TEMPLATE_ID,
         programScene: cloneScene(CLEAR_SCENE),
         onAir: false,
+        transitionInProgress: false,
         updatedAt: Date.now(),
       }))
     },
@@ -925,6 +1034,13 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
     },
+    movePreviewLayersByDelta: (layerIds, delta, snapToGrid = false) => {
+      if (layerIds.length === 0) {
+        return
+      }
+
+      commitPreviewScene((scene) => moveLayersByDelta(scene, layerIds, delta, snapToGrid))
+    },
     alignPreviewLayers: (layerIds, mode) => {
       if (layerIds.length < 2) {
         return
@@ -1004,6 +1120,73 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           }
         }),
       }))
+    },
+    renamePreviewLayer: (layerId, name) => {
+      const trimmedName = name.trim()
+      if (!trimmedName) {
+        return
+      }
+
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => (layer.id === layerId ? { ...layer, name: trimmedName } : layer)),
+      }))
+    },
+    createPreviewLayer: (kind) => {
+      const state = get()
+      const nextLayerId = createLayerId(kind)
+      const centerX = Math.round(state.previewScene.width / 2)
+      const centerY = Math.round(state.previewScene.height / 2)
+
+      const nextLayer: SceneDefinition['layers'][number] =
+        kind === 'text'
+          ? {
+              id: nextLayerId,
+              kind: 'text',
+              name: `Text ${state.previewScene.layers.filter((layer) => layer.kind === 'text').length + 1}`,
+              x: Math.max(0, centerX - 220),
+              y: Math.max(0, centerY - 36),
+              width: 440,
+              height: 80,
+              text: 'New Text Layer',
+              color: '#f8fafc',
+              fontSize: 64,
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: 600,
+              align: 'left',
+              opacity: 1,
+              visible: true,
+              rotation: 0,
+              anchorX: 0,
+              anchorY: 0,
+              scaleX: 100,
+              scaleY: 100,
+            }
+          : {
+              id: nextLayerId,
+              kind: 'shape',
+              name: `Shape ${state.previewScene.layers.filter((layer) => layer.kind === 'shape').length + 1}`,
+              x: Math.max(0, centerX - 160),
+              y: Math.max(0, centerY - 60),
+              width: 320,
+              height: 120,
+              fill: '#2563eb',
+              opacity: 1,
+              visible: true,
+              radius: 0,
+              rotation: 0,
+              anchorX: 0,
+              anchorY: 0,
+              scaleX: 100,
+              scaleY: 100,
+            }
+
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: [...scene.layers, nextLayer],
+      }))
+
+      return nextLayerId
     },
     undoPreviewScene: () => {
       set((state) => {
@@ -1369,6 +1552,10 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     resetDemo: () => {
       set((state) => {
         const primaryTemplateId = state.templates[0]?.id ?? ''
+        if (pendingTakeHandle) {
+          clearTimeout(pendingTakeHandle)
+          pendingTakeHandle = null
+        }
 
         return {
           previewTemplateId: primaryTemplateId,
@@ -1377,6 +1564,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           programScene: primaryTemplateId ? resolveSceneForTemplate(state.templates, primaryTemplateId) : cloneScene(CLEAR_SCENE),
           transitionType: 'cut',
           transitionDurationMs: 300,
+          transitionInProgress: false,
           story: cloneStory(DEFAULT_STORY_STATE),
           onAir: false,
           undoStack: [],
@@ -1454,6 +1642,7 @@ if (typeof window !== 'undefined') {
           : cloneScene(normalized.programScene),
       transitionType: normalized.transitionType,
       transitionDurationMs: normalized.transitionDurationMs,
+      transitionInProgress: normalized.transitionInProgress,
       story: cloneStory(normalized.story),
       onAir: normalized.onAir,
       undoStack: [],

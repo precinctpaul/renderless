@@ -31,6 +31,10 @@ export interface BaseLayer {
   visible: boolean
   opacity: number
   rotation?: number
+  anchorX?: number
+  anchorY?: number
+  scaleX?: number
+  scaleY?: number
 }
 
 export interface ShapeLayer extends BaseLayer {
