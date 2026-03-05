@@ -416,6 +416,22 @@ select:focus {
   background: #162e56;
 }
 
+.tree-row--drop-target {
+  border-color: #4f86df;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.4);
+  background: #14315a;
+}
+
+.folder-tree {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 100%;
+  overflow: auto;
+  padding-right: 2px;
+}
+
 .table-toolbar {
   display: flex;
   align-items: center;
@@ -1049,6 +1065,17 @@ select:focus {
   gap: 8px;
 }
 
+.registry-toolbar--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.registry-toolbar__controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .registry-scroll {
   flex: 1;
   min-height: 0;
@@ -1323,6 +1350,15 @@ select:focus {
 
 .story-binding-panel {
   margin-top: 4px;
+}
+
+.binding-panel {
+  border: 1px solid var(--zinc-800);
+  border-radius: 10px;
+  background: #0d1728;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
 }
 
 .override-grid {

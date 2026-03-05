@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Folder, FolderOpen, Puzzle, Trash2, Upload } from 'lucide-react'
+import { FileText, Folder, FolderOpen, FolderPlus, Puzzle, Trash2, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { usePlayoutStore } from '../store/playoutStore'
 import type { TemplateDefinition } from '../types/scene'
@@ -14,11 +14,147 @@ import {
 } from '../lib/mediaLibrary'
 
 const MODES = ['Branded Assets', 'Fonts', 'Templates'] as const
-const ASSET_FOLDERS = ['Branded Assets', 'BGs', 'Template Designs'] as const
-const FONT_FOLDERS = ['Fonts', 'Imported'] as const
+const DASHBOARD_FOLDER_STORAGE_KEY = 'renderless.dashboard.folders.v1'
+const ASSET_ROOT = 'Branded Assets'
+const FONT_ROOT = 'Fonts'
+const DEFAULT_ASSET_FOLDERS = [ASSET_ROOT, `${ASSET_ROOT}/BGs`, `${ASSET_ROOT}/Template Designs`]
+const DEFAULT_FONT_FOLDERS = [FONT_ROOT, `${FONT_ROOT}/Imported`]
 
 type DashboardMode = (typeof MODES)[number]
 type TemplateFolderFilter = 'all' | 'builtIn' | 'custom'
+type ExplorerKind = 'assets' | 'fonts'
+
+interface FolderCatalog {
+  assets: string[]
+  fonts: string[]
+}
+
+interface FolderRow {
+  path: string
+  name: string
+  depth: number
+  root: boolean
+}
+
+function normalizeFolderPath(path: string): string {
+  return path
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/^\/+|\/+$/g, '')
+    .trim()
+}
+
+function normalizeFolderList(paths: string[], root: string): string[] {
+  const normalized = new Set<string>()
+  normalized.add(root)
+  paths.forEach((path) => {
+    const nextPath = normalizeFolderPath(path)
+    if (!nextPath) {
+      return
+    }
+    if (nextPath === root || nextPath.startsWith(`${root}/`)) {
+      normalized.add(nextPath)
+      return
+    }
+    normalized.add(`${root}/${nextPath}`)
+  })
+
+  return Array.from(normalized).sort((left, right) => {
+    const depthDiff = left.split('/').length - right.split('/').length
+    if (depthDiff !== 0) {
+      return depthDiff
+    }
+    return left.localeCompare(right)
+  })
+}
+
+function normalizeEntryFolder(folder: string, root: string): string {
+  const nextPath = normalizeFolderPath(folder)
+  if (!nextPath) {
+    return root
+  }
+  if (nextPath === root || nextPath.startsWith(`${root}/`)) {
+    return nextPath
+  }
+  return `${root}/${nextPath}`
+}
+
+function normalizeEntriesForRoot(entries: MediaLibraryEntry[], root: string): MediaLibraryEntry[] {
+  return entries.map((entry) => ({
+    ...entry,
+    folder: normalizeEntryFolder(entry.folder, root),
+  }))
+}
+
+function readFolderCatalog(): FolderCatalog {
+  if (typeof window === 'undefined') {
+    return {
+      assets: DEFAULT_ASSET_FOLDERS,
+      fonts: DEFAULT_FONT_FOLDERS,
+    }
+  }
+
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_FOLDER_STORAGE_KEY)
+    if (!raw) {
+      return {
+        assets: DEFAULT_ASSET_FOLDERS,
+        fonts: DEFAULT_FONT_FOLDERS,
+      }
+    }
+
+    const parsed = JSON.parse(raw) as Partial<FolderCatalog>
+    const assets = Array.isArray(parsed.assets) ? parsed.assets.filter((entry): entry is string => typeof entry === 'string') : []
+    const fonts = Array.isArray(parsed.fonts) ? parsed.fonts.filter((entry): entry is string => typeof entry === 'string') : []
+    return {
+      assets: normalizeFolderList(assets, ASSET_ROOT),
+      fonts: normalizeFolderList(fonts, FONT_ROOT),
+    }
+  } catch {
+    return {
+      assets: DEFAULT_ASSET_FOLDERS,
+      fonts: DEFAULT_FONT_FOLDERS,
+    }
+  }
+}
+
+function persistFolderCatalog(catalog: FolderCatalog): void {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(DASHBOARD_FOLDER_STORAGE_KEY, JSON.stringify(catalog))
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
+function buildFolderRows(paths: string[], root: string): FolderRow[] {
+  return normalizeFolderList(paths, root).map((path) => {
+    const segments = path.split('/')
+    return {
+      path,
+      name: segments[segments.length - 1] ?? path,
+      depth: Math.max(0, segments.length - 1),
+      root: path === root,
+    }
+  })
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false
+    }
+  }
+
+  return true
+}
 
 function formatTemplateDate(updatedAt?: number): string {
   if (!updatedAt || !Number.isFinite(updatedAt)) {
@@ -93,17 +229,30 @@ export function DashboardPage() {
   const setPackageSigningConfig = usePlayoutStore((state) => state.setPackageSigningConfig)
   const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
 
+  const initialAssetEntries = useMemo(() => normalizeEntriesForRoot(readMediaEntries('asset'), ASSET_ROOT), [])
+  const initialFontEntries = useMemo(() => normalizeEntriesForRoot(readMediaEntries('font'), FONT_ROOT), [])
+  const initialFolderCatalog = useMemo(() => {
+    const catalog = readFolderCatalog()
+    return {
+      assets: normalizeFolderList([...catalog.assets, ...initialAssetEntries.map((entry) => entry.folder)], ASSET_ROOT),
+      fonts: normalizeFolderList([...catalog.fonts, ...initialFontEntries.map((entry) => entry.folder)], FONT_ROOT),
+    }
+  }, [initialAssetEntries, initialFontEntries])
   const [activeMode, setActiveMode] = useState<DashboardMode>('Templates')
-  const [selectedAssetFolder, setSelectedAssetFolder] = useState<string>(ASSET_FOLDERS[0])
-  const [selectedFontFolder, setSelectedFontFolder] = useState<string>(FONT_FOLDERS[0])
+  const [folderCatalog, setFolderCatalog] = useState<FolderCatalog>(initialFolderCatalog)
+  const [selectedAssetFolder, setSelectedAssetFolder] = useState<string>(initialFolderCatalog.assets[0] ?? ASSET_ROOT)
+  const [selectedFontFolder, setSelectedFontFolder] = useState<string>(initialFolderCatalog.fonts[0] ?? FONT_ROOT)
   const [templateFolderFilter, setTemplateFolderFilter] = useState<TemplateFolderFilter>('all')
   const [showDevTools, setShowDevTools] = useState(false)
   const [query, setQuery] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
   const [isBusy, setIsBusy] = useState(false)
-  const [assetEntries, setAssetEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('asset'))
-  const [fontEntries, setFontEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('font'))
+  const [assetEntries, setAssetEntries] = useState<MediaLibraryEntry[]>(initialAssetEntries)
+  const [fontEntries, setFontEntries] = useState<MediaLibraryEntry[]>(initialFontEntries)
   const [selectedEntryId, setSelectedEntryId] = useState<string>('')
+  const [draggedEntryId, setDraggedEntryId] = useState<string>('')
+  const [draggedFolderPath, setDraggedFolderPath] = useState<string>('')
+  const [folderDropTarget, setFolderDropTarget] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const setTransientStatus = (message: string, timeoutMs = 2800) => {
@@ -111,19 +260,56 @@ export function DashboardPage() {
     window.setTimeout(() => setStatusMessage(''), timeoutMs)
   }
 
+  const persistFolders = (nextCatalog: FolderCatalog) => {
+    const normalizedCatalog: FolderCatalog = {
+      assets: normalizeFolderList(nextCatalog.assets, ASSET_ROOT),
+      fonts: normalizeFolderList(nextCatalog.fonts, FONT_ROOT),
+    }
+    setFolderCatalog(normalizedCatalog)
+    persistFolderCatalog(normalizedCatalog)
+  }
+
   const persistAssets = (nextEntries: MediaLibraryEntry[]) => {
-    setAssetEntries(nextEntries)
-    const persisted = persistMediaEntries('asset', nextEntries)
+    const normalizedEntries = normalizeEntriesForRoot(nextEntries, ASSET_ROOT)
+    setAssetEntries(normalizedEntries)
+    const persisted = persistMediaEntries('asset', normalizedEntries)
     if (!persisted.ok) {
       setTransientStatus(persisted.error ?? 'Asset persistence failed.')
+    }
+
+    const nextFolders = normalizeFolderList(
+      [...folderCatalog.assets, ...normalizedEntries.map((entry) => entry.folder)],
+      ASSET_ROOT,
+    )
+    if (!sameStringArray(nextFolders, folderCatalog.assets)) {
+      const nextCatalog = {
+        ...folderCatalog,
+        assets: nextFolders,
+      }
+      setFolderCatalog(nextCatalog)
+      persistFolderCatalog(nextCatalog)
     }
   }
 
   const persistFonts = (nextEntries: MediaLibraryEntry[]) => {
-    setFontEntries(nextEntries)
-    const persisted = persistMediaEntries('font', nextEntries)
+    const normalizedEntries = normalizeEntriesForRoot(nextEntries, FONT_ROOT)
+    setFontEntries(normalizedEntries)
+    const persisted = persistMediaEntries('font', normalizedEntries)
     if (!persisted.ok) {
       setTransientStatus(persisted.error ?? 'Font persistence failed.')
+    }
+
+    const nextFolders = normalizeFolderList(
+      [...folderCatalog.fonts, ...normalizedEntries.map((entry) => entry.folder)],
+      FONT_ROOT,
+    )
+    if (!sameStringArray(nextFolders, folderCatalog.fonts)) {
+      const nextCatalog = {
+        ...folderCatalog,
+        fonts: nextFolders,
+      }
+      setFolderCatalog(nextCatalog)
+      persistFolderCatalog(nextCatalog)
     }
   }
 
@@ -131,7 +317,7 @@ export function DashboardPage() {
     let cancelled = false
 
     void (async () => {
-      const registration = await registerFontEntries(readMediaEntries('font'))
+      const registration = await registerFontEntries(normalizeEntriesForRoot(readMediaEntries('font'), FONT_ROOT))
       if (cancelled) {
         return
       }
@@ -153,7 +339,19 @@ export function DashboardPage() {
     }
   }, [])
 
-  const activeFolder = activeMode === 'Branded Assets' ? selectedAssetFolder : activeMode === 'Fonts' ? selectedFontFolder : ''
+  const effectiveSelectedAssetFolder = folderCatalog.assets.includes(selectedAssetFolder)
+    ? selectedAssetFolder
+    : (folderCatalog.assets[0] ?? ASSET_ROOT)
+  const effectiveSelectedFontFolder = folderCatalog.fonts.includes(selectedFontFolder)
+    ? selectedFontFolder
+    : (folderCatalog.fonts[0] ?? FONT_ROOT)
+
+  const activeFolder =
+    activeMode === 'Branded Assets'
+      ? effectiveSelectedAssetFolder
+      : activeMode === 'Fonts'
+        ? effectiveSelectedFontFolder
+        : ''
   const activeExplorerEntries = useMemo(() => {
     if (activeMode === 'Branded Assets') {
       return assetEntries
@@ -164,6 +362,8 @@ export function DashboardPage() {
 
     return []
   }, [activeMode, assetEntries, fontEntries])
+  const assetFolderRows = useMemo(() => buildFolderRows(folderCatalog.assets, ASSET_ROOT), [folderCatalog.assets])
+  const fontFolderRows = useMemo(() => buildFolderRows(folderCatalog.fonts, FONT_ROOT), [folderCatalog.fonts])
 
   const filteredTemplates = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -272,7 +472,7 @@ export function DashboardPage() {
     const filesArray = Array.from(files)
 
     if (activeMode === 'Fonts') {
-      const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'font', selectedFontFolder)
+      const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'font', effectiveSelectedFontFolder)
       const registration = await registerFontEntries(entries)
 
       const nextEntries = [...registration.entries, ...fontEntries]
@@ -290,7 +490,7 @@ export function DashboardPage() {
       return
     }
 
-    const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'asset', selectedAssetFolder)
+    const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'asset', effectiveSelectedAssetFolder)
     const nextEntries = [...entries, ...assetEntries]
     persistAssets(nextEntries)
     setTransientStatus(
@@ -374,6 +574,7 @@ export function DashboardPage() {
           transport: window.localStorage.getItem('renderless.playout.transport.v1'),
           dashboardAssets: window.localStorage.getItem(ASSET_STORAGE_KEY),
           dashboardFonts: window.localStorage.getItem(FONT_STORAGE_KEY),
+          dashboardFolders: window.localStorage.getItem(DASHBOARD_FOLDER_STORAGE_KEY),
         },
         null,
         2,
@@ -388,8 +589,149 @@ export function DashboardPage() {
   const handleResetDashboardStorage = () => {
     persistAssets([])
     persistFonts([])
+    persistFolders({
+      assets: DEFAULT_ASSET_FOLDERS,
+      fonts: DEFAULT_FONT_FOLDERS,
+    })
+    setSelectedAssetFolder(ASSET_ROOT)
+    setSelectedFontFolder(FONT_ROOT)
     setSelectedEntryId('')
     setTransientStatus('Dashboard uploaded assets/fonts reset.')
+  }
+
+  const createSubfolder = (kind: ExplorerKind) => {
+    const parentFolder = kind === 'assets' ? effectiveSelectedAssetFolder : effectiveSelectedFontFolder
+    const rawName = window.prompt(`Create subfolder inside "${parentFolder}"`, '')
+    if (!rawName) {
+      return
+    }
+
+    const folderName = rawName.replace(/[\\/]/g, ' ').trim()
+    if (!folderName) {
+      setTransientStatus('Folder name cannot be empty.')
+      return
+    }
+
+    const nextFolderPath = normalizeFolderPath(`${parentFolder}/${folderName}`)
+    const existing = kind === 'assets' ? folderCatalog.assets : folderCatalog.fonts
+    if (existing.includes(nextFolderPath)) {
+      setTransientStatus('Folder already exists.')
+      return
+    }
+
+    const nextCatalog: FolderCatalog =
+      kind === 'assets'
+        ? {
+            ...folderCatalog,
+            assets: [...folderCatalog.assets, nextFolderPath],
+          }
+        : {
+            ...folderCatalog,
+            fonts: [...folderCatalog.fonts, nextFolderPath],
+          }
+    persistFolders(nextCatalog)
+    if (kind === 'assets') {
+      setSelectedAssetFolder(nextFolderPath)
+    } else {
+      setSelectedFontFolder(nextFolderPath)
+    }
+    setTransientStatus(`Created folder: ${nextFolderPath}`)
+  }
+
+  const moveEntryToFolder = (kind: ExplorerKind, entryId: string, targetFolder: string) => {
+    const normalizedTarget = normalizeFolderPath(targetFolder)
+    if (kind === 'assets') {
+      const nextEntries = assetEntries.map((entry) =>
+        entry.id === entryId ? { ...entry, folder: normalizedTarget } : entry,
+      )
+      persistAssets(nextEntries)
+      return
+    }
+
+    const nextEntries = fontEntries.map((entry) =>
+      entry.id === entryId ? { ...entry, folder: normalizedTarget } : entry,
+    )
+    persistFonts(nextEntries)
+  }
+
+  const moveFolderToFolder = (kind: ExplorerKind, sourcePath: string, targetPath: string) => {
+    const rootPath = kind === 'assets' ? ASSET_ROOT : FONT_ROOT
+    if (sourcePath === rootPath) {
+      setTransientStatus('Root folder cannot be moved.')
+      return
+    }
+
+    if (targetPath === sourcePath || targetPath.startsWith(`${sourcePath}/`)) {
+      setTransientStatus('Invalid folder move target.')
+      return
+    }
+
+    const sourceName = sourcePath.split('/').pop() ?? sourcePath
+    const destinationBase = normalizeFolderPath(`${targetPath}/${sourceName}`)
+    const currentPaths = kind === 'assets' ? folderCatalog.assets : folderCatalog.fonts
+    if (currentPaths.includes(destinationBase)) {
+      setTransientStatus('Target already has a folder with this name.')
+      return
+    }
+
+    const rewritePath = (path: string) => {
+      if (path === sourcePath) {
+        return destinationBase
+      }
+      if (path.startsWith(`${sourcePath}/`)) {
+        return `${destinationBase}${path.slice(sourcePath.length)}`
+      }
+      return path
+    }
+
+    const nextCatalog: FolderCatalog =
+      kind === 'assets'
+        ? {
+            ...folderCatalog,
+            assets: folderCatalog.assets.map(rewritePath),
+          }
+        : {
+            ...folderCatalog,
+            fonts: folderCatalog.fonts.map(rewritePath),
+          }
+    persistFolders(nextCatalog)
+
+    if (kind === 'assets') {
+      persistAssets(
+        assetEntries.map((entry) => ({
+          ...entry,
+          folder: rewritePath(entry.folder),
+        })),
+      )
+      if (selectedAssetFolder === sourcePath || selectedAssetFolder.startsWith(`${sourcePath}/`)) {
+        setSelectedAssetFolder(rewritePath(selectedAssetFolder))
+      }
+    } else {
+      persistFonts(
+        fontEntries.map((entry) => ({
+          ...entry,
+          folder: rewritePath(entry.folder),
+        })),
+      )
+      if (selectedFontFolder === sourcePath || selectedFontFolder.startsWith(`${sourcePath}/`)) {
+        setSelectedFontFolder(rewritePath(selectedFontFolder))
+      }
+    }
+
+    setTransientStatus(`Moved folder to ${destinationBase}`)
+  }
+
+  const handleDropOnFolder = (kind: ExplorerKind, targetFolder: string) => {
+    if (draggedEntryId) {
+      moveEntryToFolder(kind, draggedEntryId, targetFolder)
+      setTransientStatus(`Moved file to ${targetFolder}`)
+    } else if (draggedFolderPath) {
+      moveFolderToFolder(kind, draggedFolderPath, targetFolder)
+    }
+
+    setDraggedEntryId('')
+    setDraggedFolderPath('')
+    setFolderDropTarget('')
   }
 
   const uploadLabel = activeMode === 'Templates' ? 'Import Package' : activeMode === 'Fonts' ? 'Upload Font' : 'Upload Asset'
@@ -403,6 +745,8 @@ export function DashboardPage() {
     activeMode === 'Templates'
       ? `Showing ${filteredTemplates.length} template(s)`
       : `Showing ${filteredExplorerEntries.length} item(s) in ${activeFolder}`
+  const activeExplorerKind: ExplorerKind = activeMode === 'Fonts' ? 'fonts' : 'assets'
+  const activeFolderRows = activeMode === 'Fonts' ? fontFolderRows : assetFolderRows
 
   return (
     <section className="screen screen--dashboard">
@@ -450,12 +794,12 @@ export function DashboardPage() {
 
         <div className="panel panel--folders">
           <div className="panel-title">{activeMode} Folders</div>
-          <div className="tree-row tree-row--active">
-            <FolderOpen size={14} />
-            <span>{activeMode}</span>
-          </div>
           {activeMode === 'Templates' ? (
             <>
+              <div className="tree-row tree-row--active">
+                <FolderOpen size={14} />
+                <span>Templates</span>
+              </div>
               <button
                 type="button"
                 className={`tree-row ${templateFolderFilter === 'builtIn' ? 'tree-row--active' : ''}`.trim()}
@@ -481,30 +825,73 @@ export function DashboardPage() {
                 <span>All Templates</span>
               </button>
             </>
-          ) : activeMode === 'Branded Assets' ? (
-            ASSET_FOLDERS.map((folder) => (
-              <button
-                key={folder}
-                type="button"
-                className={`tree-row ${selectedAssetFolder === folder ? 'tree-row--active' : ''}`.trim()}
-                onClick={() => setSelectedAssetFolder(folder)}
-              >
-                <Folder size={14} />
-                <span>{folder}</span>
-              </button>
-            ))
           ) : (
-            FONT_FOLDERS.map((folder) => (
+            <>
               <button
-                key={folder}
                 type="button"
-                className={`tree-row ${selectedFontFolder === folder ? 'tree-row--active' : ''}`.trim()}
-                onClick={() => setSelectedFontFolder(folder)}
+                className="btn btn--small btn--ghost"
+                onClick={() => createSubfolder(activeExplorerKind)}
               >
-                <Folder size={14} />
-                <span>{folder}</span>
+                <FolderPlus size={14} />
+                New Folder
               </button>
-            ))
+              <div className="folder-tree">
+                {activeFolderRows.map((row) => {
+                  const isSelected =
+                    activeMode === 'Branded Assets'
+                      ? effectiveSelectedAssetFolder === row.path
+                      : effectiveSelectedFontFolder === row.path
+                  const isDropTarget = folderDropTarget === row.path
+
+                  return (
+                    <button
+                      key={row.path}
+                      type="button"
+                      draggable={!row.root}
+                      className={`tree-row ${isSelected ? 'tree-row--active' : ''} ${isDropTarget ? 'tree-row--drop-target' : ''}`.trim()}
+                      style={{ paddingLeft: `${8 + row.depth * 14}px` }}
+                      onClick={() => {
+                        if (activeMode === 'Branded Assets') {
+                          setSelectedAssetFolder(row.path)
+                        } else {
+                          setSelectedFontFolder(row.path)
+                        }
+                      }}
+                      onDragStart={(event) => {
+                        if (row.root) {
+                          event.preventDefault()
+                          return
+                        }
+                        setDraggedFolderPath(row.path)
+                        setDraggedEntryId('')
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', row.path)
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault()
+                        setFolderDropTarget(row.path)
+                      }}
+                      onDragLeave={() => {
+                        if (folderDropTarget === row.path) {
+                          setFolderDropTarget('')
+                        }
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        handleDropOnFolder(activeExplorerKind, row.path)
+                      }}
+                      onDragEnd={() => {
+                        setDraggedFolderPath('')
+                        setFolderDropTarget('')
+                      }}
+                    >
+                      {row.root ? <FolderOpen size={14} /> : <Folder size={14} />}
+                      <span>{row.name}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
           )}
         </div>
 
@@ -625,8 +1012,19 @@ export function DashboardPage() {
                 {filteredExplorerEntries.map((entry) => (
                   <tr
                     key={entry.id}
+                    draggable
                     className={selectedEntryId === entry.id ? 'template-row--active' : ''}
                     onClick={() => setSelectedEntryId(entry.id)}
+                    onDragStart={(event) => {
+                      setDraggedEntryId(entry.id)
+                      setDraggedFolderPath('')
+                      event.dataTransfer.effectAllowed = 'move'
+                      event.dataTransfer.setData('text/plain', entry.id)
+                    }}
+                    onDragEnd={() => {
+                      setDraggedEntryId('')
+                      setFolderDropTarget('')
+                    }}
                   >
                     <td className="asset-entry-name">
                       <FileText size={14} />

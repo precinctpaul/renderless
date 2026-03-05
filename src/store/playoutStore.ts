@@ -1732,6 +1732,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       })
     },
     setSimulationLeague: (league) => {
+      clearSimulationPlaybackHandle()
       set((state) => {
         const nextLeague: SupportedLeague =
           league === 'MLB' || league === 'NBA' || league === 'NFL' || league === 'NHL' || league === 'MLS'
@@ -1743,13 +1744,25 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           seed: state.simulationSeed,
         }
         persistSimulationConfig(nextConfig)
+        const nextTimeline = createSimulationTimeline(nextConfig)
+        activeSimulationTimeline = nextTimeline
 
         return {
           simulationLeague: nextLeague,
+          story: storyFromSimulationSnapshot(nextTimeline.initialSnapshot, state.story),
+          bindingFields: mergeBindingFields(STORY_FIELD_DEFS, nextTimeline.bindingFields),
+          simulationStatus: 'idle',
+          simulationCursor: 0,
+          simulationTotalEvents: nextTimeline.frames.length,
+          simulationSnapshot: nextTimeline.initialSnapshot,
+          simulationRecentEvents: [],
+          simulationLastEvent: null,
+          updatedAt: Date.now(),
         }
       })
     },
     setSimulationSpeed: (speed) => {
+      clearSimulationPlaybackHandle()
       set((state) => {
         const nextSpeed: SimulationSpeed =
           speed === 'SLOW' || speed === 'NORMAL' || speed === 'FAST' ? speed : state.simulationSpeed
@@ -1759,13 +1772,25 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           seed: state.simulationSeed,
         }
         persistSimulationConfig(nextConfig)
+        const nextTimeline = createSimulationTimeline(nextConfig)
+        activeSimulationTimeline = nextTimeline
 
         return {
           simulationSpeed: nextSpeed,
+          story: storyFromSimulationSnapshot(nextTimeline.initialSnapshot, state.story),
+          bindingFields: mergeBindingFields(STORY_FIELD_DEFS, nextTimeline.bindingFields),
+          simulationStatus: 'idle',
+          simulationCursor: 0,
+          simulationTotalEvents: nextTimeline.frames.length,
+          simulationSnapshot: nextTimeline.initialSnapshot,
+          simulationRecentEvents: [],
+          simulationLastEvent: null,
+          updatedAt: Date.now(),
         }
       })
     },
     setSimulationSeed: (seed) => {
+      clearSimulationPlaybackHandle()
       set((state) => {
         const nextSeed = Number.isFinite(seed) ? Math.max(1, Math.floor(seed)) : state.simulationSeed
         const nextConfig: SimulationBuildConfig = {
@@ -1774,9 +1799,20 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           seed: nextSeed,
         }
         persistSimulationConfig(nextConfig)
+        const nextTimeline = createSimulationTimeline(nextConfig)
+        activeSimulationTimeline = nextTimeline
 
         return {
           simulationSeed: nextSeed,
+          story: storyFromSimulationSnapshot(nextTimeline.initialSnapshot, state.story),
+          bindingFields: mergeBindingFields(STORY_FIELD_DEFS, nextTimeline.bindingFields),
+          simulationStatus: 'idle',
+          simulationCursor: 0,
+          simulationTotalEvents: nextTimeline.frames.length,
+          simulationSnapshot: nextTimeline.initialSnapshot,
+          simulationRecentEvents: [],
+          simulationLastEvent: null,
+          updatedAt: Date.now(),
         }
       })
     },

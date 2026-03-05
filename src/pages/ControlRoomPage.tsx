@@ -285,7 +285,7 @@ export function ControlRoomPage() {
               <span className={`badge badge--mono ${onAir ? 'badge--air' : ''}`.trim()}>{onAir ? 'ON AIR' : 'CLEAR'}</span>
             </header>
             <div className="monitor-surface">
-              <SceneRenderer scene={programScene} story={story} checkerboard />
+              <SceneRenderer scene={programScene} story={story} />
             </div>
           </article>
 

@@ -1,10 +1,29 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Pause, Play, Shuffle, Square } from 'lucide-react'
+import type { StoryFieldDef } from '../data/storySchema'
+import { deriveBindingLevel, filterBindingFieldsForLeague, type BindingLevel } from '../lib/leagueBindings'
 import type { SimulationSpeed, SupportedLeague } from '../lib/simulationEngine'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const LEAGUES: SupportedLeague[] = ['NBA', 'NFL', 'MLB', 'NHL', 'MLS']
 const SPEEDS: SimulationSpeed[] = ['SLOW', 'NORMAL', 'FAST']
+const LEVEL_ORDER: BindingLevel[] = [
+  'Game',
+  'Team',
+  'Player',
+  'Analytics',
+  'Graphics',
+  'Stories',
+  'RecentEvents',
+  'Context',
+  'Core',
+]
+
+interface RegistryItem {
+  field: StoryFieldDef
+  level: BindingLevel
+  scope: string
+}
 
 function formatBindingValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -20,7 +39,7 @@ function formatBindingValue(value: unknown): string {
   }
 
   const text = String(value)
-  return text.length > 92 ? `${text.slice(0, 89)}...` : text
+  return text.length > 84 ? `${text.slice(0, 81)}...` : text
 }
 
 function parseSeed(rawValue: string, fallback: number): number {
@@ -29,6 +48,77 @@ function parseSeed(rawValue: string, fallback: number): number {
     return fallback
   }
   return Math.max(1, Math.floor(numericValue))
+}
+
+function toScopeLabel(field: StoryFieldDef, level: BindingLevel): string {
+  const segments = field.key.split('.')
+
+  if (level === 'Game') {
+    return 'Game'
+  }
+
+  if (level === 'Team') {
+    if (field.key.startsWith('Teams.Home.') || field.key.startsWith('Analytics.Team.Home.')) {
+      return 'Home team'
+    }
+    if (field.key.startsWith('Teams.Away.') || field.key.startsWith('Analytics.Team.Away.')) {
+      return 'Away team'
+    }
+    if (field.key.startsWith('Graphics.Momentum.Home') || field.key.startsWith('Graphics.Dominance.Home')) {
+      return 'Home team'
+    }
+    if (field.key.startsWith('Graphics.Momentum.Away') || field.key.startsWith('Graphics.Dominance.Away')) {
+      return 'Away team'
+    }
+    return 'Team global'
+  }
+
+  if (level === 'Player') {
+    if (field.key.startsWith('Players.Home.')) {
+      return 'Home players'
+    }
+    if (field.key.startsWith('Players.Away.')) {
+      return 'Away players'
+    }
+    if (field.key.startsWith('Analytics.Player.')) {
+      return 'Player analytics'
+    }
+    return 'Players'
+  }
+
+  if (level === 'Analytics') {
+    if (field.key.startsWith('Analytics.Game.')) {
+      return 'Game analytics'
+    }
+    if (field.key.startsWith('Analytics.Team.Home.')) {
+      return 'Home team analytics'
+    }
+    if (field.key.startsWith('Analytics.Team.Away.')) {
+      return 'Away team analytics'
+    }
+    if (field.key.startsWith('Analytics.Player.')) {
+      return 'Player analytics'
+    }
+    return 'Analytics'
+  }
+
+  if (level === 'Graphics') {
+    return segments[1] ?? 'Graphics'
+  }
+
+  if (level === 'Stories') {
+    return segments[1] ?? 'Stories'
+  }
+
+  if (level === 'RecentEvents') {
+    return 'Recent events'
+  }
+
+  if (level === 'Context') {
+    return segments[1] ?? 'Context'
+  }
+
+  return 'Core'
 }
 
 export function DataEnginePage() {
@@ -66,52 +156,89 @@ export function DataEnginePage() {
   const setStoryValue = usePlayoutStore((state) => state.setStoryValue)
 
   const [simulationSeedInput, setSimulationSeedInput] = useState<string>(() => String(simulationSeed))
+  const [registryLevel, setRegistryLevel] = useState<BindingLevel>('Game')
+  const [registryScope, setRegistryScope] = useState<string>('All scopes')
   const [registryQuery, setRegistryQuery] = useState<string>('')
 
   useEffect(() => {
     setSimulationSeedInput(String(simulationSeed))
   }, [simulationSeed])
 
-  const simulationCanStart = simulationStatus === 'idle' || simulationStatus === 'complete'
-  const simulationProgressLabel = simulationTotalEvents > 0 ? `${simulationCursor}/${simulationTotalEvents}` : '0/0'
-  const simulationStatusLabel = simulationStatus.toUpperCase()
-  const liveBindingCount = bindingFields.length
+  const leagueBindingFields = useMemo(
+    () => filterBindingFieldsForLeague(bindingFields, simulationLeague),
+    [bindingFields, simulationLeague],
+  )
 
-  const registryGroups = useMemo(() => {
+  const registryItems = useMemo<RegistryItem[]>(() => {
+    return leagueBindingFields.map((field) => {
+      const level = deriveBindingLevel(field.key)
+      return {
+        field,
+        level,
+        scope: toScopeLabel(field, level),
+      }
+    })
+  }, [leagueBindingFields])
+
+  const availableLevels = useMemo(() => {
+    return LEVEL_ORDER.filter((level) => registryItems.some((item) => item.level === level))
+  }, [registryItems])
+  const activeRegistryLevel = availableLevels.includes(registryLevel)
+    ? registryLevel
+    : (availableLevels[0] ?? 'Game')
+
+  const scopeOptions = useMemo(() => {
+    const scopes = new Set<string>()
+    registryItems
+      .filter((item) => item.level === activeRegistryLevel)
+      .forEach((item) => {
+        scopes.add(item.scope)
+      })
+
+    return ['All scopes', ...Array.from(scopes).sort((left, right) => left.localeCompare(right))]
+  }, [activeRegistryLevel, registryItems])
+  const activeRegistryScope = scopeOptions.includes(registryScope) ? registryScope : 'All scopes'
+
+  const filteredRegistryItems = useMemo(() => {
     const query = registryQuery.trim().toLowerCase()
-    const matchingFields = query
-      ? bindingFields.filter((field) => {
-          return (
-            field.label.toLowerCase().includes(query) ||
-            field.key.toLowerCase().includes(query) ||
-            (field.group ?? '').toLowerCase().includes(query)
-          )
-        })
-      : bindingFields
+    return registryItems
+      .filter((item) => item.level === activeRegistryLevel)
+      .filter((item) => (activeRegistryScope === 'All scopes' ? true : item.scope === activeRegistryScope))
+      .filter((item) => {
+        if (!query) {
+          return true
+        }
+        return (
+          item.field.label.toLowerCase().includes(query) ||
+          item.field.key.toLowerCase().includes(query) ||
+          item.scope.toLowerCase().includes(query)
+        )
+      })
+  }, [activeRegistryLevel, activeRegistryScope, registryItems, registryQuery])
 
-    const byGroup = new Map<string, typeof matchingFields>()
-    matchingFields.forEach((field) => {
-      const group = field.group ?? 'Ungrouped'
-      const existing = byGroup.get(group)
+  const groupedRegistryItems = useMemo(() => {
+    const byScope = new Map<string, RegistryItem[]>()
+    filteredRegistryItems.forEach((item) => {
+      const existing = byScope.get(item.scope)
       if (existing) {
-        existing.push(field)
+        existing.push(item)
       } else {
-        byGroup.set(group, [field])
+        byScope.set(item.scope, [item])
       }
     })
 
-    return [...byGroup.entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([group, fields]) => ({
-        group,
-        fields: [...fields].sort((left, right) => left.label.localeCompare(right.label)),
+    return [...byScope.entries()]
+      .map(([scope, items]) => ({
+        scope,
+        items: items.sort((left, right) => left.field.label.localeCompare(right.field.label)),
       }))
-  }, [bindingFields, registryQuery])
+      .sort((left, right) => left.scope.localeCompare(right.scope))
+  }, [filteredRegistryItems])
 
-  const visibleRegistryCount = useMemo(
-    () => registryGroups.reduce((total, group) => total + group.fields.length, 0),
-    [registryGroups],
-  )
+  const simulationCanStart = simulationStatus === 'idle' || simulationStatus === 'complete'
+  const simulationProgressLabel = simulationTotalEvents > 0 ? `${simulationCursor}/${simulationTotalEvents}` : '0/0'
+  const simulationStatusLabel = simulationStatus.toUpperCase()
+  const liveBindingCount = leagueBindingFields.length
 
   const commitSeed = () => {
     const nextSeed = parseSeed(simulationSeedInput, simulationSeed)
@@ -319,36 +446,66 @@ export function DataEnginePage() {
         <section className="panel data-engine-main">
           <div className="data-engine-main__header">
             <span className="panel-title">Registry Schema Tree</span>
-            <span className="mono data-engine-main__meta">{visibleRegistryCount} signals</span>
+            <span className="mono data-engine-main__meta">
+              {simulationLeague} | {filteredRegistryItems.length}/{liveBindingCount} signals
+            </span>
           </div>
 
-          <div className="registry-toolbar">
+          <div className="registry-toolbar registry-toolbar--stack">
+            <div className="registry-toolbar__controls">
+              <label className="field-label mono">
+                Level
+                <select
+                  className="mono"
+                  value={activeRegistryLevel}
+                  onChange={(event) => setRegistryLevel(event.target.value as BindingLevel)}
+                >
+                  {availableLevels.map((level) => (
+                    <option key={level} value={level}>
+                      {level}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field-label mono">
+                Scope
+                <select className="mono" value={activeRegistryScope} onChange={(event) => setRegistryScope(event.target.value)}>
+                  {scopeOptions.map((scope) => (
+                    <option key={scope} value={scope}>
+                      {scope}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
             <input
               className="mono"
-              placeholder="Filter signals..."
+              placeholder="Filter current level/scope..."
               value={registryQuery}
               onChange={(event) => setRegistryQuery(event.target.value)}
             />
           </div>
 
           <div className="registry-scroll">
-            {registryGroups.length === 0 ? (
-              <div className="rundown-empty">No bindings match your search.</div>
+            {groupedRegistryItems.length === 0 ? (
+              <div className="rundown-empty">No bindings match your current level/scope/query.</div>
             ) : (
-              registryGroups.map((group) => (
-                <section key={group.group} className="registry-group">
+              groupedRegistryItems.map((group) => (
+                <section key={group.scope} className="registry-group">
                   <header className="registry-group__header mono">
-                    {group.group} <span>{group.fields.length}</span>
+                    {group.scope} <span>{group.items.length}</span>
                   </header>
                   <div className="registry-group__rows">
-                    {group.fields.map((field) => (
-                      <article key={field.key} className="registry-row">
+                    {group.items.map((item) => (
+                      <article key={item.field.key} className="registry-row">
                         <div className="registry-row__left">
-                          <div className="registry-row__label">{field.label}</div>
-                          <div className="registry-row__key mono">{field.key}</div>
+                          <div className="registry-row__label">{item.field.label}</div>
+                          <div className="registry-row__key mono">{item.field.key}</div>
                         </div>
                         <div className="registry-row__value mono">
-                          {formatBindingValue(story.bindings?.[field.key])}
+                          {formatBindingValue(story.bindings?.[item.field.key])}
                         </div>
                       </article>
                     ))}
