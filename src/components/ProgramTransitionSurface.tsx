@@ -9,6 +9,9 @@ interface ProgramTransitionSurfaceProps {
   transition: ProgramTransitionState | null
   checkerboard?: boolean
   className?: string
+  showActionSafe?: boolean
+  showTitleSafe?: boolean
+  showCanvasBounds?: boolean
 }
 
 function clampProgress(value: number): number {
@@ -25,6 +28,9 @@ export function ProgramTransitionSurface({
   transition,
   checkerboard = false,
   className,
+  showActionSafe = false,
+  showTitleSafe = false,
+  showCanvasBounds = false,
 }: ProgramTransitionSurfaceProps) {
   const [now, setNow] = useState(() => Date.now())
   const transitionDurationMs = transition?.durationMs ?? 0
@@ -62,7 +68,17 @@ export function ProgramTransitionSurface({
   }, [hasVisualTransition, now, transition])
 
   if (!hasVisualTransition || !transition) {
-    return <SceneRenderer scene={scene} story={story} checkerboard={checkerboard} className={className} />
+    return (
+      <SceneRenderer
+        scene={scene}
+        story={story}
+        checkerboard={checkerboard}
+        className={className}
+        showActionSafe={showActionSafe}
+        showTitleSafe={showTitleSafe}
+        showCanvasBounds={showCanvasBounds}
+      />
+    )
   }
 
   const fromOpacity = transition.type === 'fade' ? Math.max(0, 1 - progress) : 1
@@ -72,7 +88,14 @@ export function ProgramTransitionSurface({
   return (
     <div className={`transition-surface ${className ?? ''}`.trim()}>
       <div className="transition-surface__layer" style={{ opacity: fromOpacity }}>
-        <SceneRenderer scene={transition.fromScene} story={story} checkerboard={checkerboard} />
+        <SceneRenderer
+          scene={transition.fromScene}
+          story={story}
+          checkerboard={checkerboard}
+          showActionSafe={showActionSafe}
+          showTitleSafe={showTitleSafe}
+          showCanvasBounds={showCanvasBounds}
+        />
       </div>
       <div
         className="transition-surface__layer"
@@ -81,7 +104,14 @@ export function ProgramTransitionSurface({
           clipPath: transition.type === 'lumaWipe' ? `inset(0 ${lumaClipRight}% 0 0)` : undefined,
         }}
       >
-        <SceneRenderer scene={transition.toScene} story={story} checkerboard={checkerboard} />
+        <SceneRenderer
+          scene={transition.toScene}
+          story={story}
+          checkerboard={checkerboard}
+          showActionSafe={showActionSafe}
+          showTitleSafe={showTitleSafe}
+          showCanvasBounds={showCanvasBounds}
+        />
       </div>
     </div>
   )

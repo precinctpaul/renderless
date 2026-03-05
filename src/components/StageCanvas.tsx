@@ -141,7 +141,9 @@ export function StageCanvas({
         onPanBy={(delta) => setStageOffset((previous) => ({ x: previous.x + delta.x, y: previous.y + delta.y }))}
         onAssetDrop={onAssetDrop}
         showSelection
-        showSafeZone={showSafeZone}
+        showActionSafe={showSafeZone}
+        showTitleSafe={showSafeZone}
+        showCanvasBounds
         snapToGrid={snapToGrid}
         interactionMode={interactionMode}
         stageOffsetPx={stageOffset}

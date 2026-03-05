@@ -2250,10 +2250,15 @@ select:focus {
 
 .scene-renderer__stage {
   position: absolute;
-  left: 50%;
-  top: 50%;
   transform-origin: top left;
   overflow: hidden;
+  will-change: transform;
+  border: 1px solid transparent;
+}
+
+.scene-renderer__stage--bounds {
+  border-color: rgba(147, 197, 253, 0.58);
+  box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.22);
 }
 
 .scene-renderer__layer {
@@ -2297,7 +2302,15 @@ select:focus {
 
 .scene-renderer__safe-zone {
   position: absolute;
-  border: 1px dashed rgba(59, 130, 246, 0.85);
+  pointer-events: none;
+}
+
+.scene-renderer__safe-zone--action {
+  border: 1px dashed rgba(59, 130, 246, 0.86);
+}
+
+.scene-renderer__safe-zone--title {
+  border: 1px dashed rgba(245, 158, 11, 0.86);
   pointer-events: none;
 }
 

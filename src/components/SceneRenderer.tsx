@@ -12,6 +12,9 @@ interface SceneRendererProps {
   selectedLayerIds?: string[]
   showSelection?: boolean
   showSafeZone?: boolean
+  showActionSafe?: boolean
+  showTitleSafe?: boolean
+  showCanvasBounds?: boolean
   className?: string
   interactionMode?: 'select' | 'pan'
   snapToGrid?: boolean
@@ -97,6 +100,9 @@ export function SceneRenderer({
   selectedLayerIds,
   showSelection = false,
   showSafeZone = false,
+  showActionSafe,
+  showTitleSafe,
+  showCanvasBounds = false,
   className,
   interactionMode = 'select',
   snapToGrid = false,
@@ -112,18 +118,32 @@ export function SceneRenderer({
   const [dragMode, setDragMode] = useState<'none' | 'pan' | 'layers'>('none')
   const scaleRef = useRef(1)
 
-  const scale = useMemo(() => {
+  const stageGeometry = useMemo(() => {
     const sceneWidth = Math.max(1, scene.width)
     const sceneHeight = Math.max(1, scene.height)
     const widthScale = containerSize.width / sceneWidth
     const heightScale = containerSize.height / sceneHeight
     const fitScale = Math.min(widthScale, heightScale)
     const zoom = Number.isFinite(stageZoomMultiplier) ? Math.max(stageZoomMultiplier, 0.05) : 1
-    if (!Number.isFinite(fitScale) || fitScale <= 0) {
-      return zoom
+    const baseScale = !Number.isFinite(fitScale) || fitScale <= 0 ? 1 : fitScale
+    const scale = baseScale * zoom
+    const stageWidthPx = sceneWidth * scale
+    const stageHeightPx = sceneHeight * scale
+    const stageLeftPx = (containerSize.width - stageWidthPx) / 2 + (stageOffsetPx?.x ?? 0)
+    const stageTopPx = (containerSize.height - stageHeightPx) / 2 + (stageOffsetPx?.y ?? 0)
+
+    return {
+      scale,
+      stageLeftPx,
+      stageTopPx,
+      stageWidthPx,
+      stageHeightPx,
     }
-    return fitScale * zoom
-  }, [containerSize.height, containerSize.width, scene.height, scene.width, stageZoomMultiplier])
+  }, [containerSize.height, containerSize.width, scene.height, scene.width, stageOffsetPx?.x, stageOffsetPx?.y, stageZoomMultiplier])
+
+  const scale = stageGeometry.scale
+  const actionSafeVisible = showActionSafe ?? showSafeZone
+  const titleSafeVisible = showTitleSafe ?? showSafeZone
 
   useEffect(() => {
     scaleRef.current = scale
@@ -214,11 +234,8 @@ export function SceneRenderer({
           return
         }
 
-        const stageLeft = containerSize.width / 2 + (stageOffsetPx?.x ?? 0) - (scene.width * scale) / 2
-        const stageTop = containerSize.height / 2 + (stageOffsetPx?.y ?? 0) - (scene.height * scale) / 2
-
-        const localX = (event.clientX - containerBounds.left - stageLeft) / scale
-        const localY = (event.clientY - containerBounds.top - stageTop) / scale
+        const localX = (event.clientX - containerBounds.left - stageGeometry.stageLeftPx) / stageGeometry.scale
+        const localY = (event.clientY - containerBounds.top - stageGeometry.stageTopPx) / stageGeometry.scale
 
         const x = Math.round(Math.min(Math.max(0, localX), scene.width))
         const y = Math.round(Math.min(Math.max(0, localY), scene.height))
@@ -249,13 +266,13 @@ export function SceneRenderer({
       }}
     >
       <div
-        className="scene-renderer__stage"
+        className={`scene-renderer__stage ${showCanvasBounds ? 'scene-renderer__stage--bounds' : ''}`.trim()}
         style={{
           width: scene.width,
           height: scene.height,
-          left: `calc(50% + ${(stageOffsetPx?.x ?? 0).toFixed(1)}px)`,
-          top: `calc(50% + ${(stageOffsetPx?.y ?? 0).toFixed(1)}px)`,
-          transform: `scale(${scale}) translate(-50%, -50%)`,
+          left: `${stageGeometry.stageLeftPx.toFixed(2)}px`,
+          top: `${stageGeometry.stageTopPx.toFixed(2)}px`,
+          transform: `scale(${stageGeometry.scale})`,
           background: scene.background,
         }}
       >
@@ -315,14 +332,26 @@ export function SceneRenderer({
           </div>
         ))}
 
-        {showSafeZone ? (
+        {actionSafeVisible ? (
           <div
-            className="scene-renderer__safe-zone"
+            className="scene-renderer__safe-zone scene-renderer__safe-zone--action"
             style={{
               left: scene.width * 0.05,
               top: scene.height * 0.05,
               width: scene.width * 0.9,
               height: scene.height * 0.9,
+            }}
+          />
+        ) : null}
+
+        {titleSafeVisible ? (
+          <div
+            className="scene-renderer__safe-zone scene-renderer__safe-zone--title"
+            style={{
+              left: scene.width * 0.1,
+              top: scene.height * 0.1,
+              width: scene.width * 0.8,
+              height: scene.height * 0.8,
             }}
           />
         ) : null}

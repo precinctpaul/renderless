@@ -134,7 +134,14 @@ export function ControlRoomPage() {
                 <span className="mono">{previewScene.name}</span>
               </header>
               <div className="monitor-surface">
-                <SceneRenderer scene={previewScene} story={story} checkerboard />
+                <SceneRenderer
+                  scene={previewScene}
+                  story={story}
+                  checkerboard
+                  showActionSafe
+                  showTitleSafe
+                  showCanvasBounds
+                />
               </div>
             </article>
 
@@ -230,7 +237,14 @@ export function ControlRoomPage() {
                 <span className={`badge badge--mono ${onAir ? 'badge--air' : ''}`.trim()}>{onAir ? 'ON AIR' : 'CLEAR'}</span>
               </header>
               <div className="monitor-surface">
-                <ProgramTransitionSurface scene={programScene} story={story} transition={programTransition} />
+                <ProgramTransitionSurface
+                  scene={programScene}
+                  story={story}
+                  transition={programTransition}
+                  showActionSafe
+                  showTitleSafe
+                  showCanvasBounds
+                />
               </div>
             </article>
           </section>
