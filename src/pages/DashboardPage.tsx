@@ -9,6 +9,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  Play,
   Puzzle,
   Tag,
   Trash2,
@@ -49,6 +50,8 @@ type DashboardMode = 'Media' | 'Typography' | 'Templates'
 type TemplateFolderFilter = 'all' | 'builtIn' | 'custom'
 type ExplorerKind = 'assets' | 'fonts'
 type MediaTypeFilter = 'all' | 'image' | 'video' | 'animation'
+type MediaViewMode = 'gridLarge' | 'gridSmall' | 'list'
+type MediaSortKey = 'name' | 'type' | 'size' | 'modifiedAt'
 
 interface FolderCatalog {
   assets: string[]
@@ -350,6 +353,37 @@ function mediaTypeForEntry(entry: MediaLibraryEntry): MediaTypeFilter {
   return 'image'
 }
 
+function sortMediaEntries(
+  entries: MediaLibraryEntry[],
+  sortKey: MediaSortKey,
+  sortDirection: 'asc' | 'desc',
+): MediaLibraryEntry[] {
+  const direction = sortDirection === 'asc' ? 1 : -1
+  return [...entries].sort((left, right) => {
+    let comparison = 0
+    if (sortKey === 'name') {
+      comparison = left.name.localeCompare(right.name)
+    } else if (sortKey === 'type') {
+      comparison = mediaTypeForEntry(left).localeCompare(mediaTypeForEntry(right))
+      if (comparison === 0) {
+        comparison = left.name.localeCompare(right.name)
+      }
+    } else if (sortKey === 'size') {
+      comparison = left.size - right.size
+      if (comparison === 0) {
+        comparison = left.name.localeCompare(right.name)
+      }
+    } else {
+      comparison = left.modifiedAt - right.modifiedAt
+      if (comparison === 0) {
+        comparison = left.name.localeCompare(right.name)
+      }
+    }
+
+    return comparison * direction
+  })
+}
+
 function formatUploadResult({
   kind,
   imported,
@@ -415,6 +449,9 @@ export function DashboardPage() {
   const [expandedFontFolders, setExpandedFontFolders] = useState<string[]>(() => [FONT_ROOT])
   const [templateFolderFilter, setTemplateFolderFilter] = useState<TemplateFolderFilter>('all')
   const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaTypeFilter>('all')
+  const [mediaViewMode, setMediaViewMode] = useState<MediaViewMode>('gridLarge')
+  const [mediaSortKey, setMediaSortKey] = useState<MediaSortKey>('name')
+  const [mediaSortDirection, setMediaSortDirection] = useState<'asc' | 'desc'>('asc')
   const [showUnusedOnly, setShowUnusedOnly] = useState(false)
   const [searchAll, setSearchAll] = useState(true)
   const [showDevTools, setShowDevTools] = useState(false)
@@ -1072,6 +1109,10 @@ export function DashboardPage() {
       })
       .sort((left, right) => left.name.localeCompare(right.name))
   }, [activeSmartTag, assetEntries, effectiveSelectedAssetFolder, mediaTypeFilter, query, searchAll, showUnusedOnly, usedAssetIds])
+  const sortedMediaEntries = useMemo(
+    () => sortMediaEntries(filteredMediaEntries, mediaSortKey, mediaSortDirection),
+    [filteredMediaEntries, mediaSortDirection, mediaSortKey],
+  )
   const fontFamilyGroups = useMemo<FontFamilyGroup[]>(() => {
     const byFamily = new Map<string, MediaLibraryEntry[]>()
     fontEntries
@@ -1296,6 +1337,23 @@ export function DashboardPage() {
 
     persistAssets(nextEntries)
     setTransientStatus(`Tagged ${visibleIds.size} visible media item(s).`)
+  }
+  const handleMediaViewModeChange = (mode: MediaViewMode) => {
+    setMediaViewMode(mode)
+  }
+  const handleMediaSortChange = (nextSortKey: MediaSortKey) => {
+    if (mediaSortKey === nextSortKey) {
+      setMediaSortDirection((previous) => (previous === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setMediaSortKey(nextSortKey)
+    setMediaSortDirection('asc')
+  }
+  const mediaSortIndicator = (key: MediaSortKey) => {
+    if (mediaSortKey !== key) {
+      return ''
+    }
+    return mediaSortDirection === 'asc' ? '↑' : '↓'
   }
 
   return (
@@ -1732,6 +1790,32 @@ export function DashboardPage() {
                     ))}
                   </select>
                 </label>
+                <div className="table-toolbar__field">
+                  View
+                  <div className="table-toolbar__toggle-row">
+                    <button
+                      type="button"
+                      className={`btn btn--small ${mediaViewMode === 'gridLarge' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                      onClick={() => handleMediaViewModeChange('gridLarge')}
+                    >
+                      Grid Large
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn--small ${mediaViewMode === 'gridSmall' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                      onClick={() => handleMediaViewModeChange('gridSmall')}
+                    >
+                      Grid Small
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn--small ${mediaViewMode === 'list' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                      onClick={() => handleMediaViewModeChange('list')}
+                    >
+                      List
+                    </button>
+                  </div>
+                </div>
               </div>
               <div className="dashboard-filter-row">
                 <label className="table-toolbar__field table-toolbar__field--grow">
@@ -1746,6 +1830,9 @@ export function DashboardPage() {
                   <Tag size={14} />
                   Apply to Current View
                 </button>
+                <div className="dashboard-filter-row__meta mono">
+                  Sort: {mediaSortKey.toUpperCase()} {mediaSortDirection.toUpperCase()}
+                </div>
               </div>
             </div>
           ) : null}
@@ -1902,33 +1989,151 @@ export function DashboardPage() {
                 <div className="inspector-empty">No templates match the current query/filter.</div>
               ) : null}
             </div>
-          ) : activeMode === 'Media' ? (
-            <div className="library-grid">
+          ) : activeMode === 'Media' ? mediaViewMode === 'list' ? (
+            <div className="library-list">
+              <div className="library-list__header">
+                <button type="button" className="library-list__sort-btn" onClick={() => handleMediaSortChange('name')}>
+                  Name {mediaSortIndicator('name')}
+                </button>
+                <button type="button" className="library-list__sort-btn" onClick={() => handleMediaSortChange('type')}>
+                  Type {mediaSortIndicator('type')}
+                </button>
+                <button type="button" className="library-list__sort-btn" onClick={() => handleMediaSortChange('size')}>
+                  Size {mediaSortIndicator('size')}
+                </button>
+                <button type="button" className="library-list__sort-btn" onClick={() => handleMediaSortChange('modifiedAt')}>
+                  Last Modified {mediaSortIndicator('modifiedAt')}
+                </button>
+              </div>
+              <div className="library-list__body">
+                {mediaChildFolders.map((folderPath) => {
+                  const folderName = folderPath.split('/').pop() ?? folderPath
+                  return (
+                    <button
+                      key={folderPath}
+                      type="button"
+                      className="library-list__row library-list__row--folder"
+                      onClick={() => {
+                        setSelectedAssetFolder(folderPath)
+                        setExpandedAssetFolders((previous) => Array.from(new Set([...previous, folderPath])))
+                      }}
+                    >
+                      <span className="library-list__name">
+                        <span className="library-list__thumb library-list__thumb--folder">
+                          <FolderOpen size={16} />
+                        </span>
+                        <span className="library-list__name-text">
+                          <span className="library-list__title">{folderName}</span>
+                          <span className="library-list__sub mono">{folderPath}</span>
+                        </span>
+                      </span>
+                      <span className="library-list__type mono">FOLDER</span>
+                      <span className="library-list__size mono">--</span>
+                      <span className="library-list__modified mono">--</span>
+                    </button>
+                  )
+                })}
+                {sortedMediaEntries.map((entry) => {
+                  const mediaType = mediaTypeForEntry(entry)
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      className={`library-list__row ${selectedEntryId === entry.id ? 'library-list__row--active' : ''}`.trim()}
+                      onClick={() => setSelectedEntryId(entry.id)}
+                      draggable
+                      onDragStart={(event) => {
+                        setDraggedEntryId(entry.id)
+                        setDraggedFolderPath('')
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData(
+                          ENTRY_DRAG_MIME,
+                          JSON.stringify({
+                            kind: activeExplorerKind,
+                            entryId: entry.id,
+                          } satisfies EntryDragPayload),
+                        )
+                        event.dataTransfer.setData(
+                          'text/plain',
+                          `renderless-entry:${JSON.stringify({
+                            kind: activeExplorerKind,
+                            entryId: entry.id,
+                          } satisfies EntryDragPayload)}`,
+                        )
+                      }}
+                      onDragEnd={() => {
+                        setDraggedEntryId('')
+                        setFolderDropTarget('')
+                      }}
+                    >
+                      <span className="library-list__name">
+                        <span className={`library-list__thumb ${mediaType === 'video' ? 'library-list__thumb--video' : ''}`.trim()}>
+                          {entry.dataUrl ? (
+                            mediaType === 'video' ? (
+                              <>
+                                <video src={entry.dataUrl} muted playsInline preload="metadata" />
+                                <span className="library-list__video-badge">
+                                  <Play size={10} />
+                                </span>
+                              </>
+                            ) : (
+                              <img src={entry.dataUrl} alt={entry.name} />
+                            )
+                          ) : (
+                            <span className="library-card__fallback mono">NO PREVIEW</span>
+                          )}
+                        </span>
+                        <span className="library-list__name-text">
+                          <span className="library-list__title">{entry.name}</span>
+                          <span className="library-list__sub mono">{(entry.tags ?? []).join(', ') || 'No tags'}</span>
+                        </span>
+                      </span>
+                      <span className="library-list__type mono">{mediaType.toUpperCase()}</span>
+                      <span className="library-list__size mono">{formatBytes(entry.size)}</span>
+                      <span className="library-list__modified mono">{formatDate(entry.modifiedAt)}</span>
+                    </button>
+                  )
+                })}
+                {sortedMediaEntries.length === 0 && mediaChildFolders.length === 0 ? (
+                  <div className="inspector-empty">No media in current view.</div>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div
+              className={`library-grid library-grid--media ${
+                mediaViewMode === 'gridSmall' ? 'library-grid--media-small' : 'library-grid--media-large'
+              }`.trim()}
+            >
               {mediaChildFolders.map((folderPath) => {
                 const folderName = folderPath.split('/').pop() ?? folderPath
                 return (
                   <article
                     key={folderPath}
-                    className="library-card library-card--media library-card--folder"
+                    className={`library-card library-card--media library-card--folder ${
+                      mediaViewMode === 'gridSmall' ? 'library-card--media-small' : 'library-card--media-large'
+                    }`.trim()}
                     onClick={() => {
                       setSelectedAssetFolder(folderPath)
                       setExpandedAssetFolders((previous) => Array.from(new Set([...previous, folderPath])))
                     }}
                   >
                     <div className="library-card__surface library-card__surface--folder">
-                      <FolderOpen size={28} />
+                      <FolderOpen size={24} />
                     </div>
                     <div className="library-card__title">{folderName}</div>
                     <div className="library-card__meta mono">FOLDER</div>
                   </article>
                 )
               })}
-              {filteredMediaEntries.map((entry) => {
+              {sortedMediaEntries.map((entry) => {
                 const mediaType = mediaTypeForEntry(entry)
                 return (
                   <article
                     key={entry.id}
-                    className={`library-card library-card--media ${selectedEntryId === entry.id ? 'library-card--active' : ''}`.trim()}
+                    className={`library-card library-card--media ${
+                      mediaViewMode === 'gridSmall' ? 'library-card--media-small' : 'library-card--media-large'
+                    } ${selectedEntryId === entry.id ? 'library-card--active' : ''}`.trim()}
                     onClick={() => setSelectedEntryId(entry.id)}
                     draggable
                     onDragStart={(event) => {
@@ -1955,19 +2160,25 @@ export function DashboardPage() {
                       setFolderDropTarget('')
                     }}
                   >
-                    <div className="library-card__surface">
+                    <div className="library-card__surface library-card__surface--asset">
                       {mediaType === 'video' && entry.dataUrl ? (
-                        <video
-                          src={entry.dataUrl}
-                          muted
-                          loop
-                          playsInline
-                          preload="metadata"
-                          onMouseEnter={(event) => {
-                            void event.currentTarget.play().catch(() => {})
-                          }}
-                          onMouseLeave={(event) => event.currentTarget.pause()}
-                        />
+                        <>
+                          <video
+                            src={entry.dataUrl}
+                            muted
+                            loop
+                            playsInline
+                            preload="metadata"
+                            onMouseEnter={(event) => {
+                              void event.currentTarget.play().catch(() => {})
+                            }}
+                            onMouseLeave={(event) => event.currentTarget.pause()}
+                          />
+                          <span className="library-card__video-badge mono">
+                            <Play size={11} />
+                            VIDEO
+                          </span>
+                        </>
                       ) : entry.dataUrl ? (
                         <img src={entry.dataUrl} alt={entry.name} />
                       ) : (
@@ -1985,11 +2196,11 @@ export function DashboardPage() {
                       )}
                       {mediaType.toUpperCase()} | {formatBytes(entry.size)}
                     </div>
-                    <div className="library-card__meta mono">{(entry.tags ?? []).join(', ') || 'No tags'}</div>
+                    <div className="library-card__meta mono">{formatDate(entry.modifiedAt)}</div>
                   </article>
                 )
               })}
-              {filteredMediaEntries.length === 0 && mediaChildFolders.length === 0 ? (
+              {sortedMediaEntries.length === 0 && mediaChildFolders.length === 0 ? (
                 <div className="inspector-empty">No media in current view.</div>
               ) : null}
             </div>
