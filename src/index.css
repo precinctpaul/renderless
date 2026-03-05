@@ -406,6 +406,11 @@ select:focus {
   background: #0f1b32;
 }
 
+.tree-row:focus-visible {
+  outline: 2px solid var(--blue-500);
+  outline-offset: 1px;
+}
+
 .tree-row--active {
   border-color: #3768b7;
   background: #162e56;
@@ -464,6 +469,12 @@ select:focus {
 .table-actions {
   display: inline-flex;
   gap: 6px;
+}
+
+.asset-entry-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .protocol-item {
