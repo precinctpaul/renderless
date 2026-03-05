@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 import { FileText, Folder, FolderOpen, FolderPlus, Puzzle, Trash2, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { usePlayoutStore } from '../store/playoutStore'
@@ -13,14 +13,15 @@ import {
   type MediaLibraryEntry,
 } from '../lib/mediaLibrary'
 
-const MODES = ['Branded Assets', 'Fonts', 'Templates'] as const
 const DASHBOARD_FOLDER_STORAGE_KEY = 'renderless.dashboard.folders.v1'
+const FOLDER_DRAG_MIME = 'application/x-renderless-dashboard-folder'
+const ENTRY_DRAG_MIME = 'application/x-renderless-dashboard-entry'
 const ASSET_ROOT = 'Branded Assets'
 const FONT_ROOT = 'Fonts'
 const DEFAULT_ASSET_FOLDERS = [ASSET_ROOT, `${ASSET_ROOT}/BGs`, `${ASSET_ROOT}/Template Designs`]
 const DEFAULT_FONT_FOLDERS = [FONT_ROOT, `${FONT_ROOT}/Imported`]
 
-type DashboardMode = (typeof MODES)[number]
+type DashboardMode = 'Branded Assets' | 'Fonts' | 'Templates'
 type TemplateFolderFilter = 'all' | 'builtIn' | 'custom'
 type ExplorerKind = 'assets' | 'fonts'
 
@@ -34,6 +35,16 @@ interface FolderRow {
   name: string
   depth: number
   root: boolean
+}
+
+interface FolderDragPayload {
+  kind: ExplorerKind
+  folderPath: string
+}
+
+interface EntryDragPayload {
+  kind: ExplorerKind
+  entryId: string
 }
 
 function normalizeFolderPath(path: string): string {
@@ -142,6 +153,46 @@ function buildFolderRows(paths: string[], root: string): FolderRow[] {
   })
 }
 
+function parseFolderDragPayload(raw: string): FolderDragPayload | null {
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<FolderDragPayload>
+    if (!parsed || (parsed.kind !== 'assets' && parsed.kind !== 'fonts') || typeof parsed.folderPath !== 'string') {
+      return null
+    }
+
+    return {
+      kind: parsed.kind,
+      folderPath: parsed.folderPath,
+    }
+  } catch {
+    return null
+  }
+}
+
+function parseEntryDragPayload(raw: string): EntryDragPayload | null {
+  if (!raw) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<EntryDragPayload>
+    if (!parsed || (parsed.kind !== 'assets' && parsed.kind !== 'fonts') || typeof parsed.entryId !== 'string') {
+      return null
+    }
+
+    return {
+      kind: parsed.kind,
+      entryId: parsed.entryId,
+    }
+  } catch {
+    return null
+  }
+}
+
 function sameStringArray(left: string[], right: string[]): boolean {
   if (left.length !== right.length) {
     return false
@@ -239,6 +290,7 @@ export function DashboardPage() {
     }
   }, [initialAssetEntries, initialFontEntries])
   const [activeMode, setActiveMode] = useState<DashboardMode>('Templates')
+  const [expandedMode, setExpandedMode] = useState<DashboardMode>('Templates')
   const [folderCatalog, setFolderCatalog] = useState<FolderCatalog>(initialFolderCatalog)
   const [selectedAssetFolder, setSelectedAssetFolder] = useState<string>(initialFolderCatalog.assets[0] ?? ASSET_ROOT)
   const [selectedFontFolder, setSelectedFontFolder] = useState<string>(initialFolderCatalog.fonts[0] ?? FONT_ROOT)
@@ -721,8 +773,16 @@ export function DashboardPage() {
     setTransientStatus(`Moved folder to ${destinationBase}`)
   }
 
-  const handleDropOnFolder = (kind: ExplorerKind, targetFolder: string) => {
-    if (draggedEntryId) {
+  const handleDropOnFolder = (event: ReactDragEvent<HTMLElement>, kind: ExplorerKind, targetFolder: string) => {
+    const entryPayload = parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME))
+    const folderPayload = parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME))
+
+    if (entryPayload && entryPayload.kind === kind) {
+      moveEntryToFolder(kind, entryPayload.entryId, targetFolder)
+      setTransientStatus(`Moved file to ${targetFolder}`)
+    } else if (folderPayload && folderPayload.kind === kind) {
+      moveFolderToFolder(kind, folderPayload.folderPath, targetFolder)
+    } else if (draggedEntryId) {
       moveEntryToFolder(kind, draggedEntryId, targetFolder)
       setTransientStatus(`Moved file to ${targetFolder}`)
     } else if (draggedFolderPath) {
@@ -746,154 +806,254 @@ export function DashboardPage() {
       ? `Showing ${filteredTemplates.length} template(s)`
       : `Showing ${filteredExplorerEntries.length} item(s) in ${activeFolder}`
   const activeExplorerKind: ExplorerKind = activeMode === 'Fonts' ? 'fonts' : 'assets'
-  const activeFolderRows = activeMode === 'Fonts' ? fontFolderRows : assetFolderRows
+  const setExplorerMode = (mode: DashboardMode) => {
+    setActiveMode(mode)
+    setExpandedMode(mode)
+  }
 
   return (
     <section className="screen screen--dashboard">
-      <div className="screen-header">
-        <h1>DASHBOARD</h1>
-        <p>Single-pane explorer for branded assets, fonts, and templates with persistent structure.</p>
-      </div>
-
       <div className="dashboard-layout">
-        <aside className="panel panel--left">
-          <div className="panel-title">MODE</div>
-          <div className="mode-list">
-            {MODES.map((mode) => (
+        <aside className="panel panel--explorer">
+          <div className="panel-title">Explorer</div>
+          <div className="explorer-sections">
+            <section className="explorer-section">
               <button
-                key={mode}
-                className={`mode-item ${mode === activeMode ? 'mode-item--active' : ''}`.trim()}
                 type="button"
-                onClick={() => setActiveMode(mode)}
+                className={`mode-item ${activeMode === 'Branded Assets' ? 'mode-item--active' : ''}`.trim()}
+                onClick={() => setExplorerMode('Branded Assets')}
               >
-                {mode}
+                Branded Assets
               </button>
-            ))}
-            <button
-              type="button"
-              className={`mode-item mode-item--dev ${showDevTools ? 'mode-item--active' : ''}`.trim()}
-              onClick={() => setShowDevTools((previous) => !previous)}
-            >
-              DEV TOOLS
-            </button>
-            {showDevTools ? (
-              <div className="dev-tools-panel">
-                <button type="button" className="btn btn--small btn--ghost" onClick={handleExportPersistedState}>
-                  Export persisted state
-                </button>
-                <button type="button" className="btn btn--small btn--ghost" onClick={handleResetDashboardStorage}>
-                  Reset dashboard uploads
-                </button>
-                <button type="button" className="btn btn--small btn--ghost" onClick={resetDemo}>
-                  Reset playout state
-                </button>
-              </div>
-            ) : null}
+              {expandedMode === 'Branded Assets' ? (
+                <div className="explorer-section__body">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => createSubfolder('assets')}
+                  >
+                    <FolderPlus size={14} />
+                    New Folder
+                  </button>
+                  <div className="folder-tree">
+                    {assetFolderRows.map((row) => {
+                      const isSelected = effectiveSelectedAssetFolder === row.path
+                      const isDropTarget = folderDropTarget === row.path
+
+                      return (
+                        <button
+                          key={row.path}
+                          type="button"
+                          draggable={!row.root}
+                          className={`tree-row ${isSelected ? 'tree-row--active' : ''} ${isDropTarget ? 'tree-row--drop-target' : ''}`.trim()}
+                          style={{ paddingLeft: `${8 + row.depth * 14}px` }}
+                          onClick={() => {
+                            setSelectedAssetFolder(row.path)
+                            setExplorerMode('Branded Assets')
+                          }}
+                          onDragStart={(event) => {
+                            if (row.root) {
+                              event.preventDefault()
+                              return
+                            }
+                            setDraggedFolderPath(row.path)
+                            setDraggedEntryId('')
+                            event.dataTransfer.effectAllowed = 'move'
+                            event.dataTransfer.setData(
+                              FOLDER_DRAG_MIME,
+                              JSON.stringify({
+                                kind: 'assets',
+                                folderPath: row.path,
+                              } satisfies FolderDragPayload),
+                            )
+                          }}
+                          onDragOver={(event) => {
+                            const folderPayload = parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME))
+                            const entryPayload = parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME))
+                            if (folderPayload?.kind !== 'assets' && entryPayload?.kind !== 'assets') {
+                              return
+                            }
+                            event.preventDefault()
+                            setFolderDropTarget(row.path)
+                          }}
+                          onDragLeave={() => {
+                            if (folderDropTarget === row.path) {
+                              setFolderDropTarget('')
+                            }
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault()
+                            handleDropOnFolder(event, 'assets', row.path)
+                          }}
+                          onDragEnd={() => {
+                            setDraggedFolderPath('')
+                            setFolderDropTarget('')
+                          }}
+                        >
+                          {row.root ? <FolderOpen size={14} /> : <Folder size={14} />}
+                          <span>{row.name}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="explorer-section">
+              <button
+                type="button"
+                className={`mode-item ${activeMode === 'Fonts' ? 'mode-item--active' : ''}`.trim()}
+                onClick={() => setExplorerMode('Fonts')}
+              >
+                Fonts
+              </button>
+              {expandedMode === 'Fonts' ? (
+                <div className="explorer-section__body">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => createSubfolder('fonts')}
+                  >
+                    <FolderPlus size={14} />
+                    New Folder
+                  </button>
+                  <div className="folder-tree">
+                    {fontFolderRows.map((row) => {
+                      const isSelected = effectiveSelectedFontFolder === row.path
+                      const isDropTarget = folderDropTarget === row.path
+
+                      return (
+                        <button
+                          key={row.path}
+                          type="button"
+                          draggable={!row.root}
+                          className={`tree-row ${isSelected ? 'tree-row--active' : ''} ${isDropTarget ? 'tree-row--drop-target' : ''}`.trim()}
+                          style={{ paddingLeft: `${8 + row.depth * 14}px` }}
+                          onClick={() => {
+                            setSelectedFontFolder(row.path)
+                            setExplorerMode('Fonts')
+                          }}
+                          onDragStart={(event) => {
+                            if (row.root) {
+                              event.preventDefault()
+                              return
+                            }
+                            setDraggedFolderPath(row.path)
+                            setDraggedEntryId('')
+                            event.dataTransfer.effectAllowed = 'move'
+                            event.dataTransfer.setData(
+                              FOLDER_DRAG_MIME,
+                              JSON.stringify({
+                                kind: 'fonts',
+                                folderPath: row.path,
+                              } satisfies FolderDragPayload),
+                            )
+                          }}
+                          onDragOver={(event) => {
+                            const folderPayload = parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME))
+                            const entryPayload = parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME))
+                            if (folderPayload?.kind !== 'fonts' && entryPayload?.kind !== 'fonts') {
+                              return
+                            }
+                            event.preventDefault()
+                            setFolderDropTarget(row.path)
+                          }}
+                          onDragLeave={() => {
+                            if (folderDropTarget === row.path) {
+                              setFolderDropTarget('')
+                            }
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault()
+                            handleDropOnFolder(event, 'fonts', row.path)
+                          }}
+                          onDragEnd={() => {
+                            setDraggedFolderPath('')
+                            setFolderDropTarget('')
+                          }}
+                        >
+                          {row.root ? <FolderOpen size={14} /> : <Folder size={14} />}
+                          <span>{row.name}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="explorer-section">
+              <button
+                type="button"
+                className={`mode-item ${activeMode === 'Templates' ? 'mode-item--active' : ''}`.trim()}
+                onClick={() => setExplorerMode('Templates')}
+              >
+                Templates
+              </button>
+              {expandedMode === 'Templates' ? (
+                <div className="explorer-section__body">
+                  <button
+                    type="button"
+                    className={`tree-row ${templateFolderFilter === 'builtIn' ? 'tree-row--active' : ''}`.trim()}
+                    onClick={() => {
+                      setExplorerMode('Templates')
+                      setTemplateFolderFilter('builtIn')
+                    }}
+                  >
+                    <Folder size={14} />
+                    <span>Built-In</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`tree-row ${templateFolderFilter === 'custom' ? 'tree-row--active' : ''}`.trim()}
+                    onClick={() => {
+                      setExplorerMode('Templates')
+                      setTemplateFolderFilter('custom')
+                    }}
+                  >
+                    <Folder size={14} />
+                    <span>Custom</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`tree-row ${templateFolderFilter === 'all' ? 'tree-row--active' : ''}`.trim()}
+                    onClick={() => {
+                      setExplorerMode('Templates')
+                      setTemplateFolderFilter('all')
+                    }}
+                  >
+                    <FolderOpen size={14} />
+                    <span>All Templates</span>
+                  </button>
+                </div>
+              ) : null}
+            </section>
+
+            <section className="explorer-section explorer-section--dev">
+              <button
+                type="button"
+                className={`mode-item mode-item--dev ${showDevTools ? 'mode-item--active' : ''}`.trim()}
+                onClick={() => setShowDevTools((previous) => !previous)}
+              >
+                DEV TOOLS
+              </button>
+              {showDevTools ? (
+                <div className="dev-tools-panel">
+                  <button type="button" className="btn btn--small btn--ghost" onClick={handleExportPersistedState}>
+                    Export persisted state
+                  </button>
+                  <button type="button" className="btn btn--small btn--ghost" onClick={handleResetDashboardStorage}>
+                    Reset dashboard uploads
+                  </button>
+                  <button type="button" className="btn btn--small btn--ghost" onClick={resetDemo}>
+                    Reset playout state
+                  </button>
+                </div>
+              ) : null}
+            </section>
           </div>
         </aside>
-
-        <div className="panel panel--folders">
-          <div className="panel-title">{activeMode} Folders</div>
-          {activeMode === 'Templates' ? (
-            <>
-              <div className="tree-row tree-row--active">
-                <FolderOpen size={14} />
-                <span>Templates</span>
-              </div>
-              <button
-                type="button"
-                className={`tree-row ${templateFolderFilter === 'builtIn' ? 'tree-row--active' : ''}`.trim()}
-                onClick={() => setTemplateFolderFilter('builtIn')}
-              >
-                <Folder size={14} />
-                <span>Built-In</span>
-              </button>
-              <button
-                type="button"
-                className={`tree-row ${templateFolderFilter === 'custom' ? 'tree-row--active' : ''}`.trim()}
-                onClick={() => setTemplateFolderFilter('custom')}
-              >
-                <Folder size={14} />
-                <span>Custom</span>
-              </button>
-              <button
-                type="button"
-                className={`tree-row ${templateFolderFilter === 'all' ? 'tree-row--active' : ''}`.trim()}
-                onClick={() => setTemplateFolderFilter('all')}
-              >
-                <Folder size={14} />
-                <span>All Templates</span>
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="btn btn--small btn--ghost"
-                onClick={() => createSubfolder(activeExplorerKind)}
-              >
-                <FolderPlus size={14} />
-                New Folder
-              </button>
-              <div className="folder-tree">
-                {activeFolderRows.map((row) => {
-                  const isSelected =
-                    activeMode === 'Branded Assets'
-                      ? effectiveSelectedAssetFolder === row.path
-                      : effectiveSelectedFontFolder === row.path
-                  const isDropTarget = folderDropTarget === row.path
-
-                  return (
-                    <button
-                      key={row.path}
-                      type="button"
-                      draggable={!row.root}
-                      className={`tree-row ${isSelected ? 'tree-row--active' : ''} ${isDropTarget ? 'tree-row--drop-target' : ''}`.trim()}
-                      style={{ paddingLeft: `${8 + row.depth * 14}px` }}
-                      onClick={() => {
-                        if (activeMode === 'Branded Assets') {
-                          setSelectedAssetFolder(row.path)
-                        } else {
-                          setSelectedFontFolder(row.path)
-                        }
-                      }}
-                      onDragStart={(event) => {
-                        if (row.root) {
-                          event.preventDefault()
-                          return
-                        }
-                        setDraggedFolderPath(row.path)
-                        setDraggedEntryId('')
-                        event.dataTransfer.effectAllowed = 'move'
-                        event.dataTransfer.setData('text/plain', row.path)
-                      }}
-                      onDragOver={(event) => {
-                        event.preventDefault()
-                        setFolderDropTarget(row.path)
-                      }}
-                      onDragLeave={() => {
-                        if (folderDropTarget === row.path) {
-                          setFolderDropTarget('')
-                        }
-                      }}
-                      onDrop={(event) => {
-                        event.preventDefault()
-                        handleDropOnFolder(activeExplorerKind, row.path)
-                      }}
-                      onDragEnd={() => {
-                        setDraggedFolderPath('')
-                        setFolderDropTarget('')
-                      }}
-                    >
-                      {row.root ? <FolderOpen size={14} /> : <Folder size={14} />}
-                      <span>{row.name}</span>
-                    </button>
-                  )
-                })}
-              </div>
-            </>
-          )}
-        </div>
 
         <div className="panel panel--table">
           <div className="table-toolbar">
@@ -1019,7 +1179,13 @@ export function DashboardPage() {
                       setDraggedEntryId(entry.id)
                       setDraggedFolderPath('')
                       event.dataTransfer.effectAllowed = 'move'
-                      event.dataTransfer.setData('text/plain', entry.id)
+                      event.dataTransfer.setData(
+                        ENTRY_DRAG_MIME,
+                        JSON.stringify({
+                          kind: activeExplorerKind,
+                          entryId: entry.id,
+                        } satisfies EntryDragPayload),
+                      )
                     }}
                     onDragEnd={() => {
                       setDraggedEntryId('')

@@ -14,6 +14,7 @@ export interface MediaLibraryEntry {
 
 export const ASSET_STORAGE_KEY = 'renderless.dashboard.assets.v1'
 export const FONT_STORAGE_KEY = 'renderless.dashboard.fonts.v1'
+export const MEDIA_LIBRARY_UPDATED_EVENT = 'renderless-media-library-updated'
 
 const REGISTERED_FONT_FAMILIES = new Set<string>()
 
@@ -126,6 +127,11 @@ export function persistMediaEntries(kind: MediaLibraryKind, entries: MediaLibrar
 
   try {
     window.localStorage.setItem(storageKeyFor(kind), JSON.stringify(entries))
+    window.dispatchEvent(
+      new CustomEvent(MEDIA_LIBRARY_UPDATED_EVENT, {
+        detail: { kind },
+      }),
+    )
     return { ok: true }
   } catch {
     return { ok: false, error: 'Unable to persist files (storage quota exceeded).' }

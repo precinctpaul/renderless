@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlignCenter,
   AlignHorizontalDistributeCenter,
   AlignJustify,
   AlignVerticalDistributeCenter,
-  ArrowDown,
-  ArrowUp,
-  Move3D,
+  Copy,
+  Eye,
+  EyeOff,
+  GripVertical,
+  Lock,
   Redo2,
+  Trash2,
   Undo2,
-  Upload,
+  Unlock,
 } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
 import type { DataBindingKey, SceneLayer } from '../types/scene'
@@ -20,11 +23,10 @@ import type { TemplatePackage } from '../lib/templatePackages'
 import {
   ASSET_STORAGE_KEY,
   FONT_STORAGE_KEY,
-  buildEntriesFromFiles,
-  persistMediaEntries,
+  MEDIA_LIBRARY_UPDATED_EVENT,
   readMediaEntries,
   registerFontEntries,
-  type MediaLibraryEntry,
+  type MediaLibraryEntry
 } from '../lib/mediaLibrary'
 
 type CreationItem = 'TEXT' | 'SHAPE' | 'FIGMA' | 'RIVE'
@@ -150,17 +152,11 @@ function mixedOpacity(layers: SceneLayer[]): string {
   return layers.every((layer) => asPercent(layer.opacity) === first) ? String(first) : ''
 }
 
-function layerPositionInfo(layer: SceneLayer, layers: SceneLayer[]) {
-  const index = layers.findIndex((entry) => entry.id === layer.id)
-  return { canMoveForward: index >= 0 && index < layers.length - 1, canMoveBackward: index > 0 }
-}
-
 export function DesignPage() {
   const scene = usePlayoutStore((state) => state.previewScene)
   const story = usePlayoutStore((state) => state.story)
   const templates = usePlayoutStore((state) => state.templates)
   const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
-  const reorderPreviewLayer = usePlayoutStore((state) => state.reorderPreviewLayer)
   const reorderPreviewLayerToIndex = usePlayoutStore((state) => state.reorderPreviewLayerToIndex)
   const movePreviewLayersByDelta = usePlayoutStore((state) => state.movePreviewLayersByDelta)
   const updatePreviewLayerTransform = usePlayoutStore((state) => state.updatePreviewLayerTransform)
@@ -168,6 +164,11 @@ export function DesignPage() {
   const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
   const updatePreviewTextStyle = usePlayoutStore((state) => state.updatePreviewTextStyle)
   const updatePreviewTextBinding = usePlayoutStore((state) => state.updatePreviewTextBinding)
+  const addPreviewImageLayerFromAsset = usePlayoutStore((state) => state.addPreviewImageLayerFromAsset)
+  const duplicatePreviewLayer = usePlayoutStore((state) => state.duplicatePreviewLayer)
+  const deletePreviewLayer = usePlayoutStore((state) => state.deletePreviewLayer)
+  const togglePreviewLayerVisibility = usePlayoutStore((state) => state.togglePreviewLayerVisibility)
+  const togglePreviewLayerLock = usePlayoutStore((state) => state.togglePreviewLayerLock)
   const renamePreviewLayer = usePlayoutStore((state) => state.renamePreviewLayer)
   const createPreviewLayer = usePlayoutStore((state) => state.createPreviewLayer)
   const alignPreviewLayers = usePlayoutStore((state) => state.alignPreviewLayers)
@@ -205,8 +206,6 @@ export function DesignPage() {
   const [bindingPlayerSearch, setBindingPlayerSearch] = useState('')
   const [bindingPlayerSlot, setBindingPlayerSlot] = useState<string>('All players')
   const [bindingMetricQuery, setBindingMetricQuery] = useState('')
-  const assetInputRef = useRef<HTMLInputElement | null>(null)
-  const fontInputRef = useRef<HTMLInputElement | null>(null)
   const setTransientStatus = (message: string, timeoutMs = 1800) => {
     setSaveStatus(message)
     window.setTimeout(() => setSaveStatus(''), timeoutMs)
@@ -418,24 +417,16 @@ export function DesignPage() {
     )
   }, [bindingOptions, filteredBindingOptions, primarySelectedLayer])
 
-  const persistAssets = (nextEntries: MediaLibraryEntry[]) => {
-    setAssetEntries(nextEntries)
-    const persisted = persistMediaEntries('asset', nextEntries)
-    if (!persisted.ok) {
-      setTransientStatus(persisted.error ?? 'Asset persistence failed.')
-    }
-  }
-
-  const persistFonts = (nextEntries: MediaLibraryEntry[]) => {
-    setFontEntries(nextEntries)
-    const persisted = persistMediaEntries('font', nextEntries)
-    if (!persisted.ok) {
-      setTransientStatus(persisted.error ?? 'Font persistence failed.')
-    }
-  }
-
   useEffect(() => {
     let cancelled = false
+
+    const hydrateAssets = () => {
+      if (cancelled) {
+        return
+      }
+
+      setAssetEntries(readMediaEntries('asset'))
+    }
 
     const hydrateFonts = async () => {
       const registration = await registerFontEntries(readMediaEntries('font'))
@@ -445,11 +436,6 @@ export function DesignPage() {
 
       if (registration.changed) {
         setFontEntries(registration.entries)
-        const persisted = persistMediaEntries('font', registration.entries)
-        if (!persisted.ok) {
-          setSaveStatus(persisted.error ?? 'Font persistence failed.')
-          window.setTimeout(() => setSaveStatus(''), 1800)
-        }
         return
       }
 
@@ -458,7 +444,7 @@ export function DesignPage() {
 
     const onStorage = (event: StorageEvent) => {
       if (event.key === ASSET_STORAGE_KEY) {
-        setAssetEntries(readMediaEntries('asset'))
+        hydrateAssets()
         return
       }
 
@@ -467,12 +453,26 @@ export function DesignPage() {
       }
     }
 
+    const onMediaLibraryUpdated = (event: Event) => {
+      const payload = (event as CustomEvent<{ kind?: 'asset' | 'font' }>).detail
+      if (!payload || payload.kind === 'asset') {
+        hydrateAssets()
+      }
+
+      if (!payload || payload.kind === 'font') {
+        void hydrateFonts()
+      }
+    }
+
+    hydrateAssets()
     void hydrateFonts()
     window.addEventListener('storage', onStorage)
+    window.addEventListener(MEDIA_LIBRARY_UPDATED_EVENT, onMediaLibraryUpdated as EventListener)
 
     return () => {
       cancelled = true
       window.removeEventListener('storage', onStorage)
+      window.removeEventListener(MEDIA_LIBRARY_UPDATED_EVENT, onMediaLibraryUpdated as EventListener)
     }
   }, [])
 
@@ -664,61 +664,40 @@ export function DesignPage() {
     setIsInspectorRenaming(false)
   }
 
-  const handleAssetUpload = async (files: FileList | null) => {
-    if (!files || files.length === 0) {
+  const handleDropAssetOnCanvas = (entryId: string, position: { x: number; y: number }) => {
+    const entry = assetEntries.find((asset) => asset.id === entryId)
+    if (!entry || !entry.dataUrl) {
+      setTransientStatus('Asset missing data URL. Re-import from Dashboard.')
       return
     }
 
-    const { entries, rejectedFiles } = await buildEntriesFromFiles(Array.from(files), 'asset', 'Stage Pro')
-    if (entries.length > 0) {
-      persistAssets([...entries, ...assetEntries])
-      setSidebarTab('assets')
-    }
+    const nextLayerId = addPreviewImageLayerFromAsset({
+      name: entry.name,
+      dataUrl: entry.dataUrl,
+      x: position.x,
+      y: position.y,
+    })
 
-    if (entries.length > 0 && rejectedFiles.length === 0) {
-      setTransientStatus(`Imported ${entries.length} asset file(s).`, 2200)
+    if (!nextLayerId) {
+      setTransientStatus('Unable to create image layer from asset.')
       return
     }
 
-    if (entries.length > 0) {
-      setTransientStatus(`Imported ${entries.length} asset file(s), rejected ${rejectedFiles.length}.`, 2200)
-      return
-    }
-
-    setTransientStatus('Asset import failed.')
+    setSelectedLayerIds([nextLayerId])
+    setSelectionAnchorId(nextLayerId)
+    setSidebarTab('layers')
+    setTransientStatus(`Placed ${entry.name} on stage.`, 1600)
   }
 
-  const handleFontUpload = async (files: FileList | null) => {
-    if (!files || files.length === 0) {
+  const handleDuplicateLayer = (layerId: string) => {
+    const nextLayerId = duplicatePreviewLayer(layerId)
+    if (!nextLayerId) {
+      setTransientStatus('Layer is locked and cannot be duplicated.')
       return
     }
 
-    const { entries, rejectedFiles } = await buildEntriesFromFiles(Array.from(files), 'font', 'Stage Pro')
-    const registration = await registerFontEntries(entries)
-
-    if (registration.entries.length > 0) {
-      persistFonts([...registration.entries, ...fontEntries])
-      setSidebarTab('assets')
-    }
-
-    const loadedCount = registration.entries.length - registration.failed
-    if (loadedCount > 0) {
-      setTransientStatus(
-        `Imported ${loadedCount} font file(s)${rejectedFiles.length > 0 ? `, rejected ${rejectedFiles.length}` : ''}${registration.failed > 0 ? `, failed ${registration.failed}` : ''}.`,
-        2400,
-      )
-      return
-    }
-
-    if (rejectedFiles.length > 0 || registration.failed > 0) {
-      setTransientStatus(
-        `Font import failed${rejectedFiles.length > 0 ? `, rejected ${rejectedFiles.length}` : ''}${registration.failed > 0 ? `, failed ${registration.failed}` : ''}.`,
-        2400,
-      )
-      return
-    }
-
-    setTransientStatus('No fonts imported.')
+    setSelectedLayerIds([nextLayerId])
+    setSelectionAnchorId(nextLayerId)
   }
 
   const bindingPreviewValue =
@@ -730,10 +709,6 @@ export function DesignPage() {
     <section className="screen screen--design">
       <div className="design-layout">
         <aside className="panel stage-sidebar">
-          <div className="sidebar-tabs">
-            <button type="button" className={`tab-btn ${sidebarTab === 'layers' ? 'tab-btn--active' : ''}`} onClick={() => setSidebarTab('layers')}>Layers</button>
-            <button type="button" className={`tab-btn ${sidebarTab === 'assets' ? 'tab-btn--active' : ''}`} onClick={() => setSidebarTab('assets')}>Assets</button>
-          </div>
           <div className="sidebar-heading"><div className="title">STAGE PRO</div><div className="subtitle">STUDIO EDITOR</div></div>
           <div className="icon-row">
             <button type="button" className="icon-btn" disabled={!canUndo} onClick={undoPreviewScene}><Undo2 size={15} /></button>
@@ -744,14 +719,53 @@ export function DesignPage() {
             <button type="button" className={`pill-toggle__item ${interactionMode === 'select' ? 'pill-toggle__item--active' : ''}`} onClick={() => setInteractionMode('select')}>SELECT</button>
             <button type="button" className={`pill-toggle__item ${interactionMode === 'pan' ? 'pill-toggle__item--active' : ''}`} onClick={() => setInteractionMode('pan')}>PAN</button>
           </div>
+          <div className="sidebar-tabs sidebar-tabs--stack">
+            <button type="button" className={`tab-btn ${sidebarTab === 'layers' ? 'tab-btn--active' : ''}`} onClick={() => setSidebarTab('layers')}>Layers</button>
+            <button type="button" className={`tab-btn ${sidebarTab === 'assets' ? 'tab-btn--active' : ''}`} onClick={() => setSidebarTab('assets')}>Assets</button>
+          </div>
           {sidebarTab === 'layers' ? (
             <div className="layer-list">
               {orderedLayers.map((layer) => {
-                const { canMoveForward, canMoveBackward } = layerPositionInfo(layer, scene.layers)
                 const isSelected = activeSelectedLayerIds.includes(layer.id)
                 const classes = `layer-item ${isSelected ? 'layer-item--active' : ''} ${draggingLayerId === layer.id ? 'layer-item--dragging' : ''} ${dragTargetLayerId === layer.id && draggingLayerId !== layer.id ? 'layer-item--drop-target' : ''}`
                 return (
-                  <div key={layer.id} className={classes.trim()} draggable onDragStart={(event) => { setDraggingLayerId(layer.id); setDragTargetLayerId(layer.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', layer.id) }} onDragOver={(event) => { event.preventDefault(); setDragTargetLayerId(layer.id) }} onDrop={(event) => { event.preventDefault(); handleDropOnLayer(layer.id); setDraggingLayerId(null); setDragTargetLayerId(null) }} onDragEnd={() => { setDraggingLayerId(null); setDragTargetLayerId(null) }}>
+                  <div
+                    key={layer.id}
+                    className={classes.trim()}
+                    draggable={!layer.locked}
+                    onDragStart={(event) => {
+                      if (layer.locked) {
+                        event.preventDefault()
+                        return
+                      }
+                      setDraggingLayerId(layer.id)
+                      setDragTargetLayerId(layer.id)
+                      event.dataTransfer.effectAllowed = 'move'
+                      event.dataTransfer.setData('text/plain', layer.id)
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault()
+                      setDragTargetLayerId(layer.id)
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      handleDropOnLayer(layer.id)
+                      setDraggingLayerId(null)
+                      setDragTargetLayerId(null)
+                    }}
+                    onDragEnd={() => {
+                      setDraggingLayerId(null)
+                      setDragTargetLayerId(null)
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className={`layer-item__handle ${layer.locked ? 'layer-item__handle--disabled' : ''}`.trim()}
+                      title={layer.locked ? 'Unlock layer to reorder' : 'Drag to reorder layer'}
+                      aria-label={layer.locked ? 'Layer locked' : 'Drag layer to reorder'}
+                    >
+                      <GripVertical size={14} />
+                    </button>
                     <button type="button" className="layer-item__main" onClick={(event) => handleLayerSelection(layer.id, { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey })} onDoubleClick={() => { setRenamingLayerId(layer.id); setRenameDraft(layer.name) }}>
                       {renamingLayerId === layer.id ? (
                         <input
@@ -770,11 +784,53 @@ export function DesignPage() {
                           }}
                         />
                       ) : <span>{layer.name}</span>}
-                      <Move3D size={14} />
                     </button>
-                    <div className="layer-item__order">
-                      <button type="button" className="icon-btn icon-btn--mini" disabled={!canMoveForward} onClick={(event) => { event.stopPropagation(); reorderPreviewLayer(layer.id, 'forward') }}><ArrowUp size={12} /></button>
-                      <button type="button" className="icon-btn icon-btn--mini" disabled={!canMoveBackward} onClick={(event) => { event.stopPropagation(); reorderPreviewLayer(layer.id, 'backward') }}><ArrowDown size={12} /></button>
+                    <div className="layer-item__actions">
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--mini"
+                        title={layer.visible ? 'Hide layer' : 'Show layer'}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          togglePreviewLayerVisibility(layer.id)
+                        }}
+                      >
+                        {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
+                      </button>
+                      <button
+                        type="button"
+                        className={`icon-btn icon-btn--mini ${layer.locked ? 'icon-btn--active' : ''}`.trim()}
+                        title={layer.locked ? 'Unlock layer' : 'Lock layer'}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          togglePreviewLayerLock(layer.id)
+                        }}
+                      >
+                        {layer.locked ? <Lock size={12} /> : <Unlock size={12} />}
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--mini"
+                        title="Duplicate layer"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleDuplicateLayer(layer.id)
+                        }}
+                      >
+                        <Copy size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--mini"
+                        title={layer.locked ? 'Unlock layer before deleting' : 'Delete layer'}
+                        disabled={Boolean(layer.locked)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          deletePreviewLayer(layer.id)
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
                   </div>
                 )
@@ -783,14 +839,28 @@ export function DesignPage() {
           ) : (
             <div className="asset-list">
               {assetEntries.length === 0 && fontEntries.length === 0 ? (
-                <div className="inspector-empty">No assets or fonts uploaded yet.</div>
+                <div className="inspector-empty">No assets found. Upload media in Dashboard and return here.</div>
               ) : null}
+              {assetEntries.length > 0 ? <div className="asset-list__section-title mono">ASSETS</div> : null}
               {assetEntries.map((entry) => (
-                <div key={entry.id} className="tree-row asset-row">
+                <div
+                  key={entry.id}
+                  className="tree-row asset-row asset-row--draggable"
+                  draggable={Boolean(entry.dataUrl)}
+                  onDragStart={(event) => {
+                    if (!entry.dataUrl) {
+                      event.preventDefault()
+                      return
+                    }
+                    event.dataTransfer.effectAllowed = 'copy'
+                    event.dataTransfer.setData('application/x-renderless-asset-entry', entry.id)
+                  }}
+                >
                   <span>{entry.name}</span>
-                  <span className="mono asset-row__meta">{entry.dataUrl ? 'ASSET' : 'MISSING DATA'}</span>
+                  <span className="mono asset-row__meta">{entry.dataUrl ? 'DRAG TO STAGE' : 'MISSING DATA'}</span>
                 </div>
               ))}
+              {fontEntries.length > 0 ? <div className="asset-list__section-title mono">FONTS</div> : null}
               {fontEntries.map((entry) => (
                 <div key={entry.id} className="tree-row asset-row">
                   <span>{entry.fontFamily ?? entry.name}</span>
@@ -799,38 +869,6 @@ export function DesignPage() {
               ))}
             </div>
           )}
-          <div className="asset-upload-group">
-            <button type="button" className="btn btn--ghost btn--small" onClick={() => assetInputRef.current?.click()}>
-              <Upload size={14} />
-              Upload Asset
-            </button>
-            <button type="button" className="btn btn--ghost btn--small" onClick={() => fontInputRef.current?.click()}>
-              <Upload size={14} />
-              Upload Font
-            </button>
-          </div>
-          <input
-            ref={assetInputRef}
-            type="file"
-            accept="image/*,video/*,audio/*,.svg,.png,.jpg,.jpeg,.webp"
-            style={{ display: 'none' }}
-            multiple
-            onChange={(event) => {
-              void handleAssetUpload(event.target.files)
-              event.target.value = ''
-            }}
-          />
-          <input
-            ref={fontInputRef}
-            type="file"
-            accept=".ttf,.otf,.woff,.woff2"
-            style={{ display: 'none' }}
-            multiple
-            onChange={(event) => {
-              void handleFontUpload(event.target.files)
-              event.target.value = ''
-            }}
-          />
         </aside>
 
         <section className="panel stage-center">
@@ -908,7 +946,19 @@ export function DesignPage() {
             {saveStatus ? <span className="mono stage-toolbar__save-status">{saveStatus}</span> : null}
           </div>
           <div className="stage-canvas-wrap">
-            <StageCanvas scene={scene} story={story} selectedLayerIds={activeSelectedLayerIds} onSelectLayer={handleLayerSelection} onMoveLayers={movePreviewLayersByDelta} interactionMode={interactionMode} showGrid={showGrid} showRulers={showRulers} showGuides={showGuides} snapToGrid={snapToGrid} />
+            <StageCanvas
+              scene={scene}
+              story={story}
+              selectedLayerIds={activeSelectedLayerIds}
+              onSelectLayer={handleLayerSelection}
+              onMoveLayers={movePreviewLayersByDelta}
+              onAssetDrop={handleDropAssetOnCanvas}
+              interactionMode={interactionMode}
+              showGrid={showGrid}
+              showRulers={showRulers}
+              showGuides={showGuides}
+              snapToGrid={snapToGrid}
+            />
           </div>
         </section>
 
@@ -1026,6 +1076,15 @@ export function DesignPage() {
                     Fill
                     <input className="mono" value={primarySelectedLayer.fill} onChange={(event) => updatePreviewShapeStyle(primarySelectedLayer.id, { fill: event.target.value })} />
                   </label>
+                ) : primarySelectedLayer && primarySelectedLayer.kind === 'image' ? (
+                  <>
+                    <label>
+                      Source
+                      <input className="mono" value={primarySelectedLayer.src} readOnly />
+                    </label>
+                    <div className="binding-preview mono">FIT: {(primarySelectedLayer.fit ?? 'contain').toUpperCase()}</div>
+                    <div className="inspector-empty">Image layer styling currently uses default contain fit.</div>
+                  </>
                 ) : primarySelectedLayer ? (
                   <>
                     <div className="binding-panel">

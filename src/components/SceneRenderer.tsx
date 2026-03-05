@@ -27,6 +27,7 @@ interface SceneRendererProps {
   ) => void
   onMoveLayers?: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
   onPanBy?: (delta: { x: number; y: number }) => void
+  onAssetDrop?: (entryId: string, position: { x: number; y: number }) => void
 }
 
 interface DragState {
@@ -70,6 +71,12 @@ function layerStyle(layer: SceneLayer): CSSProperties {
     }
   }
 
+  if (layer.kind === 'image') {
+    return {
+      ...baseStyle,
+    }
+  }
+
   return {
     ...baseStyle,
     color: layer.color,
@@ -98,6 +105,7 @@ export function SceneRenderer({
   onSelectLayer,
   onMoveLayers,
   onPanBy,
+  onAssetDrop,
 }: SceneRendererProps) {
   const [containerRef, containerSize] = useElementSize<HTMLDivElement>()
   const dragStateRef = useRef<DragState | null>(null)
@@ -179,6 +187,43 @@ export function SceneRenderer({
     <div
       ref={containerRef}
       className={`scene-renderer ${checkerboard ? 'scene-renderer--checkerboard' : ''} ${className ?? ''} ${interactionMode === 'pan' ? 'scene-renderer--mode-pan' : 'scene-renderer--mode-select'} ${dragMode === 'pan' ? 'scene-renderer--drag-pan' : ''} ${dragMode === 'layers' ? 'scene-renderer--drag-layers' : ''}`.trim()}
+      onDragOver={(event) => {
+        if (!onAssetDrop) {
+          return
+        }
+
+        if (event.dataTransfer.types.includes('application/x-renderless-asset-entry')) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'copy'
+        }
+      }}
+      onDrop={(event) => {
+        if (!onAssetDrop) {
+          return
+        }
+
+        const payload = event.dataTransfer.getData('application/x-renderless-asset-entry')
+        if (!payload) {
+          return
+        }
+
+        event.preventDefault()
+
+        const containerBounds = containerRef.current?.getBoundingClientRect()
+        if (!containerBounds) {
+          return
+        }
+
+        const stageLeft = containerSize.width / 2 + (stageOffsetPx?.x ?? 0) - (scene.width * scale) / 2
+        const stageTop = containerSize.height / 2 + (stageOffsetPx?.y ?? 0) - (scene.height * scale) / 2
+
+        const localX = (event.clientX - containerBounds.left - stageLeft) / scale
+        const localY = (event.clientY - containerBounds.top - stageTop) / scale
+
+        const x = Math.round(Math.min(Math.max(0, localX), scene.width))
+        const y = Math.round(Math.min(Math.max(0, localY), scene.height))
+        onAssetDrop(payload, { x, y })
+      }}
       onMouseDown={(event) => {
         if (event.button !== 0) {
           return
@@ -243,6 +288,10 @@ export function SceneRenderer({
                 metaKey: event.metaKey,
               })
 
+              if (layer.locked) {
+                return
+              }
+
               const dragLayerIds = selectedIdSet.has(layer.id) ? [...selectedIdSet] : [layer.id]
               event.preventDefault()
               dragStateRef.current = {
@@ -255,6 +304,14 @@ export function SceneRenderer({
             }}
           >
             {layer.kind === 'text' ? resolveText(layer, story) : null}
+            {layer.kind === 'image' ? (
+              <img
+                src={layer.src}
+                alt={layer.name}
+                draggable={false}
+                className={`scene-renderer__image scene-renderer__image--${layer.fit ?? 'contain'}`.trim()}
+              />
+            ) : null}
           </div>
         ))}
 

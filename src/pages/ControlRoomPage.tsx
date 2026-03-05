@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Copy, Keyboard, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
+import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
 import { buildDefaultTransportWsUrl, buildOutputUrl } from '../lib/outputUrls'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
 
@@ -28,6 +29,7 @@ export function ControlRoomPage() {
   const transitionType = usePlayoutStore((state) => state.transitionType)
   const transitionDurationMs = usePlayoutStore((state) => state.transitionDurationMs)
   const transitionInProgress = usePlayoutStore((state) => state.transitionInProgress)
+  const programTransition = usePlayoutStore((state) => state.programTransition)
   const onAir = usePlayoutStore((state) => state.onAir)
   const story = usePlayoutStore((state) => state.story)
   const transportMode = usePlayoutStore((state) => state.transportMode)
@@ -228,7 +230,7 @@ export function ControlRoomPage() {
                 <span className={`badge badge--mono ${onAir ? 'badge--air' : ''}`.trim()}>{onAir ? 'ON AIR' : 'CLEAR'}</span>
               </header>
               <div className="monitor-surface">
-                <SceneRenderer scene={programScene} story={story} />
+                <ProgramTransitionSurface scene={programScene} story={story} transition={programTransition} />
               </div>
             </article>
           </section>

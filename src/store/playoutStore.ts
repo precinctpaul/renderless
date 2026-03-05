@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
-import type { DataBindingKey, SceneDefinition, StoryState, TemplateDefinition, TemplateVersion } from '../types/scene'
+import type { DataBindingKey, SceneDefinition, SceneLayer, StoryState, TemplateDefinition, TemplateVersion } from '../types/scene'
 import { extractBindingKeys, isDataBindingKey } from '../lib/bindings'
 import { STORY_FIELD_DEFS, type StoryFieldDef } from '../data/storySchema'
 import {
@@ -43,6 +43,14 @@ const DEFAULT_SIMULATION_CONFIG: SimulationBuildConfig = {
 
 export type TransitionType = 'cut' | 'fade' | 'lumaWipe'
 
+export interface ProgramTransitionState {
+  type: TransitionType
+  fromScene: SceneDefinition
+  toScene: SceneDefinition
+  startedAt: number
+  durationMs: number
+}
+
 type ProgramTemplateId = string
 
 type SceneTransformPatch = Partial<
@@ -82,6 +90,7 @@ interface PersistedPlayoutSnapshot {
   transitionType: TransitionType
   transitionDurationMs: number
   transitionInProgress: boolean
+  programTransition: ProgramTransitionState | null
   story: StoryState
   onAir: boolean
   updatedAt: number
@@ -108,6 +117,7 @@ interface PlayoutStore {
   transitionType: TransitionType
   transitionDurationMs: number
   transitionInProgress: boolean
+  programTransition: ProgramTransitionState | null
   story: StoryState
   onAir: boolean
   updatedAt: number
@@ -154,6 +164,11 @@ interface PlayoutStore {
   updatePreviewShapeStyle: (layerId: string, patch: ShapeStylePatch) => void
   updatePreviewTextStyle: (layerId: string, patch: TextStylePatch) => void
   updatePreviewTextBinding: (layerId: string, binding: DataBindingKey | null) => void
+  addPreviewImageLayerFromAsset: (asset: { name: string; dataUrl: string; x: number; y: number }) => string | null
+  duplicatePreviewLayer: (layerId: string) => string | null
+  deletePreviewLayer: (layerId: string) => void
+  togglePreviewLayerVisibility: (layerId: string) => void
+  togglePreviewLayerLock: (layerId: string) => void
   renamePreviewLayer: (layerId: string, name: string) => void
   createPreviewLayer: (kind: 'text' | 'shape') => string | null
   undoPreviewScene: () => void
@@ -449,7 +464,7 @@ function createSceneId(): string {
   return `scene-custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function createLayerId(kind: 'text' | 'shape'): string {
+function createLayerId(kind: 'text' | 'shape' | 'image'): string {
   return `layer-${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
@@ -664,6 +679,10 @@ function moveLayerByDelta(scene: SceneDefinition, layerId: string, delta: -1 | 1
     return scene
   }
 
+  if (scene.layers[sourceIndex]?.locked) {
+    return scene
+  }
+
   const targetIndex = sourceIndex + delta
   if (targetIndex < 0 || targetIndex >= scene.layers.length) {
     return scene
@@ -675,6 +694,10 @@ function moveLayerByDelta(scene: SceneDefinition, layerId: string, delta: -1 | 1
 function moveLayerToIndex(scene: SceneDefinition, layerId: string, targetIndex: number): SceneDefinition {
   const sourceIndex = scene.layers.findIndex((layer) => layer.id === layerId)
   if (sourceIndex === -1) {
+    return scene
+  }
+
+  if (scene.layers[sourceIndex]?.locked) {
     return scene
   }
 
@@ -694,6 +717,10 @@ function moveLayerToIndex(scene: SceneDefinition, layerId: string, targetIndex: 
 }
 
 function applyTransformPatchToLayer(layer: SceneDefinition['layers'][number], patch: SceneTransformPatch) {
+  if (layer.locked) {
+    return layer
+  }
+
   const nextAnchorX = Number.isFinite(patch.anchorX) ? Math.round(Math.max(0, patch.anchorX ?? layer.anchorX ?? 0)) : layer.anchorX
   const nextAnchorY = Number.isFinite(patch.anchorY) ? Math.round(Math.max(0, patch.anchorY ?? layer.anchorY ?? 0)) : layer.anchorY
   const nextScaleX = Number.isFinite(patch.scaleX)
@@ -730,7 +757,13 @@ function moveLayersByDelta(
   delta: { x: number; y: number },
   snapToGrid = false,
 ): SceneDefinition {
-  const selectedIdSet = new Set(layerIds)
+  const selectedIdSet = new Set(
+    scene.layers.filter((layer) => layerIds.includes(layer.id) && !layer.locked).map((layer) => layer.id),
+  )
+  if (selectedIdSet.size === 0) {
+    return scene
+  }
+
   const deltaX = Number.isFinite(delta.x) ? delta.x : 0
   const deltaY = Number.isFinite(delta.y) ? delta.y : 0
   if (deltaX === 0 && deltaY === 0) {
@@ -761,7 +794,7 @@ function moveLayersByDelta(
 
 function getSelectedLayers(scene: SceneDefinition, layerIds: string[]): SceneDefinition['layers'] {
   const selectedIdSet = new Set(layerIds)
-  return scene.layers.filter((layer) => selectedIdSet.has(layer.id))
+  return scene.layers.filter((layer) => selectedIdSet.has(layer.id) && !layer.locked)
 }
 
 function alignLayersByMode(
@@ -787,7 +820,7 @@ function alignLayersByMode(
   return {
     ...scene,
     layers: scene.layers.map((layer) => {
-      if (!selectedIdSet.has(layer.id)) {
+      if (!selectedIdSet.has(layer.id) || layer.locked) {
         return layer
       }
 
@@ -855,7 +888,7 @@ function distributeLayers(
     ...scene,
     layers: scene.layers.map((layer) => {
       const entry = nextById.get(layer.id)
-      if (!entry) {
+      if (!entry || layer.locked) {
         return layer
       }
 
@@ -962,6 +995,31 @@ function normalizeSnapshot(
   const updatedAt = Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : Date.now()
   const transitionInProgress =
     Boolean(rawSnapshot?.transitionInProgress) && updatedAt + transitionDurationMs + 250 > Date.now()
+  const rawProgramTransition = rawSnapshot?.programTransition
+  const programTransition: ProgramTransitionState | null =
+    transitionInProgress &&
+    rawProgramTransition &&
+    typeof rawProgramTransition === 'object' &&
+    'fromScene' in rawProgramTransition &&
+    'toScene' in rawProgramTransition
+      ? {
+          type: (
+            rawProgramTransition.type === 'fade' || rawProgramTransition.type === 'lumaWipe'
+              ? rawProgramTransition.type
+              : 'cut'
+          ) as TransitionType,
+          fromScene: sceneFromUnknown(rawProgramTransition.fromScene) ?? cloneScene(programScene),
+          toScene: sceneFromUnknown(rawProgramTransition.toScene) ?? cloneScene(previewScene),
+          startedAt:
+            Number.isFinite(Number(rawProgramTransition.startedAt)) && Number(rawProgramTransition.startedAt) > 0
+              ? Number(rawProgramTransition.startedAt)
+              : updatedAt,
+          durationMs:
+            Number.isFinite(Number(rawProgramTransition.durationMs)) && Number(rawProgramTransition.durationMs) >= 0
+              ? Math.min(Math.max(Math.round(Number(rawProgramTransition.durationMs)), 0), 1500)
+              : transitionDurationMs,
+        }
+      : null
 
   return {
     previewTemplateId,
@@ -971,6 +1029,7 @@ function normalizeSnapshot(
     transitionType,
     transitionDurationMs,
     transitionInProgress,
+    programTransition,
     story,
     onAir: Boolean(rawSnapshot?.onAir),
     updatedAt,
@@ -986,6 +1045,13 @@ function toSnapshot(state: PlayoutStore): PersistedPlayoutSnapshot {
     transitionType: state.transitionType,
     transitionDurationMs: state.transitionDurationMs,
     transitionInProgress: state.transitionInProgress,
+    programTransition: state.programTransition
+      ? {
+          ...state.programTransition,
+          fromScene: cloneScene(state.programTransition.fromScene),
+          toScene: cloneScene(state.programTransition.toScene),
+        }
+      : null,
     story: cloneStory(state.story),
     onAir: state.onAir,
     updatedAt: state.updatedAt,
@@ -1103,6 +1169,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     transitionType: hydratedSnapshot.transitionType,
     transitionDurationMs: hydratedSnapshot.transitionDurationMs,
     transitionInProgress: hydratedSnapshot.transitionInProgress,
+    programTransition: hydratedSnapshot.programTransition,
     story: withCoreBindingMap(cloneStory(hydratedSnapshot.story), buildSimulationBindingValues(initialSimulationTimeline.initialSnapshot)),
     onAir: hydratedSnapshot.onAir,
     updatedAt: hydratedSnapshot.updatedAt,
@@ -1165,14 +1232,23 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           programScene: nextProgramScene,
           onAir: true,
           transitionInProgress: false,
+          programTransition: null,
           updatedAt: Date.now(),
         }))
         return
       }
 
+      const startedAt = Date.now()
       set(() => ({
         transitionInProgress: true,
-        updatedAt: Date.now(),
+        programTransition: {
+          type: state.transitionType,
+          fromScene: cloneScene(state.programScene),
+          toScene: cloneScene(nextProgramScene),
+          startedAt,
+          durationMs: state.transitionDurationMs,
+        },
+        updatedAt: startedAt,
       }))
 
       pendingTakeHandle = setTimeout(() => {
@@ -1182,6 +1258,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           programScene: nextProgramScene,
           onAir: true,
           transitionInProgress: false,
+          programTransition: null,
           updatedAt: Date.now(),
         }))
       }, state.transitionDurationMs)
@@ -1197,6 +1274,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         programScene: cloneScene(CLEAR_SCENE),
         onAir: false,
         transitionInProgress: false,
+        programTransition: null,
         updatedAt: Date.now(),
       }))
     },
@@ -1355,7 +1433,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       commitPreviewScene((scene) => ({
         ...scene,
         layers: scene.layers.map((layer) => {
-          if (layer.id !== layerId || layer.kind !== 'shape') {
+          if (layer.id !== layerId || layer.kind !== 'shape' || layer.locked) {
             return layer
           }
 
@@ -1375,7 +1453,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       commitPreviewScene((scene) => ({
         ...scene,
         layers: scene.layers.map((layer) => {
-          if (layer.id !== layerId || layer.kind !== 'text') {
+          if (layer.id !== layerId || layer.kind !== 'text' || layer.locked) {
             return layer
           }
 
@@ -1403,7 +1481,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       commitPreviewScene((scene) => ({
         ...scene,
         layers: scene.layers.map((layer) => {
-          if (layer.id !== layerId || layer.kind !== 'text') {
+          if (layer.id !== layerId || layer.kind !== 'text' || layer.locked) {
             return layer
           }
 
@@ -1414,6 +1492,98 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }),
       }))
     },
+    addPreviewImageLayerFromAsset: (asset) => {
+      const trimmedDataUrl = asset.dataUrl.trim()
+      if (!trimmedDataUrl) {
+        return null
+      }
+
+      const state = get()
+      const nextLayerId = createLayerId('image')
+      const width = 420
+      const height = 236
+      const x = Math.round(Math.min(Math.max(0, asset.x - width / 2), Math.max(0, state.previewScene.width - width)))
+      const y = Math.round(Math.min(Math.max(0, asset.y - height / 2), Math.max(0, state.previewScene.height - height)))
+
+      const nextLayer: SceneLayer = {
+        id: nextLayerId,
+        kind: 'image',
+        name: `${asset.name.replace(/\.[^.]+$/, '') || 'Asset'} ${state.previewScene.layers.filter((layer) => layer.kind === 'image').length + 1}`,
+        x,
+        y,
+        width,
+        height,
+        src: trimmedDataUrl,
+        fit: 'contain',
+        opacity: 1,
+        visible: true,
+        locked: false,
+        rotation: 0,
+        anchorX: 0,
+        anchorY: 0,
+        scaleX: 100,
+        scaleY: 100,
+      }
+
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: [...scene.layers, nextLayer],
+      }))
+
+      return nextLayerId
+    },
+    duplicatePreviewLayer: (layerId) => {
+      const state = get()
+      const sourceLayer = state.previewScene.layers.find((layer) => layer.id === layerId)
+      if (!sourceLayer || sourceLayer.locked) {
+        return null
+      }
+
+      const nextLayerId = createLayerId(sourceLayer.kind)
+      const offset = 20
+      const x = Math.round(Math.min(Math.max(0, sourceLayer.x + offset), Math.max(0, state.previewScene.width - sourceLayer.width)))
+      const y = Math.round(Math.min(Math.max(0, sourceLayer.y + offset), Math.max(0, state.previewScene.height - sourceLayer.height)))
+      const duplicateLayer: SceneLayer = {
+        ...cloneScene({ ...state.previewScene, layers: [sourceLayer] }).layers[0],
+        id: nextLayerId,
+        name: `${sourceLayer.name} Copy`,
+        x,
+        y,
+        locked: false,
+      }
+
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: [...scene.layers, duplicateLayer],
+      }))
+
+      return nextLayerId
+    },
+    deletePreviewLayer: (layerId) => {
+      commitPreviewScene((scene) => {
+        const target = scene.layers.find((layer) => layer.id === layerId)
+        if (!target || target.locked) {
+          return scene
+        }
+
+        return {
+          ...scene,
+          layers: scene.layers.filter((layer) => layer.id !== layerId),
+        }
+      })
+    },
+    togglePreviewLayerVisibility: (layerId) => {
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => (layer.id === layerId ? { ...layer, visible: !layer.visible } : layer)),
+      }))
+    },
+    togglePreviewLayerLock: (layerId) => {
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => (layer.id === layerId ? { ...layer, locked: !layer.locked } : layer)),
+      }))
+    },
     renamePreviewLayer: (layerId, name) => {
       const trimmedName = name.trim()
       if (!trimmedName) {
@@ -1422,7 +1592,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       commitPreviewScene((scene) => ({
         ...scene,
-        layers: scene.layers.map((layer) => (layer.id === layerId ? { ...layer, name: trimmedName } : layer)),
+        layers: scene.layers.map((layer) => (layer.id === layerId && !layer.locked ? { ...layer, name: trimmedName } : layer)),
       }))
     },
     createPreviewLayer: (kind) => {
@@ -1449,6 +1619,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               align: 'left',
               opacity: 1,
               visible: true,
+              locked: false,
               rotation: 0,
               anchorX: 0,
               anchorY: 0,
@@ -1466,6 +1637,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               fill: '#2563eb',
               opacity: 1,
               visible: true,
+              locked: false,
               radius: 0,
               rotation: 0,
               anchorX: 0,
@@ -2015,6 +2187,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           transitionType: 'cut',
           transitionDurationMs: 300,
           transitionInProgress: false,
+          programTransition: null,
           story: storyFromSimulationSnapshot(resetTimeline.initialSnapshot, cloneStory(DEFAULT_STORY_STATE)),
           bindingFields: mergeBindingFields(STORY_FIELD_DEFS, resetTimeline.bindingFields),
           onAir: false,
@@ -2100,6 +2273,7 @@ if (typeof window !== 'undefined') {
       transitionType: normalized.transitionType,
       transitionDurationMs: normalized.transitionDurationMs,
       transitionInProgress: normalized.transitionInProgress,
+      programTransition: normalized.programTransition,
       story: cloneStory(normalized.story),
       onAir: normalized.onAir,
       undoStack: [],

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SceneRenderer } from '../components/SceneRenderer'
+import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
 import { buildDefaultTransportWsUrl, normalizeOutputFollow } from '../lib/outputUrls'
 import { usePlayoutStore } from '../store/playoutStore'
 
@@ -28,6 +29,7 @@ export function OutputFeedPage() {
   const debug = searchParams.get('debug') === '1'
 
   const scene = usePlayoutStore((state) => (follow === 'preview' ? state.previewScene : state.programScene))
+  const programTransition = usePlayoutStore((state) => state.programTransition)
   const story = usePlayoutStore((state) => state.story)
   const updatedAt = usePlayoutStore((state) => state.updatedAt)
   const transportMode = usePlayoutStore((state) => state.transportMode)
@@ -107,7 +109,16 @@ export function OutputFeedPage() {
 
   return (
     <div className={`output-feed-root ${embed ? 'output-feed-root--embed' : ''}`.trim()}>
-      <SceneRenderer scene={scene} story={story} className="output-feed-surface" />
+      {follow === 'program' ? (
+        <ProgramTransitionSurface
+          scene={scene}
+          story={story}
+          transition={programTransition}
+          className="output-feed-surface"
+        />
+      ) : (
+        <SceneRenderer scene={scene} story={story} className="output-feed-surface" />
+      )}
       {debug ? <div className="output-watermark mono">{watermark}</div> : null}
     </div>
   )

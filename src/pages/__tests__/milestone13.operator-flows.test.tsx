@@ -22,16 +22,17 @@ describe('Milestone 13 operator click-path regressions', () => {
     const user = userEvent.setup()
     renderRoute('/dashboard')
 
-    expect(screen.getByRole('heading', { name: 'DASHBOARD' })).toBeTruthy()
+    expect(screen.getByText('Explorer')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Branded Assets' }))
-    expect(screen.getByText('Branded Assets Folders')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'New Folder' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Template Designs' })).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Fonts' }))
-    expect(screen.getByText('Fonts Folders')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Imported' })).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Templates' }))
-    expect(screen.getByText('Templates Folders')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Built-In' })).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'DEV TOOLS' }))
     expect(screen.getByRole('button', { name: 'Export persisted state' })).toBeTruthy()

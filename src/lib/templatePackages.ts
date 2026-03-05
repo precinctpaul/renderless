@@ -196,6 +196,7 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
   const height = asFiniteNumber(record.height)
   const opacity = asFiniteNumber(record.opacity)
   const visible = typeof record.visible === 'boolean' ? record.visible : null
+  const locked = typeof record.locked === 'boolean' ? record.locked : undefined
 
   if (!id || !name || !kind || x === null || y === null || width === null || height === null || opacity === null || visible === null) {
     return null
@@ -210,6 +211,7 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
     height: Math.round(Math.max(1, height)),
     opacity: Math.min(Math.max(opacity, 0), 1),
     visible,
+    locked,
     rotation: asFiniteNumber(record.rotation) ?? undefined,
     anchorX: asFiniteNumber(record.anchorX) ?? undefined,
     anchorY: asFiniteNumber(record.anchorY) ?? undefined,
@@ -258,6 +260,26 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       fontWeight: Math.round(Math.max(100, fontWeight)),
       align,
       binding,
+    }
+  }
+
+  if (kind === 'image') {
+    const src = asNonEmptyString(record.src)
+    const fitRaw = asNonEmptyString(record.fit)
+    const fit =
+      fitRaw === 'contain' || fitRaw === 'cover' || fitRaw === 'stretch'
+        ? fitRaw
+        : 'contain'
+
+    if (!src) {
+      return null
+    }
+
+    return {
+      ...baseLayer,
+      kind: 'image',
+      src,
+      fit,
     }
   }
 

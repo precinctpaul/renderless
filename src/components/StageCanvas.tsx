@@ -22,6 +22,7 @@ interface StageCanvasProps {
     },
   ) => void
   onMoveLayers?: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
+  onAssetDrop?: (entryId: string, position: { x: number; y: number }) => void
 }
 
 interface RulerTick {
@@ -56,6 +57,7 @@ export function StageCanvas({
   interactionMode = 'select',
   onSelectLayer,
   onMoveLayers,
+  onAssetDrop,
 }: StageCanvasProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [stageOffset, setStageOffset] = useState({ x: 0, y: 0 })
@@ -137,6 +139,7 @@ export function StageCanvas({
         onSelectLayer={onSelectLayer}
         onMoveLayers={onMoveLayers}
         onPanBy={(delta) => setStageOffset((previous) => ({ x: previous.x + delta.x, y: previous.y + delta.y }))}
+        onAssetDrop={onAssetDrop}
         showSelection
         showSafeZone={showSafeZone}
         snapToGrid={snapToGrid}

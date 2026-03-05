@@ -40,6 +40,7 @@ export interface BaseLayer {
   width: number
   height: number
   visible: boolean
+  locked?: boolean
   opacity: number
   rotation?: number
   anchorX?: number
@@ -65,7 +66,13 @@ export interface TextLayer extends BaseLayer {
   binding?: DataBindingKey
 }
 
-export type SceneLayer = ShapeLayer | TextLayer
+export interface ImageLayer extends BaseLayer {
+  kind: 'image'
+  src: string
+  fit?: 'contain' | 'cover' | 'stretch'
+}
+
+export type SceneLayer = ShapeLayer | TextLayer | ImageLayer
 
 export interface SceneDefinition {
   id: string
