@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Copy, Keyboard, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
-import { buildOutputUrl } from '../lib/outputUrls'
+import { buildDefaultTransportWsUrl, buildOutputUrl } from '../lib/outputUrls'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
 
 const TRANSITIONS: Array<{ id: TransitionType; label: string }> = [
@@ -39,6 +39,7 @@ export function ControlRoomPage() {
   const setTransition = usePlayoutStore((state) => state.setTransition)
   const setTransitionDuration = usePlayoutStore((state) => state.setTransitionDuration)
   const setTransportMode = usePlayoutStore((state) => state.setTransportMode)
+  const setTransportWsUrl = usePlayoutStore((state) => state.setTransportWsUrl)
 
   const [copyLabel, setCopyLabel] = useState<string>('')
 
@@ -72,8 +73,12 @@ export function ControlRoomPage() {
   }, [clearProgram, take])
 
   const copyFeedUrl = async (follow: 'preview' | 'program') => {
+    const defaultWsUrl = buildDefaultTransportWsUrl()
+    setTransportWsUrl(defaultWsUrl)
+    setTransportMode('ws')
+
     const copied = await copyToClipboard(buildOutputUrl(follow))
-    setCopyLabel(copied ? `${follow.toUpperCase()} URL copied` : 'Clipboard unavailable')
+    setCopyLabel(copied ? `${follow.toUpperCase()} URL copied (WebSocket relay armed)` : 'Clipboard unavailable')
     window.setTimeout(() => setCopyLabel(''), 1800)
   }
 

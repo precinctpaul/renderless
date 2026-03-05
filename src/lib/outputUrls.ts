@@ -17,3 +17,13 @@ export function buildOutputUrl(follow: OutputFollow): string {
 
   return `${window.location.origin}${path}`
 }
+
+export function buildDefaultTransportWsUrl(): string {
+  if (typeof window === 'undefined') {
+    return 'ws://localhost:8787'
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.hostname || 'localhost'
+  return `${protocol}//${host}:8787`
+}

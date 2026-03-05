@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SceneRenderer } from '../components/SceneRenderer'
-import { normalizeOutputFollow } from '../lib/outputUrls'
+import { buildDefaultTransportWsUrl, normalizeOutputFollow } from '../lib/outputUrls'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const OUTPUT_HEARTBEAT_BASE_KEY = 'renderless.output.heartbeat.v1'
@@ -30,8 +30,27 @@ export function OutputFeedPage() {
   const scene = usePlayoutStore((state) => (follow === 'preview' ? state.previewScene : state.programScene))
   const story = usePlayoutStore((state) => state.story)
   const updatedAt = usePlayoutStore((state) => state.updatedAt)
+  const transportMode = usePlayoutStore((state) => state.transportMode)
+  const transportWsUrl = usePlayoutStore((state) => state.transportWsUrl)
+  const setTransportMode = usePlayoutStore((state) => state.setTransportMode)
+  const setTransportWsUrl = usePlayoutStore((state) => state.setTransportWsUrl)
   const [tick, setTick] = useState<number>(updatedAt)
   const hasLoggedStaleRef = useRef<boolean>(false)
+
+  useEffect(() => {
+    if (!embed) {
+      return
+    }
+
+    const defaultWsUrl = buildDefaultTransportWsUrl()
+    if (transportWsUrl !== defaultWsUrl) {
+      setTransportWsUrl(defaultWsUrl)
+    }
+
+    if (transportMode !== 'ws') {
+      setTransportMode('ws')
+    }
+  }, [embed, setTransportMode, setTransportWsUrl, transportMode, transportWsUrl])
 
   useEffect(() => {
     const heartbeatKey = `${OUTPUT_HEARTBEAT_BASE_KEY}.${follow}`

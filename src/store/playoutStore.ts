@@ -24,6 +24,7 @@ import {
   type SimulationTimeline,
   type SupportedLeague,
 } from '../lib/simulationEngine'
+import { buildDefaultTransportWsUrl } from '../lib/outputUrls'
 
 const STORAGE_KEY = 'renderless.playout.snapshot.v1'
 const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
@@ -186,10 +187,12 @@ function cloneStory(story: StoryState): StoryState {
 }
 
 function readTransportConfig(): TransportConfigState {
+  const defaultWsUrl = buildDefaultTransportWsUrl()
+
   if (typeof window === 'undefined') {
     return {
       mode: 'local',
-      wsUrl: 'ws://localhost:8787',
+      wsUrl: defaultWsUrl,
     }
   }
 
@@ -198,13 +201,13 @@ function readTransportConfig(): TransportConfigState {
     if (!raw) {
       return {
         mode: 'local',
-        wsUrl: 'ws://localhost:8787',
+        wsUrl: defaultWsUrl,
       }
     }
 
     const parsed = JSON.parse(raw) as Partial<TransportConfigState>
     const mode = parsed.mode === 'ws' ? 'ws' : 'local'
-    const wsUrl = typeof parsed.wsUrl === 'string' && parsed.wsUrl.trim().length > 0 ? parsed.wsUrl.trim() : 'ws://localhost:8787'
+    const wsUrl = typeof parsed.wsUrl === 'string' && parsed.wsUrl.trim().length > 0 ? parsed.wsUrl.trim() : defaultWsUrl
 
     return {
       mode,
@@ -213,7 +216,7 @@ function readTransportConfig(): TransportConfigState {
   } catch {
     return {
       mode: 'local',
-      wsUrl: 'ws://localhost:8787',
+      wsUrl: defaultWsUrl,
     }
   }
 }
