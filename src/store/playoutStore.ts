@@ -47,7 +47,7 @@ type ProgramTemplateId = string
 type SceneTransformPatch = Partial<
   Pick<
     SceneDefinition['layers'][number],
-    'x' | 'y' | 'width' | 'height' | 'rotation' | 'anchorX' | 'anchorY' | 'scaleX' | 'scaleY'
+    'x' | 'y' | 'width' | 'height' | 'rotation' | 'anchorX' | 'anchorY' | 'scaleX' | 'scaleY' | 'opacity'
   >
 >
 type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'shape' }>, 'fill' | 'opacity'>>
@@ -702,6 +702,9 @@ function applyTransformPatchToLayer(layer: SceneDefinition['layers'][number], pa
   const nextRotation = Number.isFinite(patch.rotation)
     ? Math.round((patch.rotation ?? layer.rotation ?? 0) * 10) / 10
     : layer.rotation
+  const nextOpacity = Number.isFinite(patch.opacity)
+    ? Math.min(Math.max(patch.opacity ?? layer.opacity, 0), 1)
+    : layer.opacity
 
   return {
     ...layer,
@@ -714,6 +717,7 @@ function applyTransformPatchToLayer(layer: SceneDefinition['layers'][number], pa
     anchorY: nextAnchorY,
     scaleX: nextScaleX,
     scaleY: nextScaleY,
+    opacity: nextOpacity,
   }
 }
 

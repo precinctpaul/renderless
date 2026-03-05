@@ -16,6 +16,7 @@ interface SceneRendererProps {
   interactionMode?: 'select' | 'pan'
   snapToGrid?: boolean
   stageOffsetPx?: { x: number; y: number }
+  stageZoomMultiplier?: number
   onSelectLayer?: (
     layerId: string,
     modifiers?: {
@@ -93,6 +94,7 @@ export function SceneRenderer({
   interactionMode = 'select',
   snapToGrid = false,
   stageOffsetPx,
+  stageZoomMultiplier = 1,
   onSelectLayer,
   onMoveLayers,
   onPanBy,
@@ -103,10 +105,17 @@ export function SceneRenderer({
   const scaleRef = useRef(1)
 
   const scale = useMemo(() => {
-    const widthScale = containerSize.width / scene.width
-    const heightScale = containerSize.height / scene.height
-    return Math.min(widthScale, heightScale)
-  }, [containerSize.height, containerSize.width, scene.height, scene.width])
+    const sceneWidth = Math.max(1, scene.width)
+    const sceneHeight = Math.max(1, scene.height)
+    const widthScale = containerSize.width / sceneWidth
+    const heightScale = containerSize.height / sceneHeight
+    const fitScale = Math.min(widthScale, heightScale)
+    const zoom = Number.isFinite(stageZoomMultiplier) ? Math.max(stageZoomMultiplier, 0.05) : 1
+    if (!Number.isFinite(fitScale) || fitScale <= 0) {
+      return zoom
+    }
+    return fitScale * zoom
+  }, [containerSize.height, containerSize.width, scene.height, scene.width, stageZoomMultiplier])
 
   useEffect(() => {
     scaleRef.current = scale
@@ -201,7 +210,7 @@ export function SceneRenderer({
           height: scene.height,
           left: `calc(50% + ${(stageOffsetPx?.x ?? 0).toFixed(1)}px)`,
           top: `calc(50% + ${(stageOffsetPx?.y ?? 0).toFixed(1)}px)`,
-          transform: `translate(-50%, -50%) scale(${scale})`,
+          transform: `scale(${scale}) translate(-50%, -50%)`,
           background: scene.background,
         }}
       >

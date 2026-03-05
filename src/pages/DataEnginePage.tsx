@@ -25,6 +25,81 @@ interface RegistryItem {
   scope: string
 }
 
+interface PlayerMetricDef {
+  key: 'points' | 'assists' | 'rebounds' | 'shots' | 'goals' | 'hits' | 'yards' | 'impact'
+  label: string
+}
+
+const LEAGUE_PLAYER_METRICS: Record<SupportedLeague, PlayerMetricDef[]> = {
+  NBA: [
+    { key: 'points', label: 'PTS' },
+    { key: 'assists', label: 'AST' },
+    { key: 'rebounds', label: 'REB' },
+    { key: 'impact', label: 'Impact' },
+  ],
+  NFL: [
+    { key: 'yards', label: 'YDS' },
+    { key: 'points', label: 'PTS' },
+    { key: 'impact', label: 'Impact' },
+  ],
+  MLB: [
+    { key: 'hits', label: 'H' },
+    { key: 'points', label: 'R' },
+    { key: 'impact', label: 'Impact' },
+  ],
+  NHL: [
+    { key: 'goals', label: 'G' },
+    { key: 'shots', label: 'SOG' },
+    { key: 'hits', label: 'Hits' },
+    { key: 'impact', label: 'Impact' },
+  ],
+  MLS: [
+    { key: 'goals', label: 'G' },
+    { key: 'assists', label: 'A' },
+    { key: 'shots', label: 'Shots' },
+    { key: 'impact', label: 'Impact' },
+  ],
+}
+
+function humanizeBindingSegment(value: string): string {
+  return value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' ')
+}
+
+function prettyPlayerLabelFromKey(key: string, fallbackLabel: string, bindings: Record<string, unknown>): string {
+  const match = key.match(/^Players\.(Home|Away)\.(\d+)\.(.+)$/)
+  if (!match) {
+    return fallbackLabel
+  }
+
+  const teamLabel = match[1] === 'Home' ? 'Home' : 'Away'
+  const playerIndex = match[2]
+  const metricLabel = humanizeBindingSegment(match[3])
+  const playerNameKey = `Players.${match[1]}.${playerIndex}.Name`
+  const playerNameValue = bindings[playerNameKey]
+  const playerName =
+    typeof playerNameValue === 'string' && playerNameValue.trim().length > 0
+      ? playerNameValue.trim()
+      : `Player ${playerIndex}`
+
+  return `${teamLabel} | ${playerName} | ${metricLabel}`
+}
+
+function prettyPlayerKey(key: string, bindings: Record<string, unknown>): string {
+  const match = key.match(/^Players\.(Home|Away)\.(\d+)\.(.+)$/)
+  if (!match) {
+    return key
+  }
+
+  const playerNameKey = `Players.${match[1]}.${match[2]}.Name`
+  const playerNameValue = bindings[playerNameKey]
+  const playerName =
+    typeof playerNameValue === 'string' && playerNameValue.trim().length > 0
+      ? playerNameValue.trim().replace(/\./g, ' ')
+      : `Player ${match[2]}`
+
+  return `Players.${match[1]}.${playerName}.${match[3]}`
+}
+
 function formatBindingValue(value: unknown): string {
   if (value === null || value === undefined) {
     return 'n/a'
@@ -122,7 +197,7 @@ function toScopeLabel(field: StoryFieldDef, level: BindingLevel): string {
 }
 
 export function DataEnginePage() {
-  const story = usePlayoutStore((state) => state.story)
+  const storyBindings = usePlayoutStore((state) => state.story.bindings)
   const bindingFields = usePlayoutStore((state) => state.bindingFields)
 
   const simulationLeague = usePlayoutStore((state) => state.simulationLeague)
@@ -149,11 +224,6 @@ export function DataEnginePage() {
 
   const setTransportMode = usePlayoutStore((state) => state.setTransportMode)
   const setTransportWsUrl = usePlayoutStore((state) => state.setTransportWsUrl)
-  const adjustScore = usePlayoutStore((state) => state.adjustScore)
-  const nudgeClock = usePlayoutStore((state) => state.nudgeClock)
-  const resetClock = usePlayoutStore((state) => state.resetClock)
-  const togglePossession = usePlayoutStore((state) => state.togglePossession)
-  const setStoryValue = usePlayoutStore((state) => state.setStoryValue)
 
   const [simulationSeedInput, setSimulationSeedInput] = useState<string>(() => String(simulationSeed))
   const [registryLevel, setRegistryLevel] = useState<BindingLevel>('Game')
@@ -234,6 +304,30 @@ export function DataEnginePage() {
       }))
       .sort((left, right) => left.scope.localeCompare(right.scope))
   }, [filteredRegistryItems])
+  const playerBoard = useMemo(() => {
+    if (!simulationSnapshot) {
+      return {
+        home: [] as Array<{ id: string; name: string; metrics: Array<{ label: string; value: string }> }>,
+        away: [] as Array<{ id: string; name: string; metrics: Array<{ label: string; value: string }> }>,
+      }
+    }
+
+    const metricDefs = LEAGUE_PLAYER_METRICS[simulationLeague]
+    const mapTeam = (team: 'home' | 'away') =>
+      simulationSnapshot.players[team].map((player) => ({
+        id: player.id,
+        name: player.name,
+        metrics: metricDefs.map((metric) => ({
+          label: metric.label,
+          value: formatBindingValue((player as unknown as Record<string, unknown>)[metric.key]),
+        })),
+      }))
+
+    return {
+      home: mapTeam('home'),
+      away: mapTeam('away'),
+    }
+  }, [simulationLeague, simulationSnapshot])
 
   const simulationCanStart = simulationStatus === 'idle' || simulationStatus === 'complete'
   const simulationProgressLabel = simulationTotalEvents > 0 ? `${simulationCursor}/${simulationTotalEvents}` : '0/0'
@@ -353,60 +447,7 @@ export function DataEnginePage() {
             </button>
           </div>
 
-          <div className="inspector-section">
-            <div className="inspector-section__label">Live Snapshot</div>
-            <div className="data-status-grid">
-              <div className="binding-preview mono">
-                {simulationSnapshot
-                  ? `${simulationSnapshot.teams.home.abbr} ${simulationSnapshot.game.score.home} - ${simulationSnapshot.teams.away.abbr} ${simulationSnapshot.game.score.away}`
-                  : 'No simulation snapshot'}
-              </div>
-              <div className="binding-preview mono">
-                {simulationSnapshot
-                  ? `Momentum ${simulationSnapshot.graphics.momentum.home}/${simulationSnapshot.graphics.momentum.away} | Pressure ${simulationSnapshot.graphics.pressure.index}`
-                  : 'Momentum unavailable'}
-              </div>
-              <div className="binding-preview mono">
-                {simulationSnapshot ? `Story: ${simulationSnapshot.story.headline}` : 'Story engine idle'}
-              </div>
-              <div className="binding-preview mono">
-                {simulationSnapshot
-                  ? `Hottest: ${simulationSnapshot.graphics.hottestPlayer.name} (${simulationSnapshot.graphics.hottestPlayer.metric})`
-                  : 'Hottest player unavailable'}
-              </div>
-            </div>
-            <div className="binding-preview mono">Bindings Ready: {liveBindingCount} tokens</div>
-          </div>
-
-          <div className="inspector-section">
-            <div className="inspector-section__label">Manual Controls</div>
-            <div className="story-actions">
-              <button type="button" className="btn btn--small btn--ghost" onClick={() => adjustScore('home', 1)}>
-                Home +1
-              </button>
-              <button type="button" className="btn btn--small btn--ghost" onClick={() => adjustScore('away', 1)}>
-                Away +1
-              </button>
-            </div>
-            <div className="story-actions">
-              <button type="button" className="btn btn--small btn--ghost" onClick={() => nudgeClock(5)}>
-                +00:05
-              </button>
-              <button type="button" className="btn btn--small btn--ghost" onClick={() => nudgeClock(-5)}>
-                -00:05
-              </button>
-              <button type="button" className="btn btn--small btn--ghost" onClick={resetClock}>
-                Reset Clock
-              </button>
-            </div>
-            <label className="field-label mono">
-              Headline
-              <input value={story.headline} onChange={(event) => setStoryValue('headline', event.target.value)} />
-            </label>
-            <button type="button" className="btn btn--small btn--ghost" onClick={togglePossession}>
-              Possession: {story.possession === 'home' ? 'HOME' : 'AWAY'}
-            </button>
-          </div>
+          <div className="binding-preview mono">Bindings Ready: {liveBindingCount} tokens</div>
 
           <div className="inspector-section">
             <div className="inspector-section__label">Cross-Device Transport</div>
@@ -488,6 +529,51 @@ export function DataEnginePage() {
             />
           </div>
 
+          <div className="data-engine-player-board">
+            <section className="player-board-team">
+              <header className="player-board-team__header mono">
+                {simulationSnapshot ? `${simulationSnapshot.teams.home.abbr} Players` : 'Home Players'}
+              </header>
+              <div className="player-board-team__rows">
+                {playerBoard.home.length === 0 ? (
+                  <div className="rundown-empty">No player snapshot available.</div>
+                ) : (
+                  playerBoard.home.map((player) => (
+                    <article key={player.id} className="player-board-row">
+                      <div className="player-board-row__name">{player.name}</div>
+                      <div className="player-board-row__metrics mono">
+                        {player.metrics.map((metric) => (
+                          <span key={`${player.id}-${metric.label}`}>{metric.label}: {metric.value}</span>
+                        ))}
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </section>
+            <section className="player-board-team">
+              <header className="player-board-team__header mono">
+                {simulationSnapshot ? `${simulationSnapshot.teams.away.abbr} Players` : 'Away Players'}
+              </header>
+              <div className="player-board-team__rows">
+                {playerBoard.away.length === 0 ? (
+                  <div className="rundown-empty">No player snapshot available.</div>
+                ) : (
+                  playerBoard.away.map((player) => (
+                    <article key={player.id} className="player-board-row">
+                      <div className="player-board-row__name">{player.name}</div>
+                      <div className="player-board-row__metrics mono">
+                        {player.metrics.map((metric) => (
+                          <span key={`${player.id}-${metric.label}`}>{metric.label}: {metric.value}</span>
+                        ))}
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </section>
+          </div>
+
           <div className="registry-scroll">
             {groupedRegistryItems.length === 0 ? (
               <div className="rundown-empty">No bindings match your current level/scope/query.</div>
@@ -501,11 +587,13 @@ export function DataEnginePage() {
                     {group.items.map((item) => (
                       <article key={item.field.key} className="registry-row">
                         <div className="registry-row__left">
-                          <div className="registry-row__label">{item.field.label}</div>
-                          <div className="registry-row__key mono">{item.field.key}</div>
+                          <div className="registry-row__label">
+                            {prettyPlayerLabelFromKey(item.field.key, item.field.label, storyBindings)}
+                          </div>
+                          <div className="registry-row__key mono">{prettyPlayerKey(item.field.key, storyBindings)}</div>
                         </div>
                         <div className="registry-row__value mono">
-                          {formatBindingValue(story.bindings?.[item.field.key])}
+                          {formatBindingValue(storyBindings?.[item.field.key])}
                         </div>
                       </article>
                     ))}

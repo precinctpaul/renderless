@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { SceneRenderer } from './SceneRenderer'
 import type { SceneDefinition, StoryState } from '../types/scene'
 
@@ -57,13 +57,40 @@ export function StageCanvas({
   onSelectLayer,
   onMoveLayers,
 }: StageCanvasProps) {
+  const canvasRef = useRef<HTMLDivElement | null>(null)
   const [stageOffset, setStageOffset] = useState({ x: 0, y: 0 })
+  const [zoomMultiplier, setZoomMultiplier] = useState(1)
 
   const horizontalTicks = useMemo(() => buildRulerTicks(scene.width), [scene.width])
   const verticalTicks = useMemo(() => buildRulerTicks(scene.height), [scene.height])
 
+  useEffect(() => {
+    const node = canvasRef.current
+    if (!node) {
+      return
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) {
+        return
+      }
+
+      event.preventDefault()
+      const zoomStep = event.deltaY < 0 ? 0.08 : -0.08
+      setZoomMultiplier((previous) => {
+        const next = Math.min(Math.max(previous + zoomStep, 0.35), 3)
+        return Math.round(next * 100) / 100
+      })
+    }
+
+    node.addEventListener('wheel', handleWheel, { passive: false })
+    return () => {
+      node.removeEventListener('wheel', handleWheel)
+    }
+  }, [])
+
   return (
-    <div className="stage-canvas">
+    <div ref={canvasRef} className="stage-canvas">
       {showRulers ? (
         <>
           <div className="stage-ruler stage-ruler--top mono">
@@ -115,6 +142,7 @@ export function StageCanvas({
         snapToGrid={snapToGrid}
         interactionMode={interactionMode}
         stageOffsetPx={stageOffset}
+        stageZoomMultiplier={zoomMultiplier}
         className={showGrid ? 'scene-renderer--grid' : ''}
       />
     </div>

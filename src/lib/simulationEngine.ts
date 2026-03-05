@@ -373,47 +373,202 @@ const TEAM_POOLS: Record<SupportedLeague, SimTeam[]> = {
   ],
 }
 
-const FIRST_NAMES = [
-  'Alex',
-  'Jordan',
-  'Chris',
-  'Taylor',
-  'Morgan',
-  'Cameron',
-  'Devin',
-  'Casey',
-  'Riley',
-  'Drew',
-  'Logan',
-  'Parker',
-  'Quinn',
-  'Avery',
-  'Reese',
-  'Skyler',
-  'Micah',
-  'Hayden',
-]
-
-const LAST_NAMES = [
-  'Johnson',
-  'Williams',
-  'Brown',
-  'Jones',
-  'Miller',
-  'Davis',
-  'Garcia',
-  'Rodriguez',
-  'Wilson',
-  'Martinez',
-  'Anderson',
-  'Taylor',
-  'Thomas',
-  'Moore',
-  'Jackson',
-  'Martin',
-  'Lee',
-  'Perez',
-]
+const REAL_PLAYER_POOLS: Record<SupportedLeague, string[]> = {
+  NBA: [
+    'LeBron James',
+    'Stephen Curry',
+    'Kevin Durant',
+    'Giannis Antetokounmpo',
+    'Nikola Jokic',
+    'Jayson Tatum',
+    'Luka Doncic',
+    'Shai Gilgeous-Alexander',
+    'Joel Embiid',
+    'Devin Booker',
+    'Anthony Davis',
+    'Jaylen Brown',
+    'Damian Lillard',
+    'Donovan Mitchell',
+    'Ja Morant',
+    'Tyrese Haliburton',
+    'Jalen Brunson',
+    'Jimmy Butler',
+    'Bam Adebayo',
+    'Kawhi Leonard',
+    'Paul George',
+    'Jamal Murray',
+    'Kyrie Irving',
+    'Trae Young',
+    'Anthony Edwards',
+    'Karl-Anthony Towns',
+    'Domantas Sabonis',
+    'DeMar DeRozan',
+    'Cade Cunningham',
+    'Victor Wembanyama',
+    'Mikal Bridges',
+    'Jrue Holiday',
+    'Rudy Gobert',
+    'Tyrese Maxey',
+    'Zion Williamson',
+    'Pascal Siakam',
+    'Derrick White',
+    'Austin Reaves',
+    'Darius Garland',
+    'Kristaps Porzingis',
+  ],
+  NFL: [
+    'Patrick Mahomes',
+    'Josh Allen',
+    'Lamar Jackson',
+    'Joe Burrow',
+    'Jalen Hurts',
+    'Dak Prescott',
+    'Brock Purdy',
+    'Justin Herbert',
+    'Tua Tagovailoa',
+    'Aaron Rodgers',
+    'Trevor Lawrence',
+    'C.J. Stroud',
+    'Justin Jefferson',
+    'Tyreek Hill',
+    'Stefon Diggs',
+    'CeeDee Lamb',
+    'A.J. Brown',
+    'Amon-Ra St. Brown',
+    'JaMarr Chase',
+    'Travis Kelce',
+    'George Kittle',
+    'Mark Andrews',
+    'Christian McCaffrey',
+    'Saquon Barkley',
+    'Derrick Henry',
+    'Nick Chubb',
+    'Bijan Robinson',
+    'Breece Hall',
+    'Puka Nacua',
+    'Deebo Samuel',
+    'Micah Parsons',
+    'T.J. Watt',
+    'Myles Garrett',
+    'Nick Bosa',
+    'Roquan Smith',
+    'Fred Warner',
+    'Maxx Crosby',
+    'Jaire Alexander',
+    'Sauce Gardner',
+    'Chris Jones',
+    'Trent McDuffie',
+    'Jordan Love',
+  ],
+  MLB: [
+    'Aaron Judge',
+    'Mookie Betts',
+    'Shohei Ohtani',
+    'Freddie Freeman',
+    'Ronald Acuna Jr.',
+    'Juan Soto',
+    'Yordan Alvarez',
+    'Jose Ramirez',
+    'Bobby Witt Jr.',
+    'Corey Seager',
+    'Adley Rutschman',
+    'Julio Rodriguez',
+    'Vladimir Guerrero Jr.',
+    'Kyle Tucker',
+    'Matt Olson',
+    'Francisco Lindor',
+    'Trea Turner',
+    'Corbin Carroll',
+    'Austin Riley',
+    'Manny Machado',
+    'Fernando Tatis Jr.',
+    'Bryce Harper',
+    'Gerrit Cole',
+    'Zack Wheeler',
+    'Corbin Burnes',
+    'Spencer Strider',
+    'Max Fried',
+    'Logan Webb',
+    'Pablo Lopez',
+    'Luis Castillo',
+    'Rafael Devers',
+    'Bo Bichette',
+    'Ozzie Albies',
+    'Pete Alonso',
+    'Xander Bogaerts',
+    'Nolan Arenado',
+  ],
+  NHL: [
+    'Connor McDavid',
+    'Leon Draisaitl',
+    'Nathan MacKinnon',
+    'Auston Matthews',
+    'Mitch Marner',
+    'David Pastrnak',
+    'Artemi Panarin',
+    'Mikko Rantanen',
+    'Cale Makar',
+    'Roman Josi',
+    'Aleksander Barkov',
+    'Nikita Kucherov',
+    'Brayden Point',
+    'Steven Stamkos',
+    'Jack Eichel',
+    'Mark Stone',
+    'Sidney Crosby',
+    'Evgeni Malkin',
+    'Kirill Kaprizov',
+    'Jason Robertson',
+    'Jake Oettinger',
+    'Igor Shesterkin',
+    'Andrei Vasilevskiy',
+    'Ilya Sorokin',
+    'Mika Zibanejad',
+    'Adam Fox',
+    'Sebastian Aho',
+    'Mathew Barzal',
+    'Elias Pettersson',
+    'Quinn Hughes',
+    'Anze Kopitar',
+    'Adrian Kempe',
+    'Brady Tkachuk',
+    'Tim Stutzle',
+  ],
+  MLS: [
+    'Lionel Messi',
+    'Luis Suarez',
+    'Sergio Busquets',
+    'Jordi Alba',
+    'Giorgio Chiellini',
+    'Denis Bouanga',
+    'Carlos Vela',
+    'Cristian Arango',
+    'Hany Mukhtar',
+    'Luciano Acosta',
+    'Thiago Almada',
+    'Riqui Puig',
+    'Djordje Mihailovic',
+    'Cucho Hernandez',
+    'Diego Rossi',
+    'Josef Martinez',
+    'Jordan Morris',
+    'Nicolas Lodeiro',
+    'Ryan Gauld',
+    'Carles Gil',
+    'Dani Pereira',
+    'Sebastian Driussi',
+    'Walker Zimmerman',
+    'Tim Parker',
+    'Jesus Ferreira',
+    'Brandon Vazquez',
+    'Facundo Torres',
+    'Gaston Brugman',
+    'Cristian Espinoza',
+    'Emil Forsberg',
+    'Pedro de la Vega',
+    'Evander',
+  ],
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
@@ -475,18 +630,14 @@ function makeBindingLabel(key: string): string {
     .join(' > ')
 }
 
-function makePlayerName(rng: () => number): string {
-  const first = pickOne(rng, FIRST_NAMES)
-  const last = pickOne(rng, LAST_NAMES)
-  return `${first} ${last}`
-}
-
 function generateRoster(league: SupportedLeague, team: TeamSide, rng: () => number): SimPlayer[] {
   const rosterSize = league === 'NFL' ? 18 : league === 'MLB' ? 16 : 14
+  const pool = REAL_PLAYER_POOLS[league]
+  const startOffset = randInt(rng, 0, Math.max(0, pool.length - 1))
   return Array.from({ length: rosterSize }, (_, index) => ({
     id: `${team}-p-${index + 1}`,
     team,
-    name: makePlayerName(rng),
+    name: pool[(startOffset + index) % pool.length]!,
   }))
 }
 
@@ -1660,14 +1811,53 @@ function computeLeagueAnalytics(state: MutableSimState): {
 
   topPlayers.forEach((playerEntry) => {
     const stats = state.playerAccumulators[playerEntry.id]!
+    if (state.league === 'NBA') {
+      player[playerEntry.name] = {
+        points: stats.points,
+        assists: stats.assists,
+        rebounds: stats.rebounds,
+        shots: stats.shots,
+        impact: toFixedNumber(stats.recentImpact, 1),
+      }
+      return
+    }
+
+    if (state.league === 'NFL') {
+      player[playerEntry.name] = {
+        yards: stats.yards,
+        completions: stats.completions,
+        attempts: stats.attempts,
+        points: stats.points,
+        impact: toFixedNumber(stats.recentImpact, 1),
+      }
+      return
+    }
+
+    if (state.league === 'MLB') {
+      player[playerEntry.name] = {
+        hits: stats.hits,
+        hardHits: stats.hardHits,
+        points: stats.points,
+        impact: toFixedNumber(stats.recentImpact, 1),
+      }
+      return
+    }
+
+    if (state.league === 'NHL') {
+      player[playerEntry.name] = {
+        goals: stats.goals,
+        shots: stats.shots,
+        hits: stats.hits,
+        impact: toFixedNumber(stats.recentImpact, 1),
+      }
+      return
+    }
+
     player[playerEntry.name] = {
-      points: stats.points,
-      assists: stats.assists,
-      rebounds: stats.rebounds,
-      shots: stats.shots,
       goals: stats.goals,
-      hits: stats.hits,
-      yards: stats.yards,
+      assists: stats.assists,
+      shots: stats.shots,
+      expectedGoals: toFixedNumber(stats.expectedGoals, 2),
       impact: toFixedNumber(stats.recentImpact, 1),
     }
   })
@@ -1982,27 +2172,58 @@ function flattenValues(value: unknown, prefix: string, output: Record<string, Bi
 export function buildSimulationBindingValues(snapshot: SimulationSnapshot): Record<string, BindingPrimitive> {
   const output: Record<string, BindingPrimitive> = {}
 
+  const buildPlayerBindingRow = (player: SimulationPlayerSnapshot) => {
+    if (snapshot.game.league === 'NBA') {
+      return {
+        Name: player.name,
+        Points: player.points,
+        Assists: player.assists,
+        Rebounds: player.rebounds,
+        Shots: player.shots,
+        Impact: player.impact,
+      }
+    }
+
+    if (snapshot.game.league === 'NFL') {
+      return {
+        Name: player.name,
+        Yards: player.yards,
+        Points: player.points,
+        Impact: player.impact,
+      }
+    }
+
+    if (snapshot.game.league === 'MLB') {
+      return {
+        Name: player.name,
+        Hits: player.hits,
+        Runs: player.points,
+        Impact: player.impact,
+      }
+    }
+
+    if (snapshot.game.league === 'NHL') {
+      return {
+        Name: player.name,
+        Goals: player.goals,
+        Shots: player.shots,
+        Hits: player.hits,
+        Impact: player.impact,
+      }
+    }
+
+    return {
+      Name: player.name,
+      Goals: player.goals,
+      Assists: player.assists,
+      Shots: player.shots,
+      Impact: player.impact,
+    }
+  }
+
   const playerTree = {
-    Home: snapshot.players.home.map((player) => ({
-      Name: player.name,
-      Points: player.points,
-      Assists: player.assists,
-      Rebounds: player.rebounds,
-      Goals: player.goals,
-      Hits: player.hits,
-      Yards: player.yards,
-      Impact: player.impact,
-    })),
-    Away: snapshot.players.away.map((player) => ({
-      Name: player.name,
-      Points: player.points,
-      Assists: player.assists,
-      Rebounds: player.rebounds,
-      Goals: player.goals,
-      Hits: player.hits,
-      Yards: player.yards,
-      Impact: player.impact,
-    })),
+    Home: snapshot.players.home.map((player) => buildPlayerBindingRow(player)),
+    Away: snapshot.players.away.map((player) => buildPlayerBindingRow(player)),
   }
 
   const recentEventTree = snapshot.recentEvents.map((event) => ({

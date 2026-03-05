@@ -45,6 +45,12 @@ interface BindingOption {
   playerName?: string
 }
 
+function formatPlayerSlotLabel(slot: string): string {
+  const [team, index] = slot.split('.')
+  const teamLabel = team === 'Home' ? 'Home' : team === 'Away' ? 'Away' : team
+  return index ? `${teamLabel} #${index}` : slot
+}
+
 const toNumberOrNull = (value: string) => {
   const numberValue = Number(value)
   return Number.isFinite(numberValue) ? numberValue : null
@@ -136,6 +142,12 @@ function mixedTransform(layers: SceneLayer[], field: 'rotation' | 'anchorX' | 'a
   }
   const first = map(layers[0])
   return layers.every((layer) => map(layer) === first) ? String(first) : ''
+}
+
+function mixedOpacity(layers: SceneLayer[]): string {
+  if (layers.length === 0) return ''
+  const first = asPercent(layers[0].opacity)
+  return layers.every((layer) => asPercent(layer.opacity) === first) ? String(first) : ''
 }
 
 function layerPositionInfo(layer: SceneLayer, layers: SceneLayer[]) {
@@ -250,8 +262,8 @@ export function DesignPage() {
     () => filterBindingFieldsForLeague(bindingFields, simulationLeague),
     [bindingFields, simulationLeague],
   )
-  const bindingOptions = useMemo<BindingOption[]>(() => {
-    const playerNameMap = new Map<string, string>()
+  const bindingPlayerNameSignature = useMemo(() => {
+    const entries: Array<[string, string]> = []
 
     leagueBindingFields.forEach((field) => {
       const match = field.key.match(/^Players\.(Home|Away)\.(\d+)\.Name$/)
@@ -259,13 +271,27 @@ export function DesignPage() {
         return
       }
 
-      const slot = `${match[1]}.${match[2]}`
       const value = story.bindings?.[field.key]
-      if (typeof value === 'string' && value.trim().length > 0) {
-        playerNameMap.set(slot, value.trim())
+      if (typeof value !== 'string') {
+        return
       }
+
+      const trimmed = value.trim()
+      if (!trimmed) {
+        return
+      }
+
+      entries.push([`${match[1]}.${match[2]}`, trimmed])
     })
 
+    entries.sort((left, right) => left[0].localeCompare(right[0]))
+    return JSON.stringify(entries)
+  }, [leagueBindingFields, story.bindings])
+  const bindingPlayerNamesBySlot = useMemo(() => {
+    const entries = JSON.parse(bindingPlayerNameSignature) as Array<[string, string]>
+    return new Map<string, string>(entries)
+  }, [bindingPlayerNameSignature])
+  const bindingOptions = useMemo<BindingOption[]>(() => {
     return leagueBindingFields.map((field) => {
       const level = deriveBindingLevel(field.key)
       const scope = bindingScopeForField(field.key, level)
@@ -276,7 +302,7 @@ export function DesignPage() {
         const match = field.key.match(/^Players\.(Home|Away)\.(\d+)\./)
         if (match) {
           playerSlot = `${match[1]}.${match[2]}`
-          playerName = playerNameMap.get(playerSlot)
+          playerName = bindingPlayerNamesBySlot.get(playerSlot)
         }
       }
 
@@ -289,7 +315,7 @@ export function DesignPage() {
         playerName,
       }
     })
-  }, [leagueBindingFields, story.bindings])
+  }, [bindingPlayerNamesBySlot, leagueBindingFields])
   const availableBindingLevels = useMemo(() => {
     return BINDING_LEVEL_OPTIONS.filter((level) => bindingOptions.some((option) => option.level === level))
   }, [bindingOptions])
@@ -320,7 +346,7 @@ export function DesignPage() {
           return
         }
 
-        const nextLabel = option.playerName || option.playerSlot
+        const nextLabel = option.playerName || formatPlayerSlotLabel(option.playerSlot)
         if (!bySlot.has(option.playerSlot)) {
           bySlot.set(option.playerSlot, nextLabel)
         }
@@ -362,6 +388,35 @@ export function DesignPage() {
       })
       .sort((left, right) => left.label.localeCompare(right.label))
   }, [activeBindingLevel, activeBindingPlayerSlot, activeBindingScope, bindingMetricQuery, bindingOptions])
+  const groupedBindingOptions = useMemo(() => {
+    const byScope = new Map<string, BindingOption[]>()
+    filteredBindingOptions.forEach((option) => {
+      const existing = byScope.get(option.scope)
+      if (existing) {
+        existing.push(option)
+      } else {
+        byScope.set(option.scope, [option])
+      }
+    })
+
+    return [...byScope.entries()]
+      .map(([scope, options]) => ({
+        scope,
+        options: options.sort((left, right) => left.label.localeCompare(right.label)),
+      }))
+      .sort((left, right) => left.scope.localeCompare(right.scope))
+  }, [filteredBindingOptions])
+  const selectedBindingOption = useMemo(() => {
+    if (!primarySelectedLayer || primarySelectedLayer.kind !== 'text' || !primarySelectedLayer.binding) {
+      return null
+    }
+
+    return (
+      bindingOptions.find((option) => option.key === primarySelectedLayer.binding) ??
+      filteredBindingOptions.find((option) => option.key === primarySelectedLayer.binding) ??
+      null
+    )
+  }, [bindingOptions, filteredBindingOptions, primarySelectedLayer])
 
   const persistAssets = (nextEntries: MediaLibraryEntry[]) => {
     setAssetEntries(nextEntries)
@@ -498,11 +553,18 @@ export function DesignPage() {
 
     updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: normalizedValue })
   }
-  const commitAdvanced = (field: 'rotation' | 'anchorX' | 'anchorY' | 'scaleX' | 'scaleY', value: string) => {
+  const commitAdvanced = (field: 'rotation' | 'anchorX' | 'anchorY' | 'scaleX' | 'scaleY' | 'opacity', value: string) => {
     const numberValue = toNumberOrNull(value)
     if (numberValue === null || selectedLayers.length === 0) return
-    if (selectedLayers.length === 1 && primarySelectedLayer) updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: numberValue })
-    else updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: numberValue })
+
+    const normalizedValue = field === 'opacity' ? fromPercent(numberValue) : numberValue
+
+    if (selectedLayers.length === 1 && primarySelectedLayer) {
+      updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: normalizedValue })
+      return
+    }
+
+    updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: normalizedValue })
   }
 
   const handleCreateLayer = (item: CreationItem) => {
@@ -891,6 +953,55 @@ export function DesignPage() {
                   )}
                 </div>
               </div>
+              {selectedLayers.length === 1 && primarySelectedLayer?.kind === 'text' ? (
+                <div className="inspector-section">
+                  <div className="inspector-section__label">Text Style</div>
+                  <label>
+                    Text
+                    <input
+                      value={primarySelectedLayer.text}
+                      onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { text: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Font Family
+                    <select
+                      className="mono"
+                      value={primarySelectedLayer.fontFamily}
+                      onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { fontFamily: event.target.value })}
+                    >
+                      {inspectorFontOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Color
+                    <input
+                      className="mono"
+                      value={primarySelectedLayer.color}
+                      onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { color: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Font Size
+                    <input
+                      className="mono"
+                      type="number"
+                      min={8}
+                      value={primarySelectedLayer.fontSize}
+                      onChange={(event) => {
+                        const numberValue = toNumberOrNull(event.target.value)
+                        if (numberValue !== null) {
+                          updatePreviewTextStyle(primarySelectedLayer.id, { fontSize: numberValue })
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              ) : null}
               <div className="inspector-section">
                 <div className="inspector-section__label">Transform</div>
                 <div className="transform-grid">
@@ -903,17 +1014,18 @@ export function DesignPage() {
                   <label>Anchor X<input className="mono" type="number" value={mixedTransform(selectedLayers, 'anchorX')} placeholder="mixed" onChange={(event) => commitAdvanced('anchorX', event.target.value)} /></label>
                   <label>Anchor Y<input className="mono" type="number" value={mixedTransform(selectedLayers, 'anchorY')} placeholder="mixed" onChange={(event) => commitAdvanced('anchorY', event.target.value)} /></label>
                   <label>Rotation<input className="mono" type="number" value={mixedTransform(selectedLayers, 'rotation')} placeholder="mixed" onChange={(event) => commitAdvanced('rotation', event.target.value)} /></label>
+                  <label>Opacity<input className="mono" type="number" min={0} max={100} value={mixedOpacity(selectedLayers)} placeholder="mixed" onChange={(event) => commitAdvanced('opacity', event.target.value)} /></label>
                 </div>
               </div>
               <div className="inspector-section">
-                <div className="inspector-section__label">Style</div>
+                <div className="inspector-section__label">Binding & Style</div>
                 {selectedLayers.length > 1 ? (
-                  <div className="inspector-empty">Style editing is available for single-layer selection only.</div>
+                  <div className="inspector-empty">Layer-specific binding and style editing is available for single-layer selection only.</div>
                 ) : primarySelectedLayer && primarySelectedLayer.kind === 'shape' ? (
-                  <>
-                    <label>Fill<input className="mono" value={primarySelectedLayer.fill} onChange={(event) => updatePreviewShapeStyle(primarySelectedLayer.id, { fill: event.target.value })} /></label>
-                    <label>Opacity<input className="mono" type="number" min={0} max={100} value={asPercent(primarySelectedLayer.opacity)} onChange={(event) => { const numberValue = toNumberOrNull(event.target.value); if (numberValue !== null) updatePreviewShapeStyle(primarySelectedLayer.id, { opacity: fromPercent(numberValue) }) }} /></label>
-                  </>
+                  <label>
+                    Fill
+                    <input className="mono" value={primarySelectedLayer.fill} onChange={(event) => updatePreviewShapeStyle(primarySelectedLayer.id, { fill: event.target.value })} />
+                  </label>
                 ) : primarySelectedLayer ? (
                   <>
                     <div className="binding-panel">
@@ -982,54 +1094,53 @@ export function DesignPage() {
                           placeholder="Search metrics in current level/scope..."
                         />
                       </label>
-                      <label>
-                        Metric
-                        <select
-                          className="mono"
-                          value={primarySelectedLayer.binding ?? ''}
-                          onChange={(event) =>
-                            updatePreviewTextBinding(
-                              primarySelectedLayer.id,
-                              event.target.value ? (event.target.value as DataBindingKey) : null,
-                            )
-                          }
-                        >
-                          <option value="">Choose metric...</option>
-                          {filteredBindingOptions.map((option) => (
-                            <option key={option.key} value={option.key}>
-                              {option.scope}
-                              {option.playerName ? ` · ${option.playerName}` : ''} · {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="binding-preview mono">
-                        {simulationLeague} · {filteredBindingOptions.length} metrics in current view
+                      <div className="binding-metric-browser" role="listbox" aria-label="Metric Browser">
+                        {groupedBindingOptions.length === 0 ? (
+                          <div className="inspector-empty">No metrics in the current level/scope/player view.</div>
+                        ) : (
+                          groupedBindingOptions.map((group) => (
+                            <section key={group.scope} className="binding-metric-group">
+                              <header className="binding-metric-group__header mono">
+                                {group.scope}
+                                <span>{group.options.length}</span>
+                              </header>
+                              <div className="binding-metric-group__rows">
+                                {group.options.map((option) => {
+                                  const isActive = primarySelectedLayer.binding === option.key
+                                  return (
+                                    <button
+                                      key={option.key}
+                                      type="button"
+                                      className={`binding-metric-row ${isActive ? 'binding-metric-row--active' : ''}`.trim()}
+                                      onClick={() => updatePreviewTextBinding(primarySelectedLayer.id, option.key as DataBindingKey)}
+                                    >
+                                      <span className="binding-metric-row__label">
+                                        {option.playerName ? `${option.playerName} | ${option.label}` : option.label}
+                                      </span>
+                                      <span className="binding-metric-row__token mono">{option.key}</span>
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </section>
+                          ))
+                        )}
+                      </div>
+                      <div className="binding-panel__meta mono">
+                        {simulationLeague} | {filteredBindingOptions.length} metrics in current view
                       </div>
                     </div>
-                    {primarySelectedLayer.binding ? (
+                    <div className="binding-preview mono">
+                      {primarySelectedLayer.binding
+                        ? `TOKEN: ${primarySelectedLayer.binding} = ${bindingPreviewValue || 'n/a'}`
+                        : 'TOKEN: none selected'}
+                    </div>
+                    {selectedBindingOption ? (
                       <div className="binding-preview mono">
-                        TOKEN: {primarySelectedLayer.binding} = {bindingPreviewValue || 'n/a'}
+                        ACTIVE: {selectedBindingOption.scope}
+                        {selectedBindingOption.playerName ? ` | ${selectedBindingOption.playerName}` : ''} | {selectedBindingOption.label}
                       </div>
                     ) : null}
-                    <label>Text<input value={primarySelectedLayer.text} onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { text: event.target.value })} /></label>
-                    <label>
-                      Font Family
-                      <select
-                        className="mono"
-                        value={primarySelectedLayer.fontFamily}
-                        onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { fontFamily: event.target.value })}
-                      >
-                        {inspectorFontOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>Color<input className="mono" value={primarySelectedLayer.color} onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { color: event.target.value })} /></label>
-                    <label>Font Size<input className="mono" type="number" min={8} value={primarySelectedLayer.fontSize} onChange={(event) => { const numberValue = toNumberOrNull(event.target.value); if (numberValue !== null) updatePreviewTextStyle(primarySelectedLayer.id, { fontSize: numberValue }) }} /></label>
-                    <label>Opacity<input className="mono" type="number" min={0} max={100} value={asPercent(primarySelectedLayer.opacity)} onChange={(event) => { const numberValue = toNumberOrNull(event.target.value); if (numberValue !== null) updatePreviewTextStyle(primarySelectedLayer.id, { opacity: fromPercent(numberValue) }) }} /></label>
                   </>
                 ) : null}
               </div>
