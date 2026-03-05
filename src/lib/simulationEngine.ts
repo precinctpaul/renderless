@@ -1875,6 +1875,7 @@ function computeLeagueAnalytics(state: MutableSimState): {
 function buildPlayerSnapshots(state: MutableSimState): { home: SimulationPlayerSnapshot[]; away: SimulationPlayerSnapshot[] } {
   const buildList = (team: TeamSide) =>
     state.roster[team]
+      .slice(0, 6)
       .map((player) => {
         const stats = state.playerAccumulators[player.id]!
         return {
@@ -1891,8 +1892,6 @@ function buildPlayerSnapshots(state: MutableSimState): { home: SimulationPlayerS
           impact: toFixedNumber(stats.recentImpact, 1),
         }
       })
-      .sort((a, b) => b.impact - a.impact)
-      .slice(0, 6)
 
   return {
     home: buildList('home'),

@@ -15,6 +15,17 @@ export interface MediaLibraryEntry {
 export const ASSET_STORAGE_KEY = 'renderless.dashboard.assets.v1'
 export const FONT_STORAGE_KEY = 'renderless.dashboard.fonts.v1'
 export const MEDIA_LIBRARY_UPDATED_EVENT = 'renderless-media-library-updated'
+const MEDIA_DB_NAME = 'renderless.media.db.v1'
+const MEDIA_DB_VERSION = 1
+const MEDIA_STORE = 'entries'
+const MEMORY_CACHE: Record<MediaLibraryKind, MediaLibraryEntry[] | null> = {
+  asset: null,
+  font: null,
+}
+const MEMORY_CACHE_SOURCE: Record<MediaLibraryKind, 'none' | 'local' | 'full'> = {
+  asset: 'none',
+  font: 'none',
+}
 
 const REGISTERED_FONT_FAMILIES = new Set<string>()
 
@@ -24,6 +35,10 @@ function storageKeyFor(kind: MediaLibraryKind): string {
 
 function createEntryId(kind: MediaLibraryKind): string {
   return `${kind}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function cloneEntries(entries: MediaLibraryEntry[]): MediaLibraryEntry[] {
+  return entries.map((entry) => ({ ...entry }))
 }
 
 function inferMime(file: File, kind: MediaLibraryKind): string {
@@ -96,7 +111,7 @@ function normalizeEntry(rawEntry: unknown, kind: MediaLibraryKind): MediaLibrary
   }
 }
 
-export function readMediaEntries(kind: MediaLibraryKind): MediaLibraryEntry[] {
+function entriesFromLocalStorage(kind: MediaLibraryKind): MediaLibraryEntry[] {
   if (typeof window === 'undefined') {
     return []
   }
@@ -120,21 +135,212 @@ export function readMediaEntries(kind: MediaLibraryKind): MediaLibraryEntry[] {
   }
 }
 
+function manifestEntries(entries: MediaLibraryEntry[]): MediaLibraryEntry[] {
+  return entries.map((entry) => ({
+    ...entry,
+    dataUrl: '',
+  }))
+}
+
+function hasInlineMediaData(entries: MediaLibraryEntry[]): boolean {
+  return entries.some((entry) => typeof entry.dataUrl === 'string' && entry.dataUrl.length > 0)
+}
+
+export function invalidateMediaEntriesCache(kind?: MediaLibraryKind): void {
+  if (kind) {
+    MEMORY_CACHE[kind] = null
+    MEMORY_CACHE_SOURCE[kind] = 'none'
+    return
+  }
+
+  MEMORY_CACHE.asset = null
+  MEMORY_CACHE.font = null
+  MEMORY_CACHE_SOURCE.asset = 'none'
+  MEMORY_CACHE_SOURCE.font = 'none'
+}
+
+function openMediaDatabase(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || typeof window.indexedDB === 'undefined') {
+    return Promise.resolve(null)
+  }
+
+  return new Promise((resolve) => {
+    const request = window.indexedDB.open(MEDIA_DB_NAME, MEDIA_DB_VERSION)
+    request.onerror = () => resolve(null)
+    request.onupgradeneeded = () => {
+      const database = request.result
+      if (!database.objectStoreNames.contains(MEDIA_STORE)) {
+        const store = database.createObjectStore(MEDIA_STORE, { keyPath: 'id' })
+        store.createIndex('kind', 'kind', { unique: false })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+  })
+}
+
+async function readEntriesFromIndexedDb(kind: MediaLibraryKind): Promise<MediaLibraryEntry[]> {
+  const database = await openMediaDatabase()
+  if (!database) {
+    return []
+  }
+
+  return new Promise((resolve) => {
+    const transaction = database.transaction(MEDIA_STORE, 'readonly')
+    const store = transaction.objectStore(MEDIA_STORE)
+    const index = store.index('kind')
+    const request = index.getAll(kind)
+
+    request.onerror = () => {
+      database.close()
+      resolve([])
+    }
+
+    request.onsuccess = () => {
+      const rows = Array.isArray(request.result) ? request.result : []
+      const entries = rows
+        .map((entry) => normalizeEntry(entry, kind))
+        .filter((entry): entry is MediaLibraryEntry => entry !== null)
+      database.close()
+      resolve(entries)
+    }
+  })
+}
+
+async function persistEntriesToIndexedDb(kind: MediaLibraryKind, entries: MediaLibraryEntry[]): Promise<void> {
+  const database = await openMediaDatabase()
+  if (!database) {
+    return
+  }
+
+  await new Promise<void>((resolve) => {
+    const transaction = database.transaction(MEDIA_STORE, 'readwrite')
+    const store = transaction.objectStore(MEDIA_STORE)
+    const index = store.index('kind')
+    const request = index.getAll(kind)
+
+    request.onerror = () => resolve()
+    request.onsuccess = () => {
+      const existingRows = Array.isArray(request.result) ? request.result : []
+      const nextById = new Set(entries.map((entry) => entry.id))
+
+      existingRows.forEach((row) => {
+        const record = row as Record<string, unknown>
+        const id = typeof record.id === 'string' ? record.id : ''
+        if (id && !nextById.has(id)) {
+          store.delete(id)
+        }
+      })
+
+      entries.forEach((entry) => {
+        store.put(entry)
+      })
+      resolve()
+    }
+  })
+
+  database.close()
+}
+
+export function readMediaEntries(kind: MediaLibraryKind): MediaLibraryEntry[] {
+  const cached = MEMORY_CACHE[kind]
+  if (cached) {
+    return cloneEntries(cached)
+  }
+
+  const fallback = entriesFromLocalStorage(kind)
+  MEMORY_CACHE[kind] = fallback
+  MEMORY_CACHE_SOURCE[kind] = hasInlineMediaData(fallback) ? 'full' : 'local'
+  return cloneEntries(fallback)
+}
+
+export async function readMediaEntriesAsync(kind: MediaLibraryKind): Promise<MediaLibraryEntry[]> {
+  const cached = MEMORY_CACHE[kind]
+  if (cached && MEMORY_CACHE_SOURCE[kind] === 'full') {
+    return cloneEntries(cached)
+  }
+
+  const localEntries = cached ?? entriesFromLocalStorage(kind)
+  const indexedEntries = await readEntriesFromIndexedDb(kind)
+
+  if (indexedEntries.length > 0) {
+    MEMORY_CACHE[kind] = indexedEntries
+    MEMORY_CACHE_SOURCE[kind] = 'full'
+    // Keep manifest in localStorage lightweight.
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(storageKeyFor(kind), JSON.stringify(manifestEntries(indexedEntries)))
+      }
+    } catch {
+      // Ignore local manifest write failures.
+    }
+    return cloneEntries(indexedEntries)
+  }
+
+  // Legacy migration path: old payload may include inline data URLs in localStorage.
+  if (hasInlineMediaData(localEntries)) {
+    await persistEntriesToIndexedDb(kind, localEntries)
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(storageKeyFor(kind), JSON.stringify(manifestEntries(localEntries)))
+      }
+    } catch {
+      // Ignore local manifest write failures.
+    }
+    MEMORY_CACHE[kind] = localEntries
+    MEMORY_CACHE_SOURCE[kind] = 'full'
+    return cloneEntries(localEntries)
+  }
+
+  MEMORY_CACHE[kind] = localEntries
+  MEMORY_CACHE_SOURCE[kind] = 'local'
+  return cloneEntries(localEntries)
+}
+
 export function persistMediaEntries(kind: MediaLibraryKind, entries: MediaLibraryEntry[]): { ok: boolean; error?: string } {
+  const normalizedEntries = cloneEntries(entries)
+  MEMORY_CACHE[kind] = normalizedEntries
+  MEMORY_CACHE_SOURCE[kind] = 'full'
+
   if (typeof window === 'undefined') {
+    void persistEntriesToIndexedDb(kind, normalizedEntries)
     return { ok: true }
   }
 
+  let localStoragePersisted = false
   try {
-    window.localStorage.setItem(storageKeyFor(kind), JSON.stringify(entries))
+    // Persist a lightweight manifest in localStorage to avoid quota blowups with base64 blobs.
+    window.localStorage.setItem(storageKeyFor(kind), JSON.stringify(manifestEntries(normalizedEntries)))
+    localStoragePersisted = true
+  } catch {
+    localStoragePersisted = false
+  }
+
+  void persistEntriesToIndexedDb(kind, normalizedEntries)
+    .then(() => {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent(MEDIA_LIBRARY_UPDATED_EVENT, {
+            detail: { kind },
+          }),
+        )
+      }
+    })
+    .catch(() => {
+      // Ignore async persistence errors. Caller already has in-memory state.
+    })
+
+  if (localStoragePersisted) {
     window.dispatchEvent(
       new CustomEvent(MEDIA_LIBRARY_UPDATED_EVENT, {
         detail: { kind },
       }),
     )
     return { ok: true }
-  } catch {
-    return { ok: false, error: 'Unable to persist files (storage quota exceeded).' }
+  }
+
+  return {
+    ok: true,
+    error: 'Stored in memory/indexedDB; localStorage manifest unavailable.',
   }
 }
 

@@ -24,7 +24,10 @@ import {
   ASSET_STORAGE_KEY,
   FONT_STORAGE_KEY,
   MEDIA_LIBRARY_UPDATED_EVENT,
+  invalidateMediaEntriesCache,
+  persistMediaEntries,
   readMediaEntries,
+  readMediaEntriesAsync,
   registerFontEntries,
   type MediaLibraryEntry
 } from '../lib/mediaLibrary'
@@ -42,7 +45,8 @@ interface BindingOption {
   key: string
   label: string
   level: BindingLevel
-  scope: string
+  metricLabel: string
+  teamSide?: 'Home' | 'Away'
   playerSlot?: string
   playerName?: string
 }
@@ -51,6 +55,29 @@ function formatPlayerSlotLabel(slot: string): string {
   const [team, index] = slot.split('.')
   const teamLabel = team === 'Home' ? 'Home' : team === 'Away' ? 'Away' : team
   return index ? `${teamLabel} #${index}` : slot
+}
+
+function inferTeamSideFromKey(bindingKey: string): 'Home' | 'Away' | undefined {
+  const segments = bindingKey.split('.')
+  if (segments.includes('Home')) {
+    return 'Home'
+  }
+  if (segments.includes('Away')) {
+    return 'Away'
+  }
+  return undefined
+}
+
+function inferMetricLabel(option: BindingOption): string {
+  if (option.level === 'Player' && option.playerName) {
+    return `${option.metricLabel} (${option.playerName})`
+  }
+
+  if (option.teamSide) {
+    return `${option.teamSide} ${option.metricLabel}`
+  }
+
+  return option.label
 }
 
 const toNumberOrNull = (value: string) => {
@@ -67,53 +94,6 @@ const DEFAULT_FONT_OPTIONS: Array<{ label: string; value: string }> = [
   { label: 'Roboto', value: 'Roboto, sans-serif' },
   { label: 'JetBrains Mono', value: 'JetBrains Mono, monospace' },
 ]
-
-function bindingScopeForField(fieldKey: string, level: BindingLevel): string {
-  if (level === 'Game') {
-    return 'Game'
-  }
-
-  if (level === 'Team') {
-    if (fieldKey.startsWith('Teams.Home.') || fieldKey.startsWith('Analytics.Team.Home.')) return 'Home team'
-    if (fieldKey.startsWith('Teams.Away.') || fieldKey.startsWith('Analytics.Team.Away.')) return 'Away team'
-    if (fieldKey.startsWith('Graphics.Momentum.Home') || fieldKey.startsWith('Graphics.Dominance.Home')) return 'Home team'
-    if (fieldKey.startsWith('Graphics.Momentum.Away') || fieldKey.startsWith('Graphics.Dominance.Away')) return 'Away team'
-    return 'Team global'
-  }
-
-  if (level === 'Player') {
-    if (fieldKey.startsWith('Players.Home.')) return 'Home players'
-    if (fieldKey.startsWith('Players.Away.')) return 'Away players'
-    if (fieldKey.startsWith('Analytics.Player.')) return 'Player analytics'
-    return 'Players'
-  }
-
-  if (level === 'Analytics') {
-    if (fieldKey.startsWith('Analytics.Game.')) return 'Game analytics'
-    if (fieldKey.startsWith('Analytics.Team.Home.')) return 'Home team analytics'
-    if (fieldKey.startsWith('Analytics.Team.Away.')) return 'Away team analytics'
-    if (fieldKey.startsWith('Analytics.Player.')) return 'Player analytics'
-    return 'Analytics'
-  }
-
-  if (level === 'Graphics') {
-    return fieldKey.split('.')[1] ?? 'Graphics'
-  }
-
-  if (level === 'Stories') {
-    return fieldKey.split('.')[1] ?? 'Stories'
-  }
-
-  if (level === 'RecentEvents') {
-    return 'Recent events'
-  }
-
-  if (level === 'Context') {
-    return fieldKey.split('.')[1] ?? 'Context'
-  }
-
-  return 'Core'
-}
 
 function downloadTemplatePackageFile(templatePackage: TemplatePackage) {
   const fileName = `${slugify(templatePackage.metadata.label)}.rltpl.json`
@@ -202,9 +182,9 @@ export function DesignPage() {
   const [isInspectorRenaming, setIsInspectorRenaming] = useState(false)
   const [inspectorRenameDraft, setInspectorRenameDraft] = useState('')
   const [bindingLevel, setBindingLevel] = useState<BindingLevel>('Game')
-  const [bindingScope, setBindingScope] = useState<string>('All scopes')
+  const [bindingTeamSide, setBindingTeamSide] = useState<'All' | 'Home' | 'Away'>('All')
   const [bindingPlayerSearch, setBindingPlayerSearch] = useState('')
-  const [bindingPlayerSlot, setBindingPlayerSlot] = useState<string>('All players')
+  const [bindingPlayerSlot, setBindingPlayerSlot] = useState<string>('')
   const [bindingMetricQuery, setBindingMetricQuery] = useState('')
   const setTransientStatus = (message: string, timeoutMs = 1800) => {
     setSaveStatus(message)
@@ -293,7 +273,8 @@ export function DesignPage() {
   const bindingOptions = useMemo<BindingOption[]>(() => {
     return leagueBindingFields.map((field) => {
       const level = deriveBindingLevel(field.key)
-      const scope = bindingScopeForField(field.key, level)
+      const teamSide = inferTeamSideFromKey(field.key)
+      const segments = field.key.split('.')
       let playerSlot: string | undefined
       let playerName: string | undefined
 
@@ -309,29 +290,61 @@ export function DesignPage() {
         key: field.key,
         label: field.label,
         level,
-        scope,
+        metricLabel: segments.length > 1 ? (segments[segments.length - 1] ?? field.label) : field.label,
+        teamSide,
         playerSlot,
         playerName,
       }
     })
   }, [bindingPlayerNamesBySlot, leagueBindingFields])
+  const selectedLayerBindingOption = useMemo(() => {
+    if (!primarySelectedLayer || primarySelectedLayer.kind !== 'text' || !primarySelectedLayer.binding) {
+      return null
+    }
+
+    return bindingOptions.find((option) => option.key === primarySelectedLayer.binding) ?? null
+  }, [bindingOptions, primarySelectedLayer])
   const availableBindingLevels = useMemo(() => {
     return BINDING_LEVEL_OPTIONS.filter((level) => bindingOptions.some((option) => option.level === level))
   }, [bindingOptions])
-  const activeBindingLevel = availableBindingLevels.includes(bindingLevel)
-    ? bindingLevel
+  const preferredBindingLevel = selectedLayerBindingOption?.level ?? bindingLevel
+  const activeBindingLevel = availableBindingLevels.includes(preferredBindingLevel)
+    ? preferredBindingLevel
     : (availableBindingLevels[0] ?? 'Game')
-  const bindingScopeOptions = useMemo(() => {
-    const scopes = new Set<string>()
+  const bindingTeamSideOptions = useMemo<Array<'All' | 'Home' | 'Away'>>(() => {
+    const sides = new Set<'Home' | 'Away'>()
     bindingOptions
       .filter((option) => option.level === activeBindingLevel)
       .forEach((option) => {
-        scopes.add(option.scope)
+        if (option.teamSide) {
+          sides.add(option.teamSide)
+        }
       })
 
-    return ['All scopes', ...Array.from(scopes).sort((left, right) => left.localeCompare(right))]
+    const sorted: Array<'Home' | 'Away'> = []
+    if (sides.has('Home')) {
+      sorted.push('Home')
+    }
+    if (sides.has('Away')) {
+      sorted.push('Away')
+    }
+    if (sorted.length === 0) {
+      return ['All']
+    }
+
+    if (activeBindingLevel === 'Player') {
+      return sorted
+    }
+
+    return ['All', ...sorted]
   }, [activeBindingLevel, bindingOptions])
-  const activeBindingScope = bindingScopeOptions.includes(bindingScope) ? bindingScope : 'All scopes'
+  const activeBindingTeamSide = bindingTeamSideOptions.includes(bindingTeamSide)
+    ? bindingTeamSide
+    : (
+        selectedLayerBindingOption?.teamSide && bindingTeamSideOptions.includes(selectedLayerBindingOption.teamSide)
+          ? selectedLayerBindingOption.teamSide
+          : (bindingTeamSideOptions[0] ?? 'All')
+      )
   const bindingPlayerOptions = useMemo(() => {
     if (activeBindingLevel !== 'Player') {
       return []
@@ -340,6 +353,7 @@ export function DesignPage() {
     const bySlot = new Map<string, string>()
     bindingOptions
       .filter((option) => option.level === 'Player')
+      .filter((option) => (activeBindingTeamSide === 'All' ? true : option.teamSide === activeBindingTeamSide))
       .forEach((option) => {
         if (!option.playerSlot) {
           return
@@ -362,19 +376,25 @@ export function DesignPage() {
       })
       .sort((left, right) => left.label.localeCompare(right.label))
 
-    return [{ slot: 'All players', label: 'All players' }, ...values]
-  }, [activeBindingLevel, bindingOptions, bindingPlayerSearch])
+    return values
+  }, [activeBindingLevel, activeBindingTeamSide, bindingOptions, bindingPlayerSearch])
   const activeBindingPlayerSlot =
     activeBindingLevel === 'Player' && bindingPlayerOptions.some((option) => option.slot === bindingPlayerSlot)
       ? bindingPlayerSlot
-      : 'All players'
+      : (
+          activeBindingLevel === 'Player' &&
+          selectedLayerBindingOption?.playerSlot &&
+          bindingPlayerOptions.some((option) => option.slot === selectedLayerBindingOption.playerSlot)
+            ? selectedLayerBindingOption.playerSlot
+            : (bindingPlayerOptions[0]?.slot ?? '')
+        )
   const filteredBindingOptions = useMemo(() => {
     const query = bindingMetricQuery.trim().toLowerCase()
     return bindingOptions
       .filter((option) => option.level === activeBindingLevel)
-      .filter((option) => (activeBindingScope === 'All scopes' ? true : option.scope === activeBindingScope))
+      .filter((option) => (activeBindingTeamSide === 'All' ? true : option.teamSide === activeBindingTeamSide))
       .filter((option) => {
-        if (activeBindingLevel !== 'Player' || activeBindingPlayerSlot === 'All players') {
+        if (activeBindingLevel !== 'Player') {
           return true
         }
         return option.playerSlot === activeBindingPlayerSlot
@@ -383,59 +403,65 @@ export function DesignPage() {
         if (!query) {
           return true
         }
-        return option.label.toLowerCase().includes(query) || option.key.toLowerCase().includes(query)
+        const playerName = option.playerName?.toLowerCase() ?? ''
+        return (
+          option.label.toLowerCase().includes(query) ||
+          option.key.toLowerCase().includes(query) ||
+          option.metricLabel.toLowerCase().includes(query) ||
+          playerName.includes(query)
+        )
       })
-      .sort((left, right) => left.label.localeCompare(right.label))
-  }, [activeBindingLevel, activeBindingPlayerSlot, activeBindingScope, bindingMetricQuery, bindingOptions])
-  const groupedBindingOptions = useMemo(() => {
-    const byScope = new Map<string, BindingOption[]>()
+      .sort((left, right) => {
+        const byMetric = left.metricLabel.localeCompare(right.metricLabel)
+        if (byMetric !== 0) {
+          return byMetric
+        }
+
+        const leftName = left.playerName ?? ''
+        const rightName = right.playerName ?? ''
+        return leftName.localeCompare(rightName)
+      })
+  }, [activeBindingLevel, activeBindingPlayerSlot, activeBindingTeamSide, bindingMetricQuery, bindingOptions])
+  const metricSelectOptions = useMemo(() => {
+    const byKey = new Map<string, BindingOption>()
     filteredBindingOptions.forEach((option) => {
-      const existing = byScope.get(option.scope)
-      if (existing) {
-        existing.push(option)
-      } else {
-        byScope.set(option.scope, [option])
-      }
+      byKey.set(option.key, option)
     })
 
-    return [...byScope.entries()]
-      .map(([scope, options]) => ({
-        scope,
-        options: options.sort((left, right) => left.label.localeCompare(right.label)),
-      }))
-      .sort((left, right) => left.scope.localeCompare(right.scope))
-  }, [filteredBindingOptions])
-  const selectedBindingOption = useMemo(() => {
-    if (!primarySelectedLayer || primarySelectedLayer.kind !== 'text' || !primarySelectedLayer.binding) {
-      return null
+    if (primarySelectedLayer && primarySelectedLayer.kind === 'text' && primarySelectedLayer.binding) {
+      const current = bindingOptions.find((option) => option.key === primarySelectedLayer.binding)
+      if (current) {
+        byKey.set(current.key, current)
+      }
     }
 
-    return (
-      bindingOptions.find((option) => option.key === primarySelectedLayer.binding) ??
-      filteredBindingOptions.find((option) => option.key === primarySelectedLayer.binding) ??
-      null
-    )
+    return [...byKey.values()].sort((left, right) => inferMetricLabel(left).localeCompare(inferMetricLabel(right)))
   }, [bindingOptions, filteredBindingOptions, primarySelectedLayer])
+  const selectedBindingOption = selectedLayerBindingOption
 
   useEffect(() => {
     let cancelled = false
 
-    const hydrateAssets = () => {
+    const hydrateAssets = async () => {
+      const entries = await readMediaEntriesAsync('asset')
       if (cancelled) {
         return
       }
 
-      setAssetEntries(readMediaEntries('asset'))
+      setAssetEntries(entries)
     }
 
     const hydrateFonts = async () => {
-      const registration = await registerFontEntries(readMediaEntries('font'))
+      const loadedEntries = await readMediaEntriesAsync('font')
+      const registration = await registerFontEntries(loadedEntries)
       if (cancelled) {
         return
       }
 
       if (registration.changed) {
         setFontEntries(registration.entries)
+        // Persist normalized family names and keep storage in sync.
+        persistMediaEntries('font', registration.entries)
         return
       }
 
@@ -444,11 +470,13 @@ export function DesignPage() {
 
     const onStorage = (event: StorageEvent) => {
       if (event.key === ASSET_STORAGE_KEY) {
-        hydrateAssets()
+        invalidateMediaEntriesCache('asset')
+        void hydrateAssets()
         return
       }
 
       if (event.key === FONT_STORAGE_KEY) {
+        invalidateMediaEntriesCache('font')
         void hydrateFonts()
       }
     }
@@ -456,15 +484,17 @@ export function DesignPage() {
     const onMediaLibraryUpdated = (event: Event) => {
       const payload = (event as CustomEvent<{ kind?: 'asset' | 'font' }>).detail
       if (!payload || payload.kind === 'asset') {
-        hydrateAssets()
+        invalidateMediaEntriesCache('asset')
+        void hydrateAssets()
       }
 
       if (!payload || payload.kind === 'font') {
+        invalidateMediaEntriesCache('font')
         void hydrateFonts()
       }
     }
 
-    hydrateAssets()
+    void hydrateAssets()
     void hydrateFonts()
     window.addEventListener('storage', onStorage)
     window.addEventListener(MEDIA_LIBRARY_UPDATED_EVENT, onMediaLibraryUpdated as EventListener)
@@ -1096,7 +1126,7 @@ export function DesignPage() {
                         </select>
                       </label>
                       <label>
-                        Level
+                        Category
                         <select
                           className="mono"
                           value={activeBindingLevel}
@@ -1109,16 +1139,22 @@ export function DesignPage() {
                           ))}
                         </select>
                       </label>
-                      <label>
-                        Scope
-                        <select className="mono" value={activeBindingScope} onChange={(event) => setBindingScope(event.target.value)}>
-                          {bindingScopeOptions.map((scope) => (
-                            <option key={scope} value={scope}>
-                              {scope}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      {bindingTeamSideOptions.length > 1 ? (
+                        <label>
+                          Team Side
+                          <select
+                            className="mono"
+                            value={activeBindingTeamSide}
+                            onChange={(event) => setBindingTeamSide(event.target.value as 'All' | 'Home' | 'Away')}
+                          >
+                            {bindingTeamSideOptions.map((teamSide) => (
+                              <option key={teamSide} value={teamSide}>
+                                {teamSide === 'All' ? 'All teams' : `${teamSide} team`}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
                       {activeBindingLevel === 'Player' ? (
                         <>
                           <label>
@@ -1126,7 +1162,7 @@ export function DesignPage() {
                             <input
                               value={bindingPlayerSearch}
                               onChange={(event) => setBindingPlayerSearch(event.target.value)}
-                              placeholder="Search players..."
+                              placeholder="Search players in selected team..."
                             />
                           </label>
                           <label>
@@ -1136,6 +1172,9 @@ export function DesignPage() {
                               value={activeBindingPlayerSlot}
                               onChange={(event) => setBindingPlayerSlot(event.target.value)}
                             >
+                              {bindingPlayerOptions.length === 0 ? (
+                                <option value="">No players in current context</option>
+                              ) : null}
                               {bindingPlayerOptions.map((player) => (
                                 <option key={player.slot} value={player.slot}>
                                   {player.label}
@@ -1150,43 +1189,30 @@ export function DesignPage() {
                         <input
                           value={bindingMetricQuery}
                           onChange={(event) => setBindingMetricQuery(event.target.value)}
-                          placeholder="Search metrics in current level/scope..."
+                          placeholder={`Search ${activeBindingLevel.toLowerCase()} metrics...`}
                         />
                       </label>
-                      <div className="binding-metric-browser" role="listbox" aria-label="Metric Browser">
-                        {groupedBindingOptions.length === 0 ? (
-                          <div className="inspector-empty">No metrics in the current level/scope/player view.</div>
-                        ) : (
-                          groupedBindingOptions.map((group) => (
-                            <section key={group.scope} className="binding-metric-group">
-                              <header className="binding-metric-group__header mono">
-                                {group.scope}
-                                <span>{group.options.length}</span>
-                              </header>
-                              <div className="binding-metric-group__rows">
-                                {group.options.map((option) => {
-                                  const isActive = primarySelectedLayer.binding === option.key
-                                  return (
-                                    <button
-                                      key={option.key}
-                                      type="button"
-                                      className={`binding-metric-row ${isActive ? 'binding-metric-row--active' : ''}`.trim()}
-                                      onClick={() => updatePreviewTextBinding(primarySelectedLayer.id, option.key as DataBindingKey)}
-                                    >
-                                      <span className="binding-metric-row__label">
-                                        {option.playerName ? `${option.playerName} | ${option.label}` : option.label}
-                                      </span>
-                                      <span className="binding-metric-row__token mono">{option.key}</span>
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            </section>
-                          ))
-                        )}
-                      </div>
+                      <label>
+                        Metric
+                        <select
+                          className="mono"
+                          value={primarySelectedLayer.binding ?? ''}
+                          onChange={(event) => {
+                            const nextKey = event.target.value.trim()
+                            updatePreviewTextBinding(primarySelectedLayer.id, nextKey ? (nextKey as DataBindingKey) : null)
+                          }}
+                        >
+                          <option value="">Choose metric...</option>
+                          {metricSelectOptions.map((option) => (
+                            <option key={option.key} value={option.key}>
+                              {inferMetricLabel(option)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <div className="binding-panel__meta mono">
-                        {simulationLeague} | {filteredBindingOptions.length} metrics in current view
+                        {simulationLeague} | {activeBindingLevel}
+                        {activeBindingTeamSide !== 'All' ? ` | ${activeBindingTeamSide}` : ''} | {filteredBindingOptions.length} metrics in view
                       </div>
                     </div>
                     <div className="binding-preview mono">
@@ -1196,8 +1222,9 @@ export function DesignPage() {
                     </div>
                     {selectedBindingOption ? (
                       <div className="binding-preview mono">
-                        ACTIVE: {selectedBindingOption.scope}
-                        {selectedBindingOption.playerName ? ` | ${selectedBindingOption.playerName}` : ''} | {selectedBindingOption.label}
+                        ACTIVE: {selectedBindingOption.level}
+                        {selectedBindingOption.teamSide ? ` | ${selectedBindingOption.teamSide}` : ''}
+                        {selectedBindingOption.playerName ? ` | ${selectedBindingOption.playerName}` : ''} | {selectedBindingOption.metricLabel}
                       </div>
                     ) : null}
                   </>

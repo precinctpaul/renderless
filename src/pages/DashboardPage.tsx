@@ -6,9 +6,12 @@ import type { TemplateDefinition } from '../types/scene'
 import {
   ASSET_STORAGE_KEY,
   FONT_STORAGE_KEY,
+  MEDIA_LIBRARY_UPDATED_EVENT,
   buildEntriesFromFiles,
+  invalidateMediaEntriesCache,
   persistMediaEntries,
   readMediaEntries,
+  readMediaEntriesAsync,
   registerFontEntries,
   type MediaLibraryEntry,
 } from '../lib/mediaLibrary'
@@ -157,9 +160,10 @@ function parseFolderDragPayload(raw: string): FolderDragPayload | null {
   if (!raw) {
     return null
   }
+  const normalized = raw.startsWith('renderless-folder:') ? raw.slice('renderless-folder:'.length) : raw
 
   try {
-    const parsed = JSON.parse(raw) as Partial<FolderDragPayload>
+    const parsed = JSON.parse(normalized) as Partial<FolderDragPayload>
     if (!parsed || (parsed.kind !== 'assets' && parsed.kind !== 'fonts') || typeof parsed.folderPath !== 'string') {
       return null
     }
@@ -177,9 +181,10 @@ function parseEntryDragPayload(raw: string): EntryDragPayload | null {
   if (!raw) {
     return null
   }
+  const normalized = raw.startsWith('renderless-entry:') ? raw.slice('renderless-entry:'.length) : raw
 
   try {
-    const parsed = JSON.parse(raw) as Partial<EntryDragPayload>
+    const parsed = JSON.parse(normalized) as Partial<EntryDragPayload>
     if (!parsed || (parsed.kind !== 'assets' && parsed.kind !== 'fonts') || typeof parsed.entryId !== 'string') {
       return null
     }
@@ -329,18 +334,21 @@ export function DashboardPage() {
       setTransientStatus(persisted.error ?? 'Asset persistence failed.')
     }
 
-    const nextFolders = normalizeFolderList(
-      [...folderCatalog.assets, ...normalizedEntries.map((entry) => entry.folder)],
-      ASSET_ROOT,
-    )
-    if (!sameStringArray(nextFolders, folderCatalog.assets)) {
+    setFolderCatalog((previous) => {
+      const nextFolders = normalizeFolderList(
+        [...previous.assets, ...normalizedEntries.map((entry) => entry.folder)],
+        ASSET_ROOT,
+      )
+      if (sameStringArray(nextFolders, previous.assets)) {
+        return previous
+      }
       const nextCatalog = {
-        ...folderCatalog,
+        ...previous,
         assets: nextFolders,
       }
-      setFolderCatalog(nextCatalog)
       persistFolderCatalog(nextCatalog)
-    }
+      return nextCatalog
+    })
   }
 
   const persistFonts = (nextEntries: MediaLibraryEntry[]) => {
@@ -351,43 +359,119 @@ export function DashboardPage() {
       setTransientStatus(persisted.error ?? 'Font persistence failed.')
     }
 
-    const nextFolders = normalizeFolderList(
-      [...folderCatalog.fonts, ...normalizedEntries.map((entry) => entry.folder)],
-      FONT_ROOT,
-    )
-    if (!sameStringArray(nextFolders, folderCatalog.fonts)) {
+    setFolderCatalog((previous) => {
+      const nextFolders = normalizeFolderList(
+        [...previous.fonts, ...normalizedEntries.map((entry) => entry.folder)],
+        FONT_ROOT,
+      )
+      if (sameStringArray(nextFolders, previous.fonts)) {
+        return previous
+      }
       const nextCatalog = {
-        ...folderCatalog,
+        ...previous,
         fonts: nextFolders,
       }
-      setFolderCatalog(nextCatalog)
       persistFolderCatalog(nextCatalog)
-    }
+      return nextCatalog
+    })
   }
 
   useEffect(() => {
     let cancelled = false
 
-    void (async () => {
-      const registration = await registerFontEntries(normalizeEntriesForRoot(readMediaEntries('font'), FONT_ROOT))
+    const reconcileFolders = (kind: ExplorerKind, folders: string[]) => {
+      setFolderCatalog((previous) => {
+        const nextCatalog =
+          kind === 'assets'
+            ? {
+                ...previous,
+                assets: normalizeFolderList([...previous.assets, ...folders], ASSET_ROOT),
+              }
+            : {
+                ...previous,
+                fonts: normalizeFolderList([...previous.fonts, ...folders], FONT_ROOT),
+              }
+
+        if (sameStringArray(nextCatalog.assets, previous.assets) && sameStringArray(nextCatalog.fonts, previous.fonts)) {
+          return previous
+        }
+
+        persistFolderCatalog(nextCatalog)
+        return nextCatalog
+      })
+    }
+
+    const hydrateAssets = async () => {
+      const entries = normalizeEntriesForRoot(await readMediaEntriesAsync('asset'), ASSET_ROOT)
       if (cancelled) {
         return
       }
+      setAssetEntries(entries)
+      reconcileFolders('assets', entries.map((entry) => entry.folder))
+    }
+
+    const hydrateFonts = async () => {
+      const entries = normalizeEntriesForRoot(await readMediaEntriesAsync('font'), FONT_ROOT)
+      const registration = await registerFontEntries(entries)
+      if (cancelled) {
+        return
+      }
+      setFontEntries(registration.entries)
+      reconcileFolders('fonts', registration.entries.map((entry) => entry.folder))
+
       if (registration.changed) {
-        setFontEntries(registration.entries)
         const persisted = persistMediaEntries('font', registration.entries)
         if (!persisted.ok) {
           setStatusMessage(persisted.error ?? 'Font persistence failed.')
           window.setTimeout(() => setStatusMessage(''), 2800)
         }
+      }
+    }
+
+    const hydrate = () => {
+      void hydrateAssets()
+      void hydrateFonts()
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === ASSET_STORAGE_KEY) {
+        invalidateMediaEntriesCache('asset')
+        void hydrateAssets()
         return
       }
 
-      setFontEntries(registration.entries)
-    })()
+      if (event.key === FONT_STORAGE_KEY) {
+        invalidateMediaEntriesCache('font')
+        void hydrateFonts()
+        return
+      }
+
+      if (event.key === DASHBOARD_FOLDER_STORAGE_KEY) {
+        const nextCatalog = readFolderCatalog()
+        setFolderCatalog(nextCatalog)
+      }
+    }
+
+    const onMediaLibraryUpdated = (event: Event) => {
+      const payload = (event as CustomEvent<{ kind?: 'asset' | 'font' }>).detail
+      if (!payload || payload.kind === 'asset') {
+        invalidateMediaEntriesCache('asset')
+        void hydrateAssets()
+      }
+      if (!payload || payload.kind === 'font') {
+        invalidateMediaEntriesCache('font')
+        void hydrateFonts()
+      }
+    }
+
+    hydrate()
+    window.addEventListener('storage', onStorage)
+    window.addEventListener(MEDIA_LIBRARY_UPDATED_EVENT, onMediaLibraryUpdated as EventListener)
 
     return () => {
       cancelled = true
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener(MEDIA_LIBRARY_UPDATED_EVENT, onMediaLibraryUpdated as EventListener)
     }
   }, [])
 
@@ -774,8 +858,12 @@ export function DashboardPage() {
   }
 
   const handleDropOnFolder = (event: ReactDragEvent<HTMLElement>, kind: ExplorerKind, targetFolder: string) => {
-    const entryPayload = parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME))
-    const folderPayload = parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME))
+    const entryPayload =
+      parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME)) ??
+      parseEntryDragPayload(event.dataTransfer.getData('text/plain'))
+    const folderPayload =
+      parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME)) ??
+      parseFolderDragPayload(event.dataTransfer.getData('text/plain'))
 
     if (entryPayload && entryPayload.kind === kind) {
       moveEntryToFolder(kind, entryPayload.entryId, targetFolder)
@@ -866,10 +954,21 @@ export function DashboardPage() {
                                 folderPath: row.path,
                               } satisfies FolderDragPayload),
                             )
+                            event.dataTransfer.setData(
+                              'text/plain',
+                              `renderless-folder:${JSON.stringify({
+                                kind: 'assets',
+                                folderPath: row.path,
+                              } satisfies FolderDragPayload)}`,
+                            )
                           }}
                           onDragOver={(event) => {
-                            const folderPayload = parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME))
-                            const entryPayload = parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME))
+                            const folderPayload =
+                              parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME)) ??
+                              parseFolderDragPayload(event.dataTransfer.getData('text/plain'))
+                            const entryPayload =
+                              parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME)) ??
+                              parseEntryDragPayload(event.dataTransfer.getData('text/plain'))
                             if (folderPayload?.kind !== 'assets' && entryPayload?.kind !== 'assets') {
                               return
                             }
@@ -949,10 +1048,21 @@ export function DashboardPage() {
                                 folderPath: row.path,
                               } satisfies FolderDragPayload),
                             )
+                            event.dataTransfer.setData(
+                              'text/plain',
+                              `renderless-folder:${JSON.stringify({
+                                kind: 'fonts',
+                                folderPath: row.path,
+                              } satisfies FolderDragPayload)}`,
+                            )
                           }}
                           onDragOver={(event) => {
-                            const folderPayload = parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME))
-                            const entryPayload = parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME))
+                            const folderPayload =
+                              parseFolderDragPayload(event.dataTransfer.getData(FOLDER_DRAG_MIME)) ??
+                              parseFolderDragPayload(event.dataTransfer.getData('text/plain'))
+                            const entryPayload =
+                              parseEntryDragPayload(event.dataTransfer.getData(ENTRY_DRAG_MIME)) ??
+                              parseEntryDragPayload(event.dataTransfer.getData('text/plain'))
                             if (folderPayload?.kind !== 'fonts' && entryPayload?.kind !== 'fonts') {
                               return
                             }
@@ -1185,6 +1295,13 @@ export function DashboardPage() {
                           kind: activeExplorerKind,
                           entryId: entry.id,
                         } satisfies EntryDragPayload),
+                      )
+                      event.dataTransfer.setData(
+                        'text/plain',
+                        `renderless-entry:${JSON.stringify({
+                          kind: activeExplorerKind,
+                          entryId: entry.id,
+                        } satisfies EntryDragPayload)}`,
                       )
                     }}
                     onDragEnd={() => {
