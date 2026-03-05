@@ -3,89 +3,22 @@ import { FileText, Folder, FolderOpen, Puzzle, Trash2, Upload } from 'lucide-rea
 import { useNavigate } from 'react-router-dom'
 import { usePlayoutStore } from '../store/playoutStore'
 import type { TemplateDefinition } from '../types/scene'
+import {
+  ASSET_STORAGE_KEY,
+  FONT_STORAGE_KEY,
+  buildEntriesFromFiles,
+  persistMediaEntries,
+  readMediaEntries,
+  registerFontEntries,
+  type MediaLibraryEntry,
+} from '../lib/mediaLibrary'
 
 const MODES = ['Branded Assets', 'Fonts', 'Templates'] as const
 const ASSET_FOLDERS = ['Branded Assets', 'BGs', 'Template Designs'] as const
 const FONT_FOLDERS = ['Fonts', 'Imported'] as const
 
-const DASHBOARD_ASSET_STORAGE_KEY = 'renderless.dashboard.assets.v1'
-const DASHBOARD_FONT_STORAGE_KEY = 'renderless.dashboard.fonts.v1'
-
 type DashboardMode = (typeof MODES)[number]
 type TemplateFolderFilter = 'all' | 'builtIn' | 'custom'
-type ExplorerTarget = 'assets' | 'fonts'
-
-interface ExplorerEntry {
-  id: string
-  name: string
-  folder: string
-  size: number
-  mime: string
-  modifiedAt: number
-}
-
-function createEntryId(prefix: ExplorerTarget): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function readExplorerEntries(storageKey: string): ExplorerEntry[] {
-  if (typeof window === 'undefined') {
-    return []
-  }
-
-  try {
-    const raw = window.localStorage.getItem(storageKey)
-    if (!raw) {
-      return []
-    }
-
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-
-    return parsed
-      .map((entry) => {
-        if (!entry || typeof entry !== 'object') {
-          return null
-        }
-
-        const record = entry as Record<string, unknown>
-        const id = typeof record.id === 'string' ? record.id : null
-        const name = typeof record.name === 'string' ? record.name : null
-        const folder = typeof record.folder === 'string' ? record.folder : null
-        const size = Number(record.size)
-        const modifiedAt = Number(record.modifiedAt)
-        if (!id || !name || !folder || !Number.isFinite(size) || !Number.isFinite(modifiedAt)) {
-          return null
-        }
-
-        return {
-          id,
-          name,
-          folder,
-          size: Math.max(0, Math.round(size)),
-          mime: typeof record.mime === 'string' ? record.mime : 'application/octet-stream',
-          modifiedAt: Math.max(0, Math.round(modifiedAt)),
-        } satisfies ExplorerEntry
-      })
-      .filter((entry): entry is ExplorerEntry => entry !== null)
-  } catch {
-    return []
-  }
-}
-
-function persistExplorerEntries(storageKey: string, entries: ExplorerEntry[]) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  try {
-    window.localStorage.setItem(storageKey, JSON.stringify(entries))
-  } catch {
-    // Ignore persistence failures and keep dashboard interaction in-memory.
-  }
-}
 
 function formatTemplateDate(updatedAt?: number): string {
   if (!updatedAt || !Number.isFinite(updatedAt)) {
@@ -118,19 +51,33 @@ function formatBytes(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function buildExplorerEntry(file: File, folder: string, target: ExplorerTarget): ExplorerEntry {
-  return {
-    id: createEntryId(target),
-    name: file.name,
-    folder,
-    size: file.size,
-    mime: file.type || 'application/octet-stream',
-    modifiedAt: Date.now(),
+function formatUploadResult({
+  kind,
+  imported,
+  rejected,
+  failedFonts,
+}: {
+  kind: 'assets' | 'fonts'
+  imported: number
+  rejected: number
+  failedFonts?: number
+}): string {
+  if (imported === 0 && rejected === 0 && (failedFonts ?? 0) === 0) {
+    return `No ${kind} selected.`
   }
-}
 
-function isFontFile(fileName: string): boolean {
-  return /\.(ttf|otf|woff|woff2)$/i.test(fileName)
+  const parts: string[] = []
+  if (imported > 0) {
+    parts.push(`uploaded ${imported}`)
+  }
+  if (rejected > 0) {
+    parts.push(`rejected ${rejected}`)
+  }
+  if ((failedFonts ?? 0) > 0) {
+    parts.push(`font load failed ${failedFonts ?? 0}`)
+  }
+
+  return `${kind === 'fonts' ? 'Font' : 'Asset'} ingest: ${parts.join(', ')}.`
 }
 
 export function DashboardPage() {
@@ -153,19 +100,58 @@ export function DashboardPage() {
   const [showDevTools, setShowDevTools] = useState(false)
   const [query, setQuery] = useState('')
   const [statusMessage, setStatusMessage] = useState('')
-  const [isImporting, setIsImporting] = useState(false)
-  const [assetEntries, setAssetEntries] = useState<ExplorerEntry[]>(() => readExplorerEntries(DASHBOARD_ASSET_STORAGE_KEY))
-  const [fontEntries, setFontEntries] = useState<ExplorerEntry[]>(() => readExplorerEntries(DASHBOARD_FONT_STORAGE_KEY))
+  const [isBusy, setIsBusy] = useState(false)
+  const [assetEntries, setAssetEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('asset'))
+  const [fontEntries, setFontEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('font'))
   const [selectedEntryId, setSelectedEntryId] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
-  useEffect(() => {
-    persistExplorerEntries(DASHBOARD_ASSET_STORAGE_KEY, assetEntries)
-  }, [assetEntries])
+  const setTransientStatus = (message: string, timeoutMs = 2800) => {
+    setStatusMessage(message)
+    window.setTimeout(() => setStatusMessage(''), timeoutMs)
+  }
+
+  const persistAssets = (nextEntries: MediaLibraryEntry[]) => {
+    setAssetEntries(nextEntries)
+    const persisted = persistMediaEntries('asset', nextEntries)
+    if (!persisted.ok) {
+      setTransientStatus(persisted.error ?? 'Asset persistence failed.')
+    }
+  }
+
+  const persistFonts = (nextEntries: MediaLibraryEntry[]) => {
+    setFontEntries(nextEntries)
+    const persisted = persistMediaEntries('font', nextEntries)
+    if (!persisted.ok) {
+      setTransientStatus(persisted.error ?? 'Font persistence failed.')
+    }
+  }
 
   useEffect(() => {
-    persistExplorerEntries(DASHBOARD_FONT_STORAGE_KEY, fontEntries)
-  }, [fontEntries])
+    let cancelled = false
+
+    void (async () => {
+      const registration = await registerFontEntries(readMediaEntries('font'))
+      if (cancelled) {
+        return
+      }
+      if (registration.changed) {
+        setFontEntries(registration.entries)
+        const persisted = persistMediaEntries('font', registration.entries)
+        if (!persisted.ok) {
+          setStatusMessage(persisted.error ?? 'Font persistence failed.')
+          window.setTimeout(() => setStatusMessage(''), 2800)
+        }
+        return
+      }
+
+      setFontEntries(registration.entries)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const activeFolder = activeMode === 'Branded Assets' ? selectedAssetFolder : activeMode === 'Fonts' ? selectedFontFolder : ''
   const activeExplorerEntries = useMemo(() => {
@@ -178,11 +164,6 @@ export function DashboardPage() {
 
     return []
   }, [activeMode, assetEntries, fontEntries])
-
-  const setTransientStatus = (message: string, timeoutMs = 2800) => {
-    setStatusMessage(message)
-    window.setTimeout(() => setStatusMessage(''), timeoutMs)
-  }
 
   const filteredTemplates = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
@@ -223,7 +204,7 @@ export function DashboardPage() {
       return
     }
 
-    setIsImporting(true)
+    setIsBusy(true)
     let importedCount = 0
     let failedCount = 0
     let migratedCount = 0
@@ -275,10 +256,10 @@ export function DashboardPage() {
       )
     }
 
-    setIsImporting(false)
+    setIsBusy(false)
   }
 
-  const handleUploadExplorerFiles = (files: FileList | null) => {
+  const handleUploadExplorerFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) {
       return
     }
@@ -287,22 +268,39 @@ export function DashboardPage() {
       return
     }
 
-    if (activeMode === 'Fonts') {
-      const validEntries = Array.from(files).filter((file) => isFontFile(file.name))
-      if (validEntries.length === 0) {
-        setTransientStatus('Font upload failed. Accepted extensions: .ttf, .otf, .woff, .woff2')
-        return
-      }
+    setIsBusy(true)
+    const filesArray = Array.from(files)
 
-      const nextEntries = validEntries.map((file) => buildExplorerEntry(file, selectedFontFolder, 'fonts'))
-      setFontEntries((previous) => [...nextEntries, ...previous])
-      setTransientStatus(`Uploaded ${nextEntries.length} font file(s) to ${selectedFontFolder}.`)
+    if (activeMode === 'Fonts') {
+      const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'font', selectedFontFolder)
+      const registration = await registerFontEntries(entries)
+
+      const nextEntries = [...registration.entries, ...fontEntries]
+      persistFonts(nextEntries)
+
+      const message = formatUploadResult({
+        kind: 'fonts',
+        imported: registration.entries.length - registration.failed,
+        rejected: rejectedFiles.length,
+        failedFonts: registration.failed,
+      })
+      const detail = registration.errors.length > 0 ? ` ${registration.errors[0]}` : ''
+      setTransientStatus(`${message}${detail}`)
+      setIsBusy(false)
       return
     }
 
-    const nextEntries = Array.from(files).map((file) => buildExplorerEntry(file, selectedAssetFolder, 'assets'))
-    setAssetEntries((previous) => [...nextEntries, ...previous])
-    setTransientStatus(`Uploaded ${nextEntries.length} asset file(s) to ${selectedAssetFolder}.`)
+    const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'asset', selectedAssetFolder)
+    const nextEntries = [...entries, ...assetEntries]
+    persistAssets(nextEntries)
+    setTransientStatus(
+      formatUploadResult({
+        kind: 'assets',
+        imported: entries.length,
+        rejected: rejectedFiles.length,
+      }),
+    )
+    setIsBusy(false)
   }
 
   const handleFileInput = async (files: FileList | null) => {
@@ -311,7 +309,7 @@ export function DashboardPage() {
       return
     }
 
-    handleUploadExplorerFiles(files)
+    await handleUploadExplorerFiles(files)
   }
 
   const handleLoadTemplate = (templateId: string) => {
@@ -355,9 +353,9 @@ export function DashboardPage() {
     }
 
     if (activeMode === 'Fonts') {
-      setFontEntries((previous) => previous.filter((item) => item.id !== entryId))
+      persistFonts(fontEntries.filter((item) => item.id !== entryId))
     } else {
-      setAssetEntries((previous) => previous.filter((item) => item.id !== entryId))
+      persistAssets(assetEntries.filter((item) => item.id !== entryId))
     }
 
     if (selectedEntryId === entryId) {
@@ -374,8 +372,8 @@ export function DashboardPage() {
           playout: window.localStorage.getItem('renderless.playout.snapshot.v1'),
           templates: window.localStorage.getItem('renderless.templates.v1'),
           transport: window.localStorage.getItem('renderless.playout.transport.v1'),
-          dashboardAssets: window.localStorage.getItem(DASHBOARD_ASSET_STORAGE_KEY),
-          dashboardFonts: window.localStorage.getItem(DASHBOARD_FONT_STORAGE_KEY),
+          dashboardAssets: window.localStorage.getItem(ASSET_STORAGE_KEY),
+          dashboardFonts: window.localStorage.getItem(FONT_STORAGE_KEY),
         },
         null,
         2,
@@ -388,8 +386,8 @@ export function DashboardPage() {
   }
 
   const handleResetDashboardStorage = () => {
-    setAssetEntries([])
-    setFontEntries([])
+    persistAssets([])
+    persistFonts([])
     setSelectedEntryId('')
     setTransientStatus('Dashboard uploaded assets/fonts reset.')
   }
@@ -521,11 +519,11 @@ export function DashboardPage() {
             <button
               type="button"
               className="btn btn--ghost"
-              disabled={isImporting}
+              disabled={isBusy}
               onClick={() => fileInputRef.current?.click()}
             >
               <Upload size={14} />
-              {isImporting ? 'Working...' : uploadLabel}
+              {isBusy ? 'Working...' : uploadLabel}
             </button>
             <input
               ref={fileInputRef}
@@ -617,6 +615,7 @@ export function DashboardPage() {
                 <tr>
                   <th>Name</th>
                   <th>Type</th>
+                  <th>Status</th>
                   <th>Size</th>
                   <th>Modified</th>
                   <th>Actions</th>
@@ -633,7 +632,8 @@ export function DashboardPage() {
                       <FileText size={14} />
                       <span>{entry.name}</span>
                     </td>
-                    <td>{entry.mime || 'file'}</td>
+                    <td>{entry.kind === 'font' ? entry.fontFamily ?? 'Font' : entry.mime || 'file'}</td>
+                    <td className="mono">{entry.dataUrl ? 'READY' : 'METADATA ONLY'}</td>
                     <td className="mono">{formatBytes(entry.size)}</td>
                     <td>{formatDate(entry.modifiedAt)}</td>
                     <td>
@@ -655,7 +655,7 @@ export function DashboardPage() {
                 ))}
                 {filteredExplorerEntries.length === 0 ? (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <div className="inspector-empty">No files in this folder yet. Use {uploadLabel} to add files.</div>
                     </td>
                   </tr>

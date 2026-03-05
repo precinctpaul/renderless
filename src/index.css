@@ -756,6 +756,22 @@ select:focus {
   padding-right: 2px;
 }
 
+.asset-row {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.asset-row__meta {
+  font-size: 10px;
+  color: var(--zinc-300);
+}
+
+.asset-upload-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
 .stage-ruler {
   position: absolute;
   z-index: 5;

@@ -17,6 +17,15 @@ import { usePlayoutStore } from '../store/playoutStore'
 import { BINDABLE_FIELDS } from '../data/storySchema'
 import { resolveBindingValue } from '../lib/bindings'
 import type { TemplatePackage } from '../lib/templatePackages'
+import {
+  ASSET_STORAGE_KEY,
+  FONT_STORAGE_KEY,
+  buildEntriesFromFiles,
+  persistMediaEntries,
+  readMediaEntries,
+  registerFontEntries,
+  type MediaLibraryEntry,
+} from '../lib/mediaLibrary'
 
 type CreationItem = 'TEXT' | 'SHAPE' | 'FIGMA' | 'RIVE'
 const CREATION_ITEMS: CreationItem[] = ['TEXT', 'SHAPE', 'FIGMA', 'RIVE']
@@ -35,6 +44,11 @@ const asPercent = (opacity: number) => Math.round(opacity * 100)
 const fromPercent = (percent: number) => Math.min(Math.max(percent, 0), 100) / 100
 const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'template-package'
 const GRID_SNAP_STEP = 10
+const DEFAULT_FONT_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: 'Inter', value: 'Inter, sans-serif' },
+  { label: 'Roboto', value: 'Roboto, sans-serif' },
+  { label: 'JetBrains Mono', value: 'JetBrains Mono, monospace' },
+]
 
 function downloadTemplatePackageFile(templatePackage: TemplatePackage) {
   const fileName = `${slugify(templatePackage.metadata.label)}.rltpl.json`
@@ -109,12 +123,18 @@ export function DesignPage() {
   const [showRulers, setShowRulers] = useState(false)
   const [showGuides, setShowGuides] = useState(false)
   const [snapToGrid, setSnapToGrid] = useState(true)
-  const [uploadedAssets, setUploadedAssets] = useState<string[]>([])
+  const [assetEntries, setAssetEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('asset'))
+  const [fontEntries, setFontEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('font'))
   const [renamingLayerId, setRenamingLayerId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const [isInspectorRenaming, setIsInspectorRenaming] = useState(false)
   const [inspectorRenameDraft, setInspectorRenameDraft] = useState('')
   const assetInputRef = useRef<HTMLInputElement | null>(null)
+  const fontInputRef = useRef<HTMLInputElement | null>(null)
+  const setTransientStatus = (message: string, timeoutMs = 1800) => {
+    setSaveStatus(message)
+    window.setTimeout(() => setSaveStatus(''), timeoutMs)
+  }
 
   const orderedLayers = useMemo(() => [...scene.layers].reverse(), [scene.layers])
   const orderedLayerIds = useMemo(() => orderedLayers.map((layer) => layer.id), [orderedLayers])
@@ -129,6 +149,97 @@ export function DesignPage() {
   const primarySelectedLayer = selectedLayers[0] ?? null
   const activeTemplate = templates.find((template) => template.id === previewTemplateId) ?? null
   const versionHistory = activeTemplate?.versions ?? []
+  const availableFontOptions = useMemo(() => {
+    const options = new Map<string, string>()
+
+    DEFAULT_FONT_OPTIONS.forEach((option) => {
+      options.set(option.value, option.label)
+    })
+
+    fontEntries
+      .filter((entry) => entry.kind === 'font' && entry.dataUrl)
+      .forEach((entry) => {
+        const family = entry.fontFamily?.trim()
+        if (!family) {
+          return
+        }
+
+        if (!options.has(family)) {
+          options.set(family, family)
+        }
+      })
+
+    return Array.from(options.entries()).map(([value, label]) => ({ value, label }))
+  }, [fontEntries])
+  const inspectorFontOptions = useMemo(() => {
+    if (!primarySelectedLayer || primarySelectedLayer.kind !== 'text') {
+      return availableFontOptions
+    }
+
+    if (availableFontOptions.some((option) => option.value === primarySelectedLayer.fontFamily)) {
+      return availableFontOptions
+    }
+
+    return [{ value: primarySelectedLayer.fontFamily, label: primarySelectedLayer.fontFamily }, ...availableFontOptions]
+  }, [availableFontOptions, primarySelectedLayer])
+
+  const persistAssets = (nextEntries: MediaLibraryEntry[]) => {
+    setAssetEntries(nextEntries)
+    const persisted = persistMediaEntries('asset', nextEntries)
+    if (!persisted.ok) {
+      setTransientStatus(persisted.error ?? 'Asset persistence failed.')
+    }
+  }
+
+  const persistFonts = (nextEntries: MediaLibraryEntry[]) => {
+    setFontEntries(nextEntries)
+    const persisted = persistMediaEntries('font', nextEntries)
+    if (!persisted.ok) {
+      setTransientStatus(persisted.error ?? 'Font persistence failed.')
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    const hydrateFonts = async () => {
+      const registration = await registerFontEntries(readMediaEntries('font'))
+      if (cancelled) {
+        return
+      }
+
+      if (registration.changed) {
+        setFontEntries(registration.entries)
+        const persisted = persistMediaEntries('font', registration.entries)
+        if (!persisted.ok) {
+          setSaveStatus(persisted.error ?? 'Font persistence failed.')
+          window.setTimeout(() => setSaveStatus(''), 1800)
+        }
+        return
+      }
+
+      setFontEntries(registration.entries)
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === ASSET_STORAGE_KEY) {
+        setAssetEntries(readMediaEntries('asset'))
+        return
+      }
+
+      if (event.key === FONT_STORAGE_KEY) {
+        void hydrateFonts()
+      }
+    }
+
+    void hydrateFonts()
+    window.addEventListener('storage', onStorage)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -214,10 +325,6 @@ export function DesignPage() {
     else updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: numberValue })
   }
 
-  const setTransientStatus = (message: string, timeoutMs = 1800) => {
-    setSaveStatus(message)
-    window.setTimeout(() => setSaveStatus(''), timeoutMs)
-  }
   const handleCreateLayer = (item: CreationItem) => {
     if (item === 'TEXT' || item === 'SHAPE') {
       const layerId = createPreviewLayer(item === 'TEXT' ? 'text' : 'shape')
@@ -315,6 +422,63 @@ export function DesignPage() {
     setIsInspectorRenaming(false)
   }
 
+  const handleAssetUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) {
+      return
+    }
+
+    const { entries, rejectedFiles } = await buildEntriesFromFiles(Array.from(files), 'asset', 'Stage Pro')
+    if (entries.length > 0) {
+      persistAssets([...entries, ...assetEntries])
+      setSidebarTab('assets')
+    }
+
+    if (entries.length > 0 && rejectedFiles.length === 0) {
+      setTransientStatus(`Imported ${entries.length} asset file(s).`, 2200)
+      return
+    }
+
+    if (entries.length > 0) {
+      setTransientStatus(`Imported ${entries.length} asset file(s), rejected ${rejectedFiles.length}.`, 2200)
+      return
+    }
+
+    setTransientStatus('Asset import failed.')
+  }
+
+  const handleFontUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) {
+      return
+    }
+
+    const { entries, rejectedFiles } = await buildEntriesFromFiles(Array.from(files), 'font', 'Stage Pro')
+    const registration = await registerFontEntries(entries)
+
+    if (registration.entries.length > 0) {
+      persistFonts([...registration.entries, ...fontEntries])
+      setSidebarTab('assets')
+    }
+
+    const loadedCount = registration.entries.length - registration.failed
+    if (loadedCount > 0) {
+      setTransientStatus(
+        `Imported ${loadedCount} font file(s)${rejectedFiles.length > 0 ? `, rejected ${rejectedFiles.length}` : ''}${registration.failed > 0 ? `, failed ${registration.failed}` : ''}.`,
+        2400,
+      )
+      return
+    }
+
+    if (rejectedFiles.length > 0 || registration.failed > 0) {
+      setTransientStatus(
+        `Font import failed${rejectedFiles.length > 0 ? `, rejected ${rejectedFiles.length}` : ''}${registration.failed > 0 ? `, failed ${registration.failed}` : ''}.`,
+        2400,
+      )
+      return
+    }
+
+    setTransientStatus('No fonts imported.')
+  }
+
   const bindingPreviewValue =
     primarySelectedLayer && primarySelectedLayer.kind === 'text' && primarySelectedLayer.binding
       ? resolveBindingValue(primarySelectedLayer.binding, story)
@@ -375,10 +539,56 @@ export function DesignPage() {
               })}
             </div>
           ) : (
-            <div className="asset-list">{uploadedAssets.length === 0 ? <div className="inspector-empty">No assets uploaded yet.</div> : uploadedAssets.map((name) => <div key={name} className="tree-row">{name}</div>)}</div>
+            <div className="asset-list">
+              {assetEntries.length === 0 && fontEntries.length === 0 ? (
+                <div className="inspector-empty">No assets or fonts uploaded yet.</div>
+              ) : null}
+              {assetEntries.map((entry) => (
+                <div key={entry.id} className="tree-row asset-row">
+                  <span>{entry.name}</span>
+                  <span className="mono asset-row__meta">{entry.dataUrl ? 'ASSET' : 'MISSING DATA'}</span>
+                </div>
+              ))}
+              {fontEntries.map((entry) => (
+                <div key={entry.id} className="tree-row asset-row">
+                  <span>{entry.fontFamily ?? entry.name}</span>
+                  <span className="mono asset-row__meta">{entry.dataUrl ? 'FONT READY' : 'FONT MISSING DATA'}</span>
+                </div>
+              ))}
+            </div>
           )}
-          <button type="button" className="btn btn--ghost btn--small" onClick={() => assetInputRef.current?.click()}><Upload size={14} />Upload Asset</button>
-          <input ref={assetInputRef} type="file" style={{ display: 'none' }} multiple onChange={(event) => { const names = Array.from(event.target.files ?? []).map((file) => file.name); if (names.length > 0) { setUploadedAssets((previous) => [...previous, ...names]); setSidebarTab('assets'); setTransientStatus(`Imported ${names.length} asset file(s).`, 2200) } event.target.value = '' }} />
+          <div className="asset-upload-group">
+            <button type="button" className="btn btn--ghost btn--small" onClick={() => assetInputRef.current?.click()}>
+              <Upload size={14} />
+              Upload Asset
+            </button>
+            <button type="button" className="btn btn--ghost btn--small" onClick={() => fontInputRef.current?.click()}>
+              <Upload size={14} />
+              Upload Font
+            </button>
+          </div>
+          <input
+            ref={assetInputRef}
+            type="file"
+            accept="image/*,video/*,audio/*,.svg,.png,.jpg,.jpeg,.webp"
+            style={{ display: 'none' }}
+            multiple
+            onChange={(event) => {
+              void handleAssetUpload(event.target.files)
+              event.target.value = ''
+            }}
+          />
+          <input
+            ref={fontInputRef}
+            type="file"
+            accept=".ttf,.otf,.woff,.woff2"
+            style={{ display: 'none' }}
+            multiple
+            onChange={(event) => {
+              void handleFontUpload(event.target.files)
+              event.target.value = ''
+            }}
+          />
         </aside>
 
         <section className="panel stage-center">
@@ -529,6 +739,20 @@ export function DesignPage() {
                     <label>Binding<select className="mono" value={primarySelectedLayer.binding ?? ''} onChange={(event) => updatePreviewTextBinding(primarySelectedLayer.id, event.target.value ? (event.target.value as DataBindingKey) : null)}><option value="">None</option>{BINDABLE_FIELDS.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}</select></label>
                     {primarySelectedLayer.binding ? <div className="binding-preview mono">TOKEN: {primarySelectedLayer.binding} = {bindingPreviewValue || 'n/a'}</div> : null}
                     <label>Text<input value={primarySelectedLayer.text} onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { text: event.target.value })} /></label>
+                    <label>
+                      Font Family
+                      <select
+                        className="mono"
+                        value={primarySelectedLayer.fontFamily}
+                        onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { fontFamily: event.target.value })}
+                      >
+                        {inspectorFontOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <label>Color<input className="mono" value={primarySelectedLayer.color} onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { color: event.target.value })} /></label>
                     <label>Font Size<input className="mono" type="number" min={8} value={primarySelectedLayer.fontSize} onChange={(event) => { const numberValue = toNumberOrNull(event.target.value); if (numberValue !== null) updatePreviewTextStyle(primarySelectedLayer.id, { fontSize: numberValue }) }} /></label>
                     <label>Opacity<input className="mono" type="number" min={0} max={100} value={asPercent(primarySelectedLayer.opacity)} onChange={(event) => { const numberValue = toNumberOrNull(event.target.value); if (numberValue !== null) updatePreviewTextStyle(primarySelectedLayer.id, { opacity: fromPercent(numberValue) }) }} /></label>

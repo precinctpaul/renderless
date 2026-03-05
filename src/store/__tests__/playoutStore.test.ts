@@ -252,6 +252,20 @@ describe('Playout reliability and QA regression suite', () => {
     expect(story.headline).toBe('Fast break points')
   })
 
+  test('text style updates can switch font family for immediate font ingest usage', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().updatePreviewTextStyle('text-home-score', {
+      fontFamily: 'Anton Custom, sans-serif',
+    })
+
+    const layer = usePlayoutStore
+      .getState()
+      .previewScene.layers.find((entry) => entry.id === 'text-home-score' && entry.kind === 'text')
+    expect(layer && layer.kind === 'text' ? layer.fontFamily : '').toBe('Anton Custom, sans-serif')
+  })
+
   test('custom templates are persisted in template package contract v2 with integrity metadata', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 

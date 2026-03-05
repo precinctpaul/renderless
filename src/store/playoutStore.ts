@@ -32,7 +32,7 @@ type SceneTransformPatch = Partial<
 >
 type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'shape' }>, 'fill' | 'opacity'>>
 type TextStylePatch = Partial<
-  Pick<Extract<SceneDefinition['layers'][number], { kind: 'text' }>, 'text' | 'fontSize' | 'color' | 'opacity'>
+  Pick<Extract<SceneDefinition['layers'][number], { kind: 'text' }>, 'text' | 'fontSize' | 'color' | 'opacity' | 'fontFamily'>
 >
 type LayerAlignMode = 'left' | 'hCenter' | 'right' | 'top' | 'vMiddle' | 'bottom'
 type LayerDistributeAxis = 'horizontal' | 'vertical'
@@ -1125,6 +1125,9 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
             ...layer,
             text: typeof patch.text === 'string' ? patch.text : layer.text,
             color: typeof patch.color === 'string' && patch.color.length > 0 ? patch.color : layer.color,
+            fontFamily: typeof patch.fontFamily === 'string' && patch.fontFamily.trim().length > 0
+              ? patch.fontFamily
+              : layer.fontFamily,
             fontSize: nextFontSize,
             opacity: nextOpacity,
           }
