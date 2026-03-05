@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Copy, Keyboard, Star } from 'lucide-react'
+import { Copy, Keyboard, Pause, Play, Square, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { buildOutputUrl } from '../lib/outputUrls'
 import { STORY_FIELD_DEFS } from '../data/storySchema'
@@ -54,6 +54,15 @@ export function ControlRoomPage() {
   const transportWsUrl = usePlayoutStore((state) => state.transportWsUrl)
   const transportStatus = usePlayoutStore((state) => state.transportStatus)
   const transportError = usePlayoutStore((state) => state.transportError)
+  const bindingFields = usePlayoutStore((state) => state.bindingFields)
+  const simulationLeague = usePlayoutStore((state) => state.simulationLeague)
+  const simulationSpeed = usePlayoutStore((state) => state.simulationSpeed)
+  const simulationSeed = usePlayoutStore((state) => state.simulationSeed)
+  const simulationStatus = usePlayoutStore((state) => state.simulationStatus)
+  const simulationCursor = usePlayoutStore((state) => state.simulationCursor)
+  const simulationTotalEvents = usePlayoutStore((state) => state.simulationTotalEvents)
+  const simulationSnapshot = usePlayoutStore((state) => state.simulationSnapshot)
+  const simulationRecentEvents = usePlayoutStore((state) => state.simulationRecentEvents)
 
   const cuePreview = usePlayoutStore((state) => state.cuePreview)
   const take = usePlayoutStore((state) => state.take)
@@ -67,13 +76,32 @@ export function ControlRoomPage() {
   const resetClock = usePlayoutStore((state) => state.resetClock)
   const togglePossession = usePlayoutStore((state) => state.togglePossession)
   const nudgeClock = usePlayoutStore((state) => state.nudgeClock)
+  const setSimulationLeague = usePlayoutStore((state) => state.setSimulationLeague)
+  const setSimulationSpeed = usePlayoutStore((state) => state.setSimulationSpeed)
+  const setSimulationSeed = usePlayoutStore((state) => state.setSimulationSeed)
+  const startSimulation = usePlayoutStore((state) => state.startSimulation)
+  const pauseSimulation = usePlayoutStore((state) => state.pauseSimulation)
+  const resumeSimulation = usePlayoutStore((state) => state.resumeSimulation)
+  const stopSimulation = usePlayoutStore((state) => state.stopSimulation)
 
   const [copyLabel, setCopyLabel] = useState<string>('')
+  const [simulationSeedInput, setSimulationSeedInput] = useState<string>(() => String(simulationSeed))
+
+  useEffect(() => {
+    setSimulationSeedInput(String(simulationSeed))
+  }, [simulationSeed])
 
   const typedOverrideFields = useMemo(
     () => STORY_FIELD_DEFS.filter((field) => !field.quickControl),
     [],
   )
+  const bindingHierarchyPreview = useMemo(() => {
+    return bindingFields
+      .filter((field) =>
+        ['Game', 'Teams', 'Players', 'Analytics', 'Graphics', 'Stories', 'RecentEvents', 'Context'].includes(field.group ?? ''),
+      )
+      .slice(0, 12)
+  }, [bindingFields])
   const quickLaunchTemplates = useMemo(() => {
     const favorites = templates.filter((template) => template.favorite)
     return (favorites.length > 0 ? favorites : templates).slice(0, 6)
@@ -107,6 +135,10 @@ export function ControlRoomPage() {
     setCopyLabel(copied ? `${follow.toUpperCase()} URL copied` : 'Clipboard unavailable')
     window.setTimeout(() => setCopyLabel(''), 1800)
   }
+  const simulationProgressLabel =
+    simulationTotalEvents > 0 ? `${simulationCursor}/${simulationTotalEvents}` : '0/0'
+  const simulationCanStart = simulationStatus === 'idle' || simulationStatus === 'complete'
+  const simulationStatusLabel = simulationStatus.toUpperCase()
 
   return (
     <section className="screen screen--control-room">
@@ -420,6 +452,148 @@ export function ControlRoomPage() {
             <div className="transport-status mono">
               STATUS: {transportStatus.toUpperCase()}
               {transportError ? ` | ${transportError}` : ''}
+            </div>
+          </div>
+
+          <div className="inspector-section simulation-panel">
+            <div className="inspector-section__label">Sim Feed</div>
+            <div className="transport-status mono">
+              {simulationLeague} | {simulationStatusLabel} | EVENTS {simulationProgressLabel}
+            </div>
+
+            <div className="story-actions">
+              <button
+                type="button"
+                className={`btn btn--small ${simulationCanStart ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                onClick={startSimulation}
+                disabled={!simulationCanStart}
+              >
+                <Play size={13} />
+                Start
+              </button>
+              <button
+                type="button"
+                className="btn btn--small btn--ghost"
+                onClick={pauseSimulation}
+                disabled={simulationStatus !== 'running'}
+              >
+                <Pause size={13} />
+                Pause
+              </button>
+              <button
+                type="button"
+                className="btn btn--small btn--ghost"
+                onClick={resumeSimulation}
+                disabled={simulationStatus !== 'paused'}
+              >
+                <Play size={13} />
+                Resume
+              </button>
+              <button
+                type="button"
+                className="btn btn--small btn--ghost"
+                onClick={stopSimulation}
+                disabled={simulationStatus === 'idle'}
+              >
+                <Square size={13} />
+                Stop
+              </button>
+            </div>
+
+            <label className="field-label mono">
+              League
+              <select
+                className="mono"
+                value={simulationLeague}
+                onChange={(event) => setSimulationLeague(event.target.value as typeof simulationLeague)}
+                disabled={simulationStatus === 'running'}
+              >
+                <option value="MLB">MLB</option>
+                <option value="NBA">NBA</option>
+                <option value="NFL">NFL</option>
+                <option value="NHL">NHL</option>
+                <option value="MLS">MLS</option>
+              </select>
+            </label>
+
+            <label className="field-label mono">
+              Speed
+              <select
+                className="mono"
+                value={simulationSpeed}
+                onChange={(event) => setSimulationSpeed(event.target.value as typeof simulationSpeed)}
+              >
+                <option value="SLOW">SLOW</option>
+                <option value="NORMAL">NORMAL</option>
+                <option value="FAST">FAST</option>
+              </select>
+            </label>
+
+            <label className="field-label mono">
+              Seed
+              <input
+                className="mono"
+                value={simulationSeedInput}
+                onChange={(event) => setSimulationSeedInput(event.target.value)}
+                onBlur={() => {
+                  const numericSeed = Number(simulationSeedInput)
+                  if (Number.isFinite(numericSeed) && numericSeed > 0) {
+                    setSimulationSeed(Math.floor(numericSeed))
+                    return
+                  }
+                  setSimulationSeedInput(String(simulationSeed))
+                }}
+                disabled={simulationStatus === 'running'}
+              />
+            </label>
+
+            <div className="binding-preview mono">
+              Bindings Ready: {bindingFields.length} tokens
+            </div>
+
+            <div className="override-grid">
+              <div className="binding-preview mono">
+                {simulationSnapshot
+                  ? `${simulationSnapshot.teams.home.abbr} ${simulationSnapshot.game.score.home} - ${simulationSnapshot.teams.away.abbr} ${simulationSnapshot.game.score.away}`
+                  : 'No active simulation snapshot'}
+              </div>
+              <div className="binding-preview mono">
+                {simulationSnapshot
+                  ? `Momentum ${simulationSnapshot.graphics.momentum.home}/${simulationSnapshot.graphics.momentum.away} | Pressure ${simulationSnapshot.graphics.pressure.index}`
+                  : 'Momentum unavailable'}
+              </div>
+              <div className="binding-preview mono">
+                {simulationSnapshot
+                  ? `Story: ${simulationSnapshot.story.headline}`
+                  : 'Story engine idle'}
+              </div>
+              <div className="binding-preview mono">
+                {simulationSnapshot
+                  ? `Hottest: ${simulationSnapshot.graphics.hottestPlayer.name} (${simulationSnapshot.graphics.hottestPlayer.metric})`
+                  : 'Hottest player unavailable'}
+              </div>
+            </div>
+
+            <div className="inspector-section__label">Recent Events</div>
+            <div className="override-grid">
+              {simulationRecentEvents.length === 0 ? (
+                <div className="binding-preview mono">No events yet.</div>
+              ) : (
+                simulationRecentEvents.slice(0, 4).map((event) => (
+                  <div key={`${event.sequence}-${event.simTimeMs}`} className="binding-preview mono">
+                    {event.clock} | {event.summary}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="inspector-section__label">Binding Hierarchy Preview</div>
+            <div className="override-grid">
+              {bindingHierarchyPreview.map((field) => (
+                <div key={field.key} className="binding-preview mono">
+                  {field.key}
+                </div>
+              ))}
             </div>
           </div>
         </aside>

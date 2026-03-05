@@ -1,15 +1,26 @@
 import type { DataBindingKey, SceneDefinition, StoryState } from '../types/scene'
-import { BINDING_KEY_SET } from '../data/storySchema'
 
 export function isDataBindingKey(value: unknown): value is DataBindingKey {
-  return typeof value === 'string' && BINDING_KEY_SET.has(value as DataBindingKey)
+  return typeof value === 'string' && value.trim().length > 0
 }
 
-export function resolveBindingValue(binding: DataBindingKey | undefined, story: StoryState): string {
-  if (!binding) {
-    return ''
+function toBindingString(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
   }
 
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : ''
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'TRUE' : 'FALSE'
+  }
+
+  return ''
+}
+
+function resolveLegacyBinding(binding: DataBindingKey, story: StoryState): string {
   switch (binding) {
     case 'homeScore':
       return String(story.homeScore)
@@ -32,6 +43,18 @@ export function resolveBindingValue(binding: DataBindingKey | undefined, story: 
     default:
       return ''
   }
+}
+
+export function resolveBindingValue(binding: DataBindingKey | undefined, story: StoryState): string {
+  if (!binding) {
+    return ''
+  }
+
+  if (story.bindings && Object.prototype.hasOwnProperty.call(story.bindings, binding)) {
+    return toBindingString(story.bindings[binding])
+  }
+
+  return resolveLegacyBinding(binding, story)
 }
 
 export function extractBindingKeys(scene: SceneDefinition): DataBindingKey[] {

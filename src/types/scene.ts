@@ -1,4 +1,5 @@
-export type DataBindingKey =
+export type DataBindingKey = string
+export type CoreStoryBindingKey =
   | 'homeScore'
   | 'awayScore'
   | 'clock'
@@ -8,6 +9,15 @@ export type DataBindingKey =
   | 'homeFouls'
   | 'awayFouls'
   | 'headline'
+
+export type BindingPrimitive = string | number | boolean | null
+
+export interface BindingHierarchyNode {
+  key: string
+  label: string
+  group: string
+  kind: 'number' | 'string' | 'enum'
+}
 
 export interface StoryState {
   homeScore: number
@@ -19,6 +29,7 @@ export interface StoryState {
   homeFouls: number
   awayFouls: number
   headline: string
+  bindings: Record<string, BindingPrimitive>
 }
 
 export interface BaseLayer {

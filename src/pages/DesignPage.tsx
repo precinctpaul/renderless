@@ -14,7 +14,6 @@ import {
 import { StageCanvas } from '../components/StageCanvas'
 import type { DataBindingKey, SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
-import { BINDABLE_FIELDS } from '../data/storySchema'
 import { resolveBindingValue } from '../lib/bindings'
 import type { TemplatePackage } from '../lib/templatePackages'
 import {
@@ -110,6 +109,7 @@ export function DesignPage() {
   const savePreviewTemplate = usePlayoutStore((state) => state.savePreviewTemplate)
   const exportPreviewTemplatePackage = usePlayoutStore((state) => state.exportPreviewTemplatePackage)
   const restoreTemplateVersion = usePlayoutStore((state) => state.restoreTemplateVersion)
+  const bindingFields = usePlayoutStore((state) => state.bindingFields)
 
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([])
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null)
@@ -182,6 +182,23 @@ export function DesignPage() {
 
     return [{ value: primarySelectedLayer.fontFamily, label: primarySelectedLayer.fontFamily }, ...availableFontOptions]
   }, [availableFontOptions, primarySelectedLayer])
+  const bindingFieldGroups = useMemo(() => {
+    const groups = new Map<string, typeof bindingFields>()
+    bindingFields.forEach((field) => {
+      const group = field.group ?? 'Core'
+      if (!groups.has(group)) {
+        groups.set(group, [])
+      }
+      groups.get(group)?.push(field)
+    })
+
+    return [...groups.entries()]
+      .map(([group, fields]) => ({
+        group,
+        fields: [...fields].sort((left, right) => left.label.localeCompare(right.label)),
+      }))
+      .sort((left, right) => left.group.localeCompare(right.group))
+  }, [bindingFields])
 
   const persistAssets = (nextEntries: MediaLibraryEntry[]) => {
     setAssetEntries(nextEntries)
@@ -736,7 +753,30 @@ export function DesignPage() {
                   </>
                 ) : primarySelectedLayer ? (
                   <>
-                    <label>Binding<select className="mono" value={primarySelectedLayer.binding ?? ''} onChange={(event) => updatePreviewTextBinding(primarySelectedLayer.id, event.target.value ? (event.target.value as DataBindingKey) : null)}><option value="">None</option>{BINDABLE_FIELDS.map((field) => <option key={field.key} value={field.key}>{field.label}</option>)}</select></label>
+                    <label>
+                      Binding
+                      <select
+                        className="mono"
+                        value={primarySelectedLayer.binding ?? ''}
+                        onChange={(event) =>
+                          updatePreviewTextBinding(
+                            primarySelectedLayer.id,
+                            event.target.value ? (event.target.value as DataBindingKey) : null,
+                          )
+                        }
+                      >
+                        <option value="">None</option>
+                        {bindingFieldGroups.map((group) => (
+                          <optgroup key={group.group} label={group.group}>
+                            {group.fields.map((field) => (
+                              <option key={field.key} value={field.key}>
+                                {field.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </label>
                     {primarySelectedLayer.binding ? <div className="binding-preview mono">TOKEN: {primarySelectedLayer.binding} = {bindingPreviewValue || 'n/a'}</div> : null}
                     <label>Text<input value={primarySelectedLayer.text} onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { text: event.target.value })} /></label>
                     <label>

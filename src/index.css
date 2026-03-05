@@ -486,7 +486,8 @@ select:focus {
 }
 
 .screen--design,
-.screen--control-room {
+.screen--control-room,
+.screen--data-engine {
   min-height: 0;
 }
 
@@ -947,6 +948,213 @@ select:focus {
   gap: 10px;
 }
 
+.data-engine-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 300px;
+  gap: 10px;
+}
+
+.data-engine-sidebar,
+.data-engine-main,
+.data-engine-egress {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: 10px;
+}
+
+.quick-start-status {
+  border: 1px solid #29466d;
+  border-radius: 8px;
+  background: #0b1a2d;
+  color: #bfdbfe;
+  font-size: 12px;
+  padding: 7px 9px;
+}
+
+.sim-action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.segment-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.segment-grid--five {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.segment-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segment-btn {
+  min-height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--zinc-800);
+  background: #0d1728;
+  color: var(--zinc-200);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 200ms ease-in-out;
+}
+
+.segment-btn:hover {
+  border-color: #30548a;
+  color: white;
+}
+
+.segment-btn--active {
+  border-color: #4276cf;
+  background: var(--blue-600);
+  color: white;
+}
+
+.seed-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 8px;
+  align-items: center;
+}
+
+.data-status-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.data-engine-main__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.data-engine-main__meta {
+  color: var(--zinc-400);
+  font-size: 11px;
+}
+
+.registry-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.registry-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.registry-group {
+  border: 1px solid #1f2f44;
+  border-radius: 10px;
+  background: #0a1323;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.registry-group__header {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid #1f2f44;
+  color: #bfdbfe;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.registry-group__rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.registry-row {
+  min-height: 42px;
+  border-top: 1px solid #162538;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.registry-row:first-child {
+  border-top: none;
+}
+
+.registry-row__left {
+  min-width: 0;
+}
+
+.registry-row__label {
+  font-size: 12px;
+  color: var(--zinc-100);
+}
+
+.registry-row__key {
+  font-size: 11px;
+  color: var(--zinc-400);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.registry-row__value {
+  min-width: 90px;
+  max-width: 160px;
+  text-align: right;
+  font-size: 11px;
+  color: #a5cdfd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.egress-feed {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 2px;
+}
+
+.egress-item {
+  border: 1px solid #1f2f44;
+  border-radius: 8px;
+  background: #0a1323;
+  padding: 8px;
+}
+
+.egress-item__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--zinc-400);
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+.egress-item__summary {
+  font-size: 12px;
+  color: var(--zinc-100);
+}
+
 .rundown-panel,
 .story-panel {
   display: flex;
@@ -1272,6 +1480,10 @@ select:focus {
   .control-layout {
     grid-template-columns: 28% 44% 28%;
   }
+
+  .data-engine-layout {
+    grid-template-columns: 240px minmax(0, 1fr) 270px;
+  }
 }
 
 @media (max-width: 1160px) {
@@ -1296,7 +1508,8 @@ select:focus {
 
   .dashboard-layout,
   .design-layout,
-  .control-layout {
+  .control-layout,
+  .data-engine-layout {
     display: flex;
     flex-direction: column;
     overflow: visible;

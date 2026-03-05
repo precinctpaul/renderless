@@ -54,6 +54,41 @@ describe('Milestone 13 operator click-path regressions', () => {
     expect(await screen.findByText('STAGE PRO')).toBeTruthy()
   })
 
+  test('data engine quick-start controls drive simulation + transport state', async () => {
+    const user = userEvent.setup()
+    renderRoute('/data-engine')
+
+    expect(screen.getByRole('heading', { name: 'Data Engine' })).toBeTruthy()
+
+    await user.click(screen.getByRole('button', { name: 'NFL' }))
+    expect(usePlayoutStore.getState().simulationLeague).toBe('NFL')
+
+    await user.click(screen.getByRole('button', { name: 'FAST' }))
+    expect(usePlayoutStore.getState().simulationSpeed).toBe('FAST')
+
+    const seedInput = screen.getByLabelText('Seed (deterministic)') as HTMLInputElement
+    fireEvent.change(seedInput, { target: { value: '12345' } })
+    fireEvent.blur(seedInput)
+    expect(usePlayoutStore.getState().simulationSeed).toBe(12345)
+
+    await user.click(screen.getByRole('button', { name: 'Start' }))
+    expect(usePlayoutStore.getState().simulationStatus).toBe('running')
+
+    await user.click(screen.getByRole('button', { name: 'Pause' }))
+    expect(usePlayoutStore.getState().simulationStatus).toBe('paused')
+
+    await user.click(screen.getByRole('button', { name: 'Resume' }))
+    expect(usePlayoutStore.getState().simulationStatus).toBe('running')
+
+    await user.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(usePlayoutStore.getState().simulationStatus).toBe('idle')
+
+    await user.click(screen.getByRole('button', { name: 'WebSocket' }))
+    expect(usePlayoutStore.getState().transportMode).toBe('ws')
+    await user.click(screen.getByRole('button', { name: 'Local' }))
+    expect(usePlayoutStore.getState().transportMode).toBe('local')
+  })
+
   test('design authoring + control room playout actions execute end-to-end', async () => {
     const clipboardWrite = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {

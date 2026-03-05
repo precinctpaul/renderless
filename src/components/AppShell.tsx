@@ -6,6 +6,7 @@ import { usePlayoutStore } from '../store/playoutStore'
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/design', label: 'Design' },
+  { to: '/data-engine', label: 'Data Engine' },
   { to: '/control-room', label: 'Control Room' },
   { to: '/output-feed?follow=program&embed=1', label: 'Output', external: true },
 ]
