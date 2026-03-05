@@ -10,6 +10,7 @@ export interface MediaLibraryEntry {
   modifiedAt: number
   dataUrl: string
   fontFamily?: string
+  tags?: string[]
 }
 
 export const ASSET_STORAGE_KEY = 'renderless.dashboard.assets.v1'
@@ -38,7 +39,10 @@ function createEntryId(kind: MediaLibraryKind): string {
 }
 
 function cloneEntries(entries: MediaLibraryEntry[]): MediaLibraryEntry[] {
-  return entries.map((entry) => ({ ...entry }))
+  return entries.map((entry) => ({
+    ...entry,
+    tags: Array.isArray(entry.tags) ? [...entry.tags] : undefined,
+  }))
 }
 
 function inferMime(file: File, kind: MediaLibraryKind): string {
@@ -93,6 +97,17 @@ function normalizeEntry(rawEntry: unknown, kind: MediaLibraryKind): MediaLibrary
   const folder = typeof record.folder === 'string' && record.folder.trim().length > 0 ? record.folder.trim() : null
   const size = Number(record.size)
   const modifiedAt = Number(record.modifiedAt)
+  const tags =
+    Array.isArray(record.tags)
+      ? Array.from(
+          new Set(
+            record.tags
+              .filter((entry): entry is string => typeof entry === 'string')
+              .map((entry) => entry.trim())
+              .filter((entry) => entry.length > 0),
+          ),
+        )
+      : undefined
 
   if (!id || !name || !folder || !Number.isFinite(size) || !Number.isFinite(modifiedAt)) {
     return null
@@ -108,6 +123,7 @@ function normalizeEntry(rawEntry: unknown, kind: MediaLibraryKind): MediaLibrary
     modifiedAt: Math.max(0, Math.round(modifiedAt)),
     dataUrl: typeof record.dataUrl === 'string' ? record.dataUrl : '',
     fontFamily: typeof record.fontFamily === 'string' && record.fontFamily.trim().length > 0 ? record.fontFamily.trim() : undefined,
+    tags,
   }
 }
 
@@ -370,6 +386,7 @@ export async function buildEntriesFromFiles(
         modifiedAt: Date.now(),
         dataUrl,
         fontFamily: kind === 'font' ? toFontFamily(file.name) : undefined,
+        tags: [],
       }
       entries.push(nextEntry)
     } catch {

@@ -22,13 +22,13 @@ describe('Milestone 13 operator click-path regressions', () => {
     const user = userEvent.setup()
     renderRoute('/dashboard')
 
-    expect(screen.getByText('Explorer')).toBeTruthy()
+    expect(screen.getByText('Asset Library')).toBeTruthy()
 
-    await user.click(screen.getByRole('button', { name: 'Branded Assets' }))
+    await user.click(screen.getByRole('button', { name: 'Media' }))
     expect(screen.getByRole('button', { name: 'New Folder' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Template Designs' })).toBeTruthy()
 
-    await user.click(screen.getByRole('button', { name: 'Fonts' }))
+    await user.click(screen.getByRole('button', { name: 'Typography' }))
     expect(screen.getByRole('button', { name: 'Imported' })).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Templates' }))
@@ -42,15 +42,15 @@ describe('Milestone 13 operator click-path regressions', () => {
     expect(screen.getByText('No templates match the current query/filter.')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Built-In' }))
-    expect(screen.getByText('H_A_Score_001')).toBeTruthy()
+    expect(screen.getAllByText('H_A_Score_001').length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: 'All Templates' }))
-    const lowerThirdRow = screen.getByText('Lower_Third_001').closest('tr')
-    expect(lowerThirdRow).toBeTruthy()
-    fireEvent.click(lowerThirdRow!)
+    const lowerThirdCard = screen.getAllByText('Lower_Third_001')[0]?.closest('.library-card')
+    expect(lowerThirdCard).toBeTruthy()
+    fireEvent.click(lowerThirdCard!)
     expect(screen.getByText('Preview cued: Lower_Third_001')).toBeTruthy()
 
-    const loadButton = within(lowerThirdRow!).getByRole('button', { name: 'Load' })
+    const loadButton = within(lowerThirdCard as HTMLElement).getByRole('button', { name: 'Load' })
     await user.click(loadButton)
     expect(await screen.findByText('STAGE PRO')).toBeTruthy()
   })

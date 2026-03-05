@@ -1,8 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
-import { FileText, Folder, FolderOpen, FolderPlus, Puzzle, Trash2, Upload } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  FileImage,
+  FileText,
+  Film,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Puzzle,
+  Tag,
+  Trash2,
+  Upload,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { usePlayoutStore } from '../store/playoutStore'
 import type { TemplateDefinition } from '../types/scene'
+import { SceneRenderer } from '../components/SceneRenderer'
 import {
   ASSET_STORAGE_KEY,
   FONT_STORAGE_KEY,
@@ -23,10 +38,17 @@ const ASSET_ROOT = 'Branded Assets'
 const FONT_ROOT = 'Fonts'
 const DEFAULT_ASSET_FOLDERS = [ASSET_ROOT, `${ASSET_ROOT}/BGs`, `${ASSET_ROOT}/Template Designs`]
 const DEFAULT_FONT_FOLDERS = [FONT_ROOT, `${FONT_ROOT}/Imported`]
+const DEFAULT_FONT_SPECIMEN = 'SCORE 99'
+const SYSTEM_FONT_FAMILIES = [
+  'Inter, sans-serif',
+  'Roboto, sans-serif',
+  'JetBrains Mono, monospace',
+] as const
 
-type DashboardMode = 'Branded Assets' | 'Fonts' | 'Templates'
+type DashboardMode = 'Media' | 'Typography' | 'Templates'
 type TemplateFolderFilter = 'all' | 'builtIn' | 'custom'
 type ExplorerKind = 'assets' | 'fonts'
+type MediaTypeFilter = 'all' | 'image' | 'video' | 'animation'
 
 interface FolderCatalog {
   assets: string[]
@@ -38,6 +60,8 @@ interface FolderRow {
   name: string
   depth: number
   root: boolean
+  hasChildren: boolean
+  expanded: boolean
 }
 
 interface FolderDragPayload {
@@ -48,6 +72,25 @@ interface FolderDragPayload {
 interface EntryDragPayload {
   kind: ExplorerKind
   entryId: string
+}
+
+interface FontFamilyGroup {
+  family: string
+  entries: MediaLibraryEntry[]
+  source: 'system' | 'custom'
+}
+
+interface BreadcrumbItem {
+  label: string
+  mode: DashboardMode
+  path?: string
+  templateFilter?: TemplateFolderFilter
+}
+
+interface ExplorerSectionState {
+  Media: boolean
+  Typography: boolean
+  Templates: boolean
 }
 
 function normalizeFolderPath(path: string): string {
@@ -144,16 +187,61 @@ function persistFolderCatalog(catalog: FolderCatalog): void {
   }
 }
 
-function buildFolderRows(paths: string[], root: string): FolderRow[] {
-  return normalizeFolderList(paths, root).map((path) => {
-    const segments = path.split('/')
-    return {
+function getParentPath(path: string): string {
+  const index = path.lastIndexOf('/')
+  if (index <= 0) {
+    return ''
+  }
+  return path.slice(0, index)
+}
+
+function getDirectChildFolderPaths(paths: string[], parentPath: string): string[] {
+  return paths
+    .filter((path) => getParentPath(path) === parentPath)
+    .sort((left, right) => {
+      const leftName = left.split('/').pop() ?? left
+      const rightName = right.split('/').pop() ?? right
+      return leftName.localeCompare(rightName)
+    })
+}
+
+function ancestorPaths(path: string): string[] {
+  const segments = normalizeFolderPath(path).split('/')
+  const ancestors: string[] = []
+  for (let index = 1; index <= segments.length; index += 1) {
+    ancestors.push(segments.slice(0, index).join('/'))
+  }
+  return ancestors
+}
+
+function buildFolderRows(paths: string[], root: string, expandedPaths: string[]): FolderRow[] {
+  const normalized = normalizeFolderList(paths, root)
+  const expandedSet = new Set(expandedPaths)
+  const rows: FolderRow[] = []
+
+  const walk = (path: string, depth: number) => {
+    const children = getDirectChildFolderPaths(normalized, path)
+    const row: FolderRow = {
       path,
-      name: segments[segments.length - 1] ?? path,
-      depth: Math.max(0, segments.length - 1),
+      name: path.split('/').pop() ?? path,
+      depth,
       root: path === root,
+      hasChildren: children.length > 0,
+      expanded: path === root || expandedSet.has(path),
     }
-  })
+    rows.push(row)
+
+    if (!row.expanded) {
+      return
+    }
+
+    children.forEach((childPath) => {
+      walk(childPath, depth + 1)
+    })
+  }
+
+  walk(root, 0)
+  return rows
 }
 
 function parseFolderDragPayload(raw: string): FolderDragPayload | null {
@@ -243,6 +331,25 @@ function formatBytes(size: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function parseBatchTags(rawValue: string): string[] {
+  return rawValue
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+}
+
+function mediaTypeForEntry(entry: MediaLibraryEntry): MediaTypeFilter {
+  const mime = entry.mime.toLowerCase()
+  const name = entry.name.toLowerCase()
+  if (mime.startsWith('video/') || /\.(mp4|webm|mov|avi|mkv)$/i.test(name)) {
+    return 'video'
+  }
+  if (mime.includes('json') || name.endsWith('.json') || name.endsWith('.lottie')) {
+    return 'animation'
+  }
+  return 'image'
+}
+
 function formatUploadResult({
   kind,
   imported,
@@ -284,6 +391,7 @@ export function DashboardPage() {
   const packageSigningSecret = usePlayoutStore((state) => state.packageSigningSecret)
   const setPackageSigningConfig = usePlayoutStore((state) => state.setPackageSigningConfig)
   const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
+  const story = usePlayoutStore((state) => state.story)
 
   const initialAssetEntries = useMemo(() => normalizeEntriesForRoot(readMediaEntries('asset'), ASSET_ROOT), [])
   const initialFontEntries = useMemo(() => normalizeEntriesForRoot(readMediaEntries('font'), FONT_ROOT), [])
@@ -295,18 +403,31 @@ export function DashboardPage() {
     }
   }, [initialAssetEntries, initialFontEntries])
   const [activeMode, setActiveMode] = useState<DashboardMode>('Templates')
-  const [expandedMode, setExpandedMode] = useState<DashboardMode>('Templates')
+  const [openSections, setOpenSections] = useState<ExplorerSectionState>({
+    Media: true,
+    Typography: false,
+    Templates: true,
+  })
   const [folderCatalog, setFolderCatalog] = useState<FolderCatalog>(initialFolderCatalog)
   const [selectedAssetFolder, setSelectedAssetFolder] = useState<string>(initialFolderCatalog.assets[0] ?? ASSET_ROOT)
   const [selectedFontFolder, setSelectedFontFolder] = useState<string>(initialFolderCatalog.fonts[0] ?? FONT_ROOT)
+  const [expandedAssetFolders, setExpandedAssetFolders] = useState<string[]>(() => [ASSET_ROOT])
+  const [expandedFontFolders, setExpandedFontFolders] = useState<string[]>(() => [FONT_ROOT])
   const [templateFolderFilter, setTemplateFolderFilter] = useState<TemplateFolderFilter>('all')
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<MediaTypeFilter>('all')
+  const [showUnusedOnly, setShowUnusedOnly] = useState(false)
+  const [searchAll, setSearchAll] = useState(true)
   const [showDevTools, setShowDevTools] = useState(false)
   const [query, setQuery] = useState('')
+  const [batchTagDraft, setBatchTagDraft] = useState('')
+  const [selectedSmartTag, setSelectedSmartTag] = useState<string>('all')
+  const [fontPreviewText, setFontPreviewText] = useState(DEFAULT_FONT_SPECIMEN)
   const [statusMessage, setStatusMessage] = useState('')
   const [isBusy, setIsBusy] = useState(false)
   const [assetEntries, setAssetEntries] = useState<MediaLibraryEntry[]>(initialAssetEntries)
   const [fontEntries, setFontEntries] = useState<MediaLibraryEntry[]>(initialFontEntries)
   const [selectedEntryId, setSelectedEntryId] = useState<string>('')
+  const [selectedTemplateCardId, setSelectedTemplateCardId] = useState<string>('')
   const [draggedEntryId, setDraggedEntryId] = useState<string>('')
   const [draggedFolderPath, setDraggedFolderPath] = useState<string>('')
   const [folderDropTarget, setFolderDropTarget] = useState<string>('')
@@ -483,57 +604,27 @@ export function DashboardPage() {
     : (folderCatalog.fonts[0] ?? FONT_ROOT)
 
   const activeFolder =
-    activeMode === 'Branded Assets'
+    activeMode === 'Media'
       ? effectiveSelectedAssetFolder
-      : activeMode === 'Fonts'
+      : activeMode === 'Typography'
         ? effectiveSelectedFontFolder
         : ''
-  const activeExplorerEntries = useMemo(() => {
-    if (activeMode === 'Branded Assets') {
-      return assetEntries
-    }
-    if (activeMode === 'Fonts') {
-      return fontEntries
-    }
-
-    return []
-  }, [activeMode, assetEntries, fontEntries])
-  const assetFolderRows = useMemo(() => buildFolderRows(folderCatalog.assets, ASSET_ROOT), [folderCatalog.assets])
-  const fontFolderRows = useMemo(() => buildFolderRows(folderCatalog.fonts, FONT_ROOT), [folderCatalog.fonts])
-
-  const filteredTemplates = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
-    const folderFiltered = templates.filter((template) => {
-      if (templateFolderFilter === 'builtIn') {
-        return Boolean(template.builtIn)
-      }
-      if (templateFolderFilter === 'custom') {
-        return !template.builtIn
-      }
-      return true
-    })
-
-    if (!normalizedQuery) {
-      return folderFiltered
-    }
-
-    return folderFiltered.filter((template) => template.label.toLowerCase().includes(normalizedQuery))
-  }, [query, templateFolderFilter, templates])
-
-  const filteredExplorerEntries = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase()
-    return activeExplorerEntries.filter((entry) => {
-      if (entry.folder !== activeFolder) {
-        return false
-      }
-
-      if (!normalizedQuery) {
-        return true
-      }
-
-      return entry.name.toLowerCase().includes(normalizedQuery)
-    })
-  }, [activeExplorerEntries, activeFolder, query])
+  const effectiveExpandedAssetFolders = useMemo(
+    () => Array.from(new Set([...expandedAssetFolders, ...ancestorPaths(effectiveSelectedAssetFolder)])),
+    [effectiveSelectedAssetFolder, expandedAssetFolders],
+  )
+  const effectiveExpandedFontFolders = useMemo(
+    () => Array.from(new Set([...expandedFontFolders, ...ancestorPaths(effectiveSelectedFontFolder)])),
+    [effectiveSelectedFontFolder, expandedFontFolders],
+  )
+  const assetFolderRows = useMemo(
+    () => buildFolderRows(folderCatalog.assets, ASSET_ROOT, effectiveExpandedAssetFolders),
+    [effectiveExpandedAssetFolders, folderCatalog.assets],
+  )
+  const fontFolderRows = useMemo(
+    () => buildFolderRows(folderCatalog.fonts, FONT_ROOT, effectiveExpandedFontFolders),
+    [effectiveExpandedFontFolders, folderCatalog.fonts],
+  )
 
   const handleImportPackages = async (files: FileList | null) => {
     if (!files || files.length === 0) {
@@ -600,14 +691,14 @@ export function DashboardPage() {
       return
     }
 
-    if (activeMode !== 'Branded Assets' && activeMode !== 'Fonts') {
+    if (activeMode !== 'Media' && activeMode !== 'Typography') {
       return
     }
 
     setIsBusy(true)
     const filesArray = Array.from(files)
 
-    if (activeMode === 'Fonts') {
+    if (activeMode === 'Typography') {
       const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'font', effectiveSelectedFontFolder)
       const registration = await registerFontEntries(entries)
 
@@ -627,15 +718,21 @@ export function DashboardPage() {
     }
 
     const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'asset', effectiveSelectedAssetFolder)
-    const nextEntries = [...entries, ...assetEntries]
+    const batchTags = parseBatchTags(batchTagDraft)
+    const taggedEntries = entries.map((entry) => ({
+      ...entry,
+      tags: batchTags,
+    }))
+    const nextEntries = [...taggedEntries, ...assetEntries]
     persistAssets(nextEntries)
     setTransientStatus(
       formatUploadResult({
         kind: 'assets',
-        imported: entries.length,
+        imported: taggedEntries.length,
         rejected: rejectedFiles.length,
       }),
     )
+    setBatchTagDraft('')
     setIsBusy(false)
   }
 
@@ -650,6 +747,7 @@ export function DashboardPage() {
 
   const handleLoadTemplate = (templateId: string) => {
     cuePreview(templateId)
+    setSelectedTemplateCardId(templateId)
     const template = templates.find((entry) => entry.id === templateId)
     setTransientStatus(`Loaded ${template?.label ?? 'template'} into Stage Pro.`)
     void navigate('/design')
@@ -657,6 +755,7 @@ export function DashboardPage() {
 
   const handleTemplateRowClick = (templateId: string) => {
     cuePreview(templateId)
+    setSelectedTemplateCardId(templateId)
     const template = templates.find((entry) => entry.id === templateId)
     setTransientStatus(`Preview cued: ${template?.label ?? templateId}`, 1800)
   }
@@ -677,7 +776,7 @@ export function DashboardPage() {
   }
 
   const handleDeleteExplorerEntry = (entryId: string) => {
-    const source = activeMode === 'Fonts' ? fontEntries : assetEntries
+    const source = activeMode === 'Typography' ? fontEntries : assetEntries
     const entry = source.find((item) => item.id === entryId)
     if (!entry) {
       return
@@ -688,7 +787,7 @@ export function DashboardPage() {
       return
     }
 
-    if (activeMode === 'Fonts') {
+    if (activeMode === 'Typography') {
       persistFonts(fontEntries.filter((item) => item.id !== entryId))
     } else {
       persistAssets(assetEntries.filter((item) => item.id !== entryId))
@@ -768,8 +867,10 @@ export function DashboardPage() {
     persistFolders(nextCatalog)
     if (kind === 'assets') {
       setSelectedAssetFolder(nextFolderPath)
+      setExpandedAssetFolders((previous) => Array.from(new Set([...previous, parentFolder, nextFolderPath])))
     } else {
       setSelectedFontFolder(nextFolderPath)
+      setExpandedFontFolders((previous) => Array.from(new Set([...previous, parentFolder, nextFolderPath])))
     }
     setTransientStatus(`Created folder: ${nextFolderPath}`)
   }
@@ -831,6 +932,11 @@ export function DashboardPage() {
             fonts: folderCatalog.fonts.map(rewritePath),
           }
     persistFolders(nextCatalog)
+    if (kind === 'assets') {
+      setExpandedAssetFolders((previous) => Array.from(new Set(previous.map(rewritePath))))
+    } else {
+      setExpandedFontFolders((previous) => Array.from(new Set(previous.map(rewritePath))))
+    }
 
     if (kind === 'assets') {
       persistAssets(
@@ -882,50 +988,366 @@ export function DashboardPage() {
     setFolderDropTarget('')
   }
 
-  const uploadLabel = activeMode === 'Templates' ? 'Import Package' : activeMode === 'Fonts' ? 'Upload Font' : 'Upload Asset'
+  const uploadLabel = activeMode === 'Templates' ? 'Import Package' : activeMode === 'Typography' ? 'Upload Font' : 'Upload Media'
   const uploadAccept =
     activeMode === 'Templates'
       ? '.json,.rltpl,.rltpl.json'
-      : activeMode === 'Fonts'
+      : activeMode === 'Typography'
         ? '.ttf,.otf,.woff,.woff2'
         : '*/*'
+  const activeExplorerKind: ExplorerKind = activeMode === 'Typography' ? 'fonts' : 'assets'
+  const usedAssetIds = useMemo(() => {
+    const used = new Set<string>()
+    templates.forEach((template) => {
+      template.scene.layers.forEach((layer) => {
+        if (layer.kind !== 'image') {
+          return
+        }
+        const matched = assetEntries.find((entry) => entry.dataUrl && entry.dataUrl === layer.src)
+        if (matched) {
+          used.add(matched.id)
+        }
+      })
+    })
+    return used
+  }, [assetEntries, templates])
+  const usedFontFamilies = useMemo(() => {
+    const used = new Set<string>()
+    templates.forEach((template) => {
+      template.scene.layers.forEach((layer) => {
+        if (layer.kind === 'text') {
+          used.add(layer.fontFamily)
+        }
+      })
+    })
+    return used
+  }, [templates])
+  const mediaTagOptions = useMemo(() => {
+    const tags = new Set<string>()
+    assetEntries.forEach((entry) => {
+      ;(entry.tags ?? []).forEach((tag) => tags.add(tag))
+    })
+    return [...tags].sort((left, right) => left.localeCompare(right))
+  }, [assetEntries])
+  const activeSmartTag = selectedSmartTag === 'all' || mediaTagOptions.includes(selectedSmartTag) ? selectedSmartTag : 'all'
+  const mediaChildFolders = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return getDirectChildFolderPaths(folderCatalog.assets, effectiveSelectedAssetFolder)
+      .filter((path) => {
+        if (!normalizedQuery || searchAll) {
+          return true
+        }
+        const label = path.split('/').pop() ?? path
+        return label.toLowerCase().includes(normalizedQuery)
+      })
+      .sort((left, right) => {
+        const leftName = left.split('/').pop() ?? left
+        const rightName = right.split('/').pop() ?? right
+        return leftName.localeCompare(rightName)
+      })
+  }, [effectiveSelectedAssetFolder, folderCatalog.assets, query, searchAll])
+  const filteredMediaEntries = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return assetEntries
+      .filter((entry) => entry.folder === effectiveSelectedAssetFolder)
+      .filter((entry) => {
+        if (mediaTypeFilter === 'all') {
+          return true
+        }
+        return mediaTypeForEntry(entry) === mediaTypeFilter
+      })
+      .filter((entry) => (showUnusedOnly ? !usedAssetIds.has(entry.id) : true))
+      .filter((entry) => {
+        if (activeSmartTag === 'all') {
+          return true
+        }
+        return (entry.tags ?? []).includes(activeSmartTag)
+      })
+      .filter((entry) => {
+        if (!normalizedQuery || searchAll) {
+          return true
+        }
+        const tags = (entry.tags ?? []).join(' ').toLowerCase()
+        return entry.name.toLowerCase().includes(normalizedQuery) || tags.includes(normalizedQuery)
+      })
+      .sort((left, right) => left.name.localeCompare(right.name))
+  }, [activeSmartTag, assetEntries, effectiveSelectedAssetFolder, mediaTypeFilter, query, searchAll, showUnusedOnly, usedAssetIds])
+  const fontFamilyGroups = useMemo<FontFamilyGroup[]>(() => {
+    const byFamily = new Map<string, MediaLibraryEntry[]>()
+    fontEntries
+      .filter((entry) => entry.folder === effectiveSelectedFontFolder)
+      .forEach((entry) => {
+        const family = entry.fontFamily?.trim() || entry.name.replace(/\.[^.]+$/, '')
+        const list = byFamily.get(family)
+        if (list) {
+          list.push(entry)
+        } else {
+          byFamily.set(family, [entry])
+        }
+      })
+
+    const customGroups = [...byFamily.entries()]
+      .map(([family, entries]) => ({
+        family,
+        entries,
+        source: 'custom' as const,
+      }))
+      .sort((left, right) => left.family.localeCompare(right.family))
+
+    const systemGroups = SYSTEM_FONT_FAMILIES.map((family) => ({
+      family,
+      entries: [],
+      source: 'system' as const,
+    }))
+
+    return [...customGroups, ...systemGroups]
+  }, [effectiveSelectedFontFolder, fontEntries])
+  const filteredFontGroups = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return fontFamilyGroups.filter((group) => {
+      if (!normalizedQuery || searchAll) {
+        return true
+      }
+      return group.family.toLowerCase().includes(normalizedQuery)
+    })
+  }, [fontFamilyGroups, query, searchAll])
+  const filteredTemplatesForGrid = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    const base = templates.filter((template) => {
+      if (templateFolderFilter === 'builtIn') return Boolean(template.builtIn)
+      if (templateFolderFilter === 'custom') return !template.builtIn
+      return true
+    })
+    const filtered = !normalizedQuery || searchAll
+      ? base
+      : base.filter((template) => template.label.toLowerCase().includes(normalizedQuery))
+    return filtered.sort((left, right) => left.label.localeCompare(right.label))
+  }, [query, searchAll, templateFolderFilter, templates])
+  const globalResults = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!searchAll || normalizedQuery.length === 0) {
+      return {
+        templates: [] as TemplateDefinition[],
+        media: [] as MediaLibraryEntry[],
+        fonts: [] as FontFamilyGroup[],
+      }
+    }
+
+    const templateResults = templates.filter((template) => template.label.toLowerCase().includes(normalizedQuery)).slice(0, 6)
+    const mediaResults = assetEntries
+      .filter((entry) => {
+        const tags = (entry.tags ?? []).join(' ').toLowerCase()
+        return entry.name.toLowerCase().includes(normalizedQuery) || tags.includes(normalizedQuery)
+      })
+      .slice(0, 8)
+    const fontResults = fontFamilyGroups.filter((group) => group.family.toLowerCase().includes(normalizedQuery)).slice(0, 8)
+    return {
+      templates: templateResults,
+      media: mediaResults,
+      fonts: fontResults,
+    }
+  }, [assetEntries, fontFamilyGroups, query, searchAll, templates])
+  const selectedTemplate = templates.find((template) => template.id === selectedTemplateCardId || template.id === previewTemplateId) ?? null
+  const selectedMediaEntry = assetEntries.find((entry) => entry.id === selectedEntryId) ?? null
+  const selectedFontGroup = fontFamilyGroups.find((group) => group.family === selectedEntryId) ?? null
+  const inspectorTitle =
+    activeMode === 'Templates'
+      ? selectedTemplate?.label ?? 'Template Inspector'
+      : activeMode === 'Media'
+        ? selectedMediaEntry?.name ?? 'Asset Inspector'
+        : selectedFontGroup?.family ?? 'Font Inspector'
   const tableStatusLabel =
     activeMode === 'Templates'
-      ? `Showing ${filteredTemplates.length} template(s)`
-      : `Showing ${filteredExplorerEntries.length} item(s) in ${activeFolder}`
-  const activeExplorerKind: ExplorerKind = activeMode === 'Fonts' ? 'fonts' : 'assets'
+      ? `Showing ${filteredTemplatesForGrid.length} template(s) in ${
+          templateFolderFilter === 'all'
+            ? 'All Templates'
+            : templateFolderFilter === 'builtIn'
+              ? 'Built-In'
+              : 'Custom'
+        }`
+      : activeMode === 'Media'
+        ? `Showing ${mediaChildFolders.length} folder(s), ${filteredMediaEntries.length} file(s) in ${activeFolder}`
+        : `Showing ${filteredFontGroups.length} font family group(s) in ${activeFolder}`
+  const activeBreadcrumbs = useMemo<BreadcrumbItem[]>(() => {
+    if (activeMode === 'Media') {
+      const segments = effectiveSelectedAssetFolder.split('/')
+      const folderCrumbs = segments.map((label, index) => ({
+        label,
+        mode: 'Media' as const,
+        path: segments.slice(0, index + 1).join('/'),
+      }))
+      return [{ label: 'Media', mode: 'Media' }, ...folderCrumbs]
+    }
+
+    if (activeMode === 'Typography') {
+      const segments = effectiveSelectedFontFolder.split('/')
+      const folderCrumbs = segments.map((label, index) => ({
+        label,
+        mode: 'Typography' as const,
+        path: segments.slice(0, index + 1).join('/'),
+      }))
+      return [{ label: 'Typography', mode: 'Typography' }, ...folderCrumbs]
+    }
+
+    return [
+      { label: 'Templates', mode: 'Templates' },
+      {
+        label: templateFolderFilter === 'all' ? 'All' : templateFolderFilter === 'builtIn' ? 'Built-In' : 'Custom',
+        mode: 'Templates',
+        templateFilter: templateFolderFilter,
+      },
+    ]
+  }, [activeMode, effectiveSelectedAssetFolder, effectiveSelectedFontFolder, templateFolderFilter])
   const setExplorerMode = (mode: DashboardMode) => {
     setActiveMode(mode)
-    setExpandedMode(mode)
+    setOpenSections((previous) => ({
+      ...previous,
+      [mode]: true,
+    }))
+    if (mode === 'Media') {
+      setSelectedEntryId('')
+    }
+    if (mode === 'Typography') {
+      setSelectedEntryId('')
+    }
+  }
+  const toggleSectionOpen = (mode: DashboardMode) => {
+    setOpenSections((previous) => ({
+      ...previous,
+      [mode]: !previous[mode],
+    }))
+  }
+  const canCreateFolder = activeMode === 'Media' || activeMode === 'Typography'
+  const handleCreateFolderForActiveMode = () => {
+    if (activeMode === 'Media') {
+      createSubfolder('assets')
+      return
+    }
+    if (activeMode === 'Typography') {
+      createSubfolder('fonts')
+      return
+    }
+    setTransientStatus('Folders can be created in Media or Typography.')
+  }
+  const handleBreadcrumbClick = (crumb: BreadcrumbItem) => {
+    setExplorerMode(crumb.mode)
+
+    if (crumb.mode === 'Media' && crumb.path) {
+      const path = crumb.path
+      setSelectedAssetFolder(path)
+      setExpandedAssetFolders((previous) => Array.from(new Set([...previous, ...ancestorPaths(path)])))
+      return
+    }
+
+    if (crumb.mode === 'Typography' && crumb.path) {
+      const path = crumb.path
+      setSelectedFontFolder(path)
+      setExpandedFontFolders((previous) => Array.from(new Set([...previous, ...ancestorPaths(path)])))
+      return
+    }
+
+    if (crumb.mode === 'Templates' && crumb.templateFilter) {
+      setTemplateFolderFilter(crumb.templateFilter)
+    }
+  }
+  const toggleFolderExpanded = (kind: ExplorerKind, path: string) => {
+    const root = kind === 'assets' ? ASSET_ROOT : FONT_ROOT
+    if (path === root) {
+      return
+    }
+
+    if (kind === 'assets') {
+      setExpandedAssetFolders((previous) =>
+        previous.includes(path) ? previous.filter((entry) => entry !== path) : [...previous, path],
+      )
+      return
+    }
+
+    setExpandedFontFolders((previous) =>
+      previous.includes(path) ? previous.filter((entry) => entry !== path) : [...previous, path],
+    )
+  }
+  const applyBatchTagsToCurrentView = () => {
+    if (activeMode !== 'Media') {
+      return
+    }
+
+    const nextTags = parseBatchTags(batchTagDraft)
+    if (nextTags.length === 0) {
+      setTransientStatus('Enter one or more tags (comma separated).')
+      return
+    }
+
+    const visibleIds = new Set(filteredMediaEntries.map((entry) => entry.id))
+    if (visibleIds.size === 0) {
+      setTransientStatus('No visible media to tag.')
+      return
+    }
+
+    const nextEntries = assetEntries.map((entry) => {
+      if (!visibleIds.has(entry.id)) {
+        return entry
+      }
+      return {
+        ...entry,
+        tags: Array.from(new Set([...(entry.tags ?? []), ...nextTags])),
+      }
+    })
+
+    persistAssets(nextEntries)
+    setTransientStatus(`Tagged ${visibleIds.size} visible media item(s).`)
   }
 
   return (
     <section className="screen screen--dashboard">
       <div className="dashboard-layout">
         <aside className="panel panel--explorer">
-          <div className="panel-title">Explorer</div>
+          <div className="panel-title">Asset Library</div>
+          <div className="panel-subtitle">Templates, media, and typography in one explorer.</div>
+          <div className="explorer-toolbar">
+            <button
+              type="button"
+              className="btn btn--small btn--ghost"
+              onClick={handleCreateFolderForActiveMode}
+              disabled={!canCreateFolder}
+            >
+              <FolderPlus size={14} />
+              New Folder
+            </button>
+          </div>
           <div className="explorer-sections">
             <section className="explorer-section">
               <button
                 type="button"
-                className={`mode-item ${activeMode === 'Branded Assets' ? 'mode-item--active' : ''}`.trim()}
-                onClick={() => setExplorerMode('Branded Assets')}
+                className={`mode-item mode-item--bucket ${activeMode === 'Media' ? 'mode-item--active' : ''}`.trim()}
+                onClick={() => setExplorerMode('Media')}
               >
-                Branded Assets
+                <span>Media</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="mode-item__toggle"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    toggleSectionOpen('Media')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      toggleSectionOpen('Media')
+                    }
+                  }}
+                >
+                  {openSections.Media ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </span>
               </button>
-              {expandedMode === 'Branded Assets' ? (
+              {openSections.Media ? (
                 <div className="explorer-section__body">
-                  <button
-                    type="button"
-                    className="btn btn--small btn--ghost"
-                    onClick={() => createSubfolder('assets')}
-                  >
-                    <FolderPlus size={14} />
-                    New Folder
-                  </button>
                   <div className="folder-tree">
                     {assetFolderRows.map((row) => {
                       const isSelected = effectiveSelectedAssetFolder === row.path
+                      const isAncestor = !isSelected && effectiveSelectedAssetFolder.startsWith(`${row.path}/`)
                       const isDropTarget = folderDropTarget === row.path
 
                       return (
@@ -933,11 +1355,10 @@ export function DashboardPage() {
                           key={row.path}
                           type="button"
                           draggable={!row.root}
-                          className={`tree-row ${isSelected ? 'tree-row--active' : ''} ${isDropTarget ? 'tree-row--drop-target' : ''}`.trim()}
-                          style={{ paddingLeft: `${8 + row.depth * 14}px` }}
+                          className={`tree-row ${isSelected ? 'tree-row--active' : ''} ${isAncestor ? 'tree-row--ancestor' : ''} ${isDropTarget ? 'tree-row--drop-target' : ''}`.trim()}
                           onClick={() => {
                             setSelectedAssetFolder(row.path)
-                            setExplorerMode('Branded Assets')
+                            setExplorerMode('Media')
                           }}
                           onDragStart={(event) => {
                             if (row.root) {
@@ -989,6 +1410,31 @@ export function DashboardPage() {
                             setFolderDropTarget('')
                           }}
                         >
+                          {row.depth > 0 ? (
+                            <span className="tree-row__branch" style={{ width: `${row.depth * 16}px` }} />
+                          ) : null}
+                          {row.hasChildren ? (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="tree-row__chevron"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                toggleFolderExpanded('assets', row.path)
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  toggleFolderExpanded('assets', row.path)
+                                }
+                              }}
+                            >
+                              {row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            </span>
+                          ) : (
+                            <span className="tree-row__chevron tree-row__chevron--placeholder" />
+                          )}
                           {row.root ? <FolderOpen size={14} /> : <Folder size={14} />}
                           <span>{row.name}</span>
                         </button>
@@ -1002,24 +1448,35 @@ export function DashboardPage() {
             <section className="explorer-section">
               <button
                 type="button"
-                className={`mode-item ${activeMode === 'Fonts' ? 'mode-item--active' : ''}`.trim()}
-                onClick={() => setExplorerMode('Fonts')}
+                className={`mode-item mode-item--bucket ${activeMode === 'Typography' ? 'mode-item--active' : ''}`.trim()}
+                onClick={() => setExplorerMode('Typography')}
               >
-                Fonts
+                <span>Typography</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="mode-item__toggle"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    toggleSectionOpen('Typography')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      toggleSectionOpen('Typography')
+                    }
+                  }}
+                >
+                  {openSections.Typography ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </span>
               </button>
-              {expandedMode === 'Fonts' ? (
+              {openSections.Typography ? (
                 <div className="explorer-section__body">
-                  <button
-                    type="button"
-                    className="btn btn--small btn--ghost"
-                    onClick={() => createSubfolder('fonts')}
-                  >
-                    <FolderPlus size={14} />
-                    New Folder
-                  </button>
                   <div className="folder-tree">
                     {fontFolderRows.map((row) => {
                       const isSelected = effectiveSelectedFontFolder === row.path
+                      const isAncestor = !isSelected && effectiveSelectedFontFolder.startsWith(`${row.path}/`)
                       const isDropTarget = folderDropTarget === row.path
 
                       return (
@@ -1027,11 +1484,10 @@ export function DashboardPage() {
                           key={row.path}
                           type="button"
                           draggable={!row.root}
-                          className={`tree-row ${isSelected ? 'tree-row--active' : ''} ${isDropTarget ? 'tree-row--drop-target' : ''}`.trim()}
-                          style={{ paddingLeft: `${8 + row.depth * 14}px` }}
+                          className={`tree-row ${isSelected ? 'tree-row--active' : ''} ${isAncestor ? 'tree-row--ancestor' : ''} ${isDropTarget ? 'tree-row--drop-target' : ''}`.trim()}
                           onClick={() => {
                             setSelectedFontFolder(row.path)
-                            setExplorerMode('Fonts')
+                            setExplorerMode('Typography')
                           }}
                           onDragStart={(event) => {
                             if (row.root) {
@@ -1083,6 +1539,31 @@ export function DashboardPage() {
                             setFolderDropTarget('')
                           }}
                         >
+                          {row.depth > 0 ? (
+                            <span className="tree-row__branch" style={{ width: `${row.depth * 16}px` }} />
+                          ) : null}
+                          {row.hasChildren ? (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="tree-row__chevron"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                toggleFolderExpanded('fonts', row.path)
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  toggleFolderExpanded('fonts', row.path)
+                                }
+                              }}
+                            >
+                              {row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            </span>
+                          ) : (
+                            <span className="tree-row__chevron tree-row__chevron--placeholder" />
+                          )}
                           {row.root ? <FolderOpen size={14} /> : <Folder size={14} />}
                           <span>{row.name}</span>
                         </button>
@@ -1096,12 +1577,30 @@ export function DashboardPage() {
             <section className="explorer-section">
               <button
                 type="button"
-                className={`mode-item ${activeMode === 'Templates' ? 'mode-item--active' : ''}`.trim()}
+                className={`mode-item mode-item--bucket ${activeMode === 'Templates' ? 'mode-item--active' : ''}`.trim()}
                 onClick={() => setExplorerMode('Templates')}
               >
-                Templates
+                <span>Templates</span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  className="mode-item__toggle"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    toggleSectionOpen('Templates')
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      toggleSectionOpen('Templates')
+                    }
+                  }}
+                >
+                  {openSections.Templates ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </span>
               </button>
-              {expandedMode === 'Templates' ? (
+              {openSections.Templates ? (
                 <div className="explorer-section__body">
                   <button
                     type="button"
@@ -1170,9 +1669,16 @@ export function DashboardPage() {
             <input
               type="text"
               value={query}
-              placeholder={activeMode === 'Templates' ? 'Search templates' : `Search ${activeMode.toLowerCase()}`}
+              placeholder={searchAll ? 'Search templates, media, and typography' : `Search ${activeMode.toLowerCase()}`}
               onChange={(event) => setQuery(event.target.value)}
             />
+            <button
+              type="button"
+              className={`btn btn--small ${searchAll ? 'btn--accent' : 'btn--ghost'}`.trim()}
+              onClick={() => setSearchAll((previous) => !previous)}
+            >
+              {searchAll ? 'Global Search' : 'Current View'}
+            </button>
             <button
               type="button"
               className="btn btn--ghost"
@@ -1195,96 +1701,236 @@ export function DashboardPage() {
             />
           </div>
 
+          {activeMode === 'Media' ? (
+            <div className="dashboard-controls-grid">
+              <div className="dashboard-filter-row">
+                {(['all', 'image', 'video', 'animation'] as const).map((filterValue) => (
+                  <button
+                    key={filterValue}
+                    type="button"
+                    className={`btn btn--small ${mediaTypeFilter === filterValue ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                    onClick={() => setMediaTypeFilter(filterValue)}
+                  >
+                    {filterValue.toUpperCase()}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={`btn btn--small ${showUnusedOnly ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                  onClick={() => setShowUnusedOnly((previous) => !previous)}
+                >
+                  {showUnusedOnly ? 'Unused Only: On' : 'Unused Only: Off'}
+                </button>
+                <label className="table-toolbar__field">
+                  Smart Tag
+                  <select value={activeSmartTag} onChange={(event) => setSelectedSmartTag(event.target.value)}>
+                    <option value="all">All tags</option>
+                    {mediaTagOptions.map((tag) => (
+                      <option key={tag} value={tag}>
+                        {tag}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="dashboard-filter-row">
+                <label className="table-toolbar__field table-toolbar__field--grow">
+                  Batch Tag (comma separated)
+                  <input
+                    value={batchTagDraft}
+                    onChange={(event) => setBatchTagDraft(event.target.value)}
+                    placeholder="Team Logos, Roster_2026"
+                  />
+                </label>
+                <button type="button" className="btn btn--ghost" onClick={applyBatchTagsToCurrentView}>
+                  <Tag size={14} />
+                  Apply to Current View
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {activeMode === 'Typography' ? (
+            <div className="dashboard-controls-grid">
+              <div className="dashboard-filter-row">
+                <label className="table-toolbar__field table-toolbar__field--grow">
+                  Specimen Preview
+                  <input
+                    value={fontPreviewText}
+                    onChange={(event) => setFontPreviewText(event.target.value)}
+                    placeholder={DEFAULT_FONT_SPECIMEN}
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="dashboard-breadcrumbs">
+            {activeBreadcrumbs.map((crumb, index) => (
+              <div key={`${crumb.mode}-${crumb.label}-${crumb.path ?? crumb.templateFilter ?? index}`} className="dashboard-breadcrumbs__item">
+                {index > 0 ? <span className="dashboard-breadcrumbs__sep">&gt;</span> : null}
+                <button
+                  type="button"
+                  className={`dashboard-breadcrumbs__btn ${
+                    index === activeBreadcrumbs.length - 1 ? 'dashboard-breadcrumbs__btn--active' : ''
+                  }`.trim()}
+                  onClick={() => handleBreadcrumbClick(crumb)}
+                >
+                  {crumb.label}
+                </button>
+              </div>
+            ))}
+          </div>
+
           <div className="table-toolbar__status mono">{tableStatusLabel}</div>
           {statusMessage ? <div className="table-toolbar__status mono">{statusMessage}</div> : null}
 
+          {searchAll && query.trim().length > 0 ? (
+            <div className="global-search-panel">
+              <div className="global-search-panel__header mono">GLOBAL SEARCH</div>
+              {globalResults.templates.length + globalResults.media.length + globalResults.fonts.length > 0 ? (
+                <div className="global-search-panel__columns">
+                  <div>
+                    <div className="global-search-panel__title">Templates ({globalResults.templates.length})</div>
+                    {globalResults.templates.slice(0, 4).map((template) => (
+                      <button
+                        key={template.id}
+                        type="button"
+                        className="global-search-panel__item mono"
+                        onClick={() => {
+                          setExplorerMode('Templates')
+                          setSelectedTemplateCardId(template.id)
+                          handleTemplateRowClick(template.id)
+                        }}
+                      >
+                        {template.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="global-search-panel__title">Media ({globalResults.media.length})</div>
+                    {globalResults.media.slice(0, 4).map((entry) => (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        className="global-search-panel__item mono"
+                        onClick={() => {
+                          setExplorerMode('Media')
+                          setSelectedAssetFolder(entry.folder)
+                          setSelectedEntryId(entry.id)
+                        }}
+                      >
+                        {entry.name}
+                      </button>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="global-search-panel__title">Typography ({globalResults.fonts.length})</div>
+                    {globalResults.fonts.slice(0, 4).map((group) => (
+                      <button
+                        key={group.family}
+                        type="button"
+                        className="global-search-panel__item mono"
+                        onClick={() => {
+                          setExplorerMode('Typography')
+                          setSelectedEntryId(group.family)
+                        }}
+                      >
+                        {group.family}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="inspector-empty">No global matches.</div>
+              )}
+            </div>
+          ) : null}
+
           {activeMode === 'Templates' ? (
-            <table className="template-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Version</th>
-                  <th>Bindings</th>
-                  <th>Dimensions</th>
-                  <th>Modified</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredTemplates.map((template) => (
-                  <tr
-                    key={template.id}
-                    className={previewTemplateId === template.id ? 'template-row--active' : ''}
-                    onClick={() => handleTemplateRowClick(template.id)}
+            <div className="library-grid library-grid--templates">
+              {filteredTemplatesForGrid.map((template) => (
+                <article
+                  key={template.id}
+                  className={`library-card ${previewTemplateId === template.id ? 'library-card--active' : ''}`.trim()}
+                  onClick={() => handleTemplateRowClick(template.id)}
+                  onDoubleClick={() => handleLoadTemplate(template.id)}
+                >
+                  <div className="library-card__surface">
+                    <SceneRenderer scene={template.scene} story={story} showSafeZone />
+                  </div>
+                  <div className="library-card__title">{template.label}</div>
+                  <div className="library-card__meta mono">v{template.version ?? 1} | {template.builtIn ? 'Built-In' : 'Custom'}</div>
+                  <div className="library-card__meta mono">{template.bindings?.length ?? 0} bindings</div>
+                  <div className="library-card__actions">
+                    <button
+                      type="button"
+                      className="btn btn--small btn--ghost"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleTemplateRowClick(template.id)
+                      }}
+                    >
+                      <Eye size={12} />
+                      Cue
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--small btn--ghost"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleLoadTemplate(template.id)
+                      }}
+                    >
+                      Load
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--small btn--ghost"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleDeleteTemplate(template)
+                      }}
+                      disabled={template.builtIn}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </article>
+              ))}
+              {filteredTemplatesForGrid.length === 0 ? (
+                <div className="inspector-empty">No templates match the current query/filter.</div>
+              ) : null}
+            </div>
+          ) : activeMode === 'Media' ? (
+            <div className="library-grid">
+              {mediaChildFolders.map((folderPath) => {
+                const folderName = folderPath.split('/').pop() ?? folderPath
+                return (
+                  <article
+                    key={folderPath}
+                    className="library-card library-card--media library-card--folder"
+                    onClick={() => {
+                      setSelectedAssetFolder(folderPath)
+                      setExpandedAssetFolders((previous) => Array.from(new Set([...previous, folderPath])))
+                    }}
                   >
-                    <td>{template.label}</td>
-                    <td>{template.builtIn ? 'Template (Built-In)' : 'Template (Custom)'}</td>
-                    <td className="mono">{previewTemplateId === template.id ? 'PVW' : ''}</td>
-                    <td className="mono">v{template.version ?? 1}</td>
-                    <td className="mono">{template.bindings?.length ?? 0}</td>
-                    <td>
-                      {template.scene.width}x{template.scene.height}
-                    </td>
-                    <td>{formatTemplateDate(template.updatedAt)}</td>
-                    <td>
-                      <div className="table-actions">
-                        <button
-                          type="button"
-                          className="btn btn--small btn--ghost"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            handleLoadTemplate(template.id)
-                          }}
-                        >
-                          Load
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn--small btn--ghost"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            handleDeleteTemplate(template)
-                          }}
-                          disabled={template.builtIn}
-                          title={template.builtIn ? 'Built-in templates cannot be deleted' : 'Delete custom template'}
-                        >
-                          <Trash2 size={13} />
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {filteredTemplates.length === 0 ? (
-                  <tr>
-                    <td colSpan={8}>
-                      <div className="inspector-empty">No templates match the current query/filter.</div>
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          ) : (
-            <table className="template-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Size</th>
-                  <th>Modified</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredExplorerEntries.map((entry) => (
-                  <tr
+                    <div className="library-card__surface library-card__surface--folder">
+                      <FolderOpen size={28} />
+                    </div>
+                    <div className="library-card__title">{folderName}</div>
+                    <div className="library-card__meta mono">FOLDER</div>
+                  </article>
+                )
+              })}
+              {filteredMediaEntries.map((entry) => {
+                const mediaType = mediaTypeForEntry(entry)
+                return (
+                  <article
                     key={entry.id}
-                    draggable
-                    className={selectedEntryId === entry.id ? 'template-row--active' : ''}
+                    className={`library-card library-card--media ${selectedEntryId === entry.id ? 'library-card--active' : ''}`.trim()}
                     onClick={() => setSelectedEntryId(entry.id)}
+                    draggable
                     onDragStart={(event) => {
                       setDraggedEntryId(entry.id)
                       setDraggedFolderPath('')
@@ -1309,49 +1955,186 @@ export function DashboardPage() {
                       setFolderDropTarget('')
                     }}
                   >
-                    <td className="asset-entry-name">
-                      <FileText size={14} />
-                      <span>{entry.name}</span>
-                    </td>
-                    <td>{entry.kind === 'font' ? entry.fontFamily ?? 'Font' : entry.mime || 'file'}</td>
-                    <td className="mono">{entry.dataUrl ? 'READY' : 'METADATA ONLY'}</td>
-                    <td className="mono">{formatBytes(entry.size)}</td>
-                    <td>{formatDate(entry.modifiedAt)}</td>
-                    <td>
-                      <div className="table-actions">
-                        <button
-                          type="button"
-                          className="btn btn--small btn--ghost"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            handleDeleteExplorerEntry(entry.id)
+                    <div className="library-card__surface">
+                      {mediaType === 'video' && entry.dataUrl ? (
+                        <video
+                          src={entry.dataUrl}
+                          muted
+                          loop
+                          playsInline
+                          preload="metadata"
+                          onMouseEnter={(event) => {
+                            void event.currentTarget.play().catch(() => {})
                           }}
-                        >
-                          <Trash2 size={13} />
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {filteredExplorerEntries.length === 0 ? (
-                  <tr>
-                    <td colSpan={6}>
-                      <div className="inspector-empty">No files in this folder yet. Use {uploadLabel} to add files.</div>
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+                          onMouseLeave={(event) => event.currentTarget.pause()}
+                        />
+                      ) : entry.dataUrl ? (
+                        <img src={entry.dataUrl} alt={entry.name} />
+                      ) : (
+                        <div className="library-card__fallback mono">NO PREVIEW</div>
+                      )}
+                    </div>
+                    <div className="library-card__title">{entry.name}</div>
+                    <div className="library-card__meta mono">
+                      {mediaType === 'video' ? (
+                        <Film size={12} />
+                      ) : mediaType === 'animation' ? (
+                        <Puzzle size={12} />
+                      ) : (
+                        <FileImage size={12} />
+                      )}
+                      {mediaType.toUpperCase()} | {formatBytes(entry.size)}
+                    </div>
+                    <div className="library-card__meta mono">{(entry.tags ?? []).join(', ') || 'No tags'}</div>
+                  </article>
+                )
+              })}
+              {filteredMediaEntries.length === 0 && mediaChildFolders.length === 0 ? (
+                <div className="inspector-empty">No media in current view.</div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="library-grid">
+              {filteredFontGroups.map((group) => (
+                <button
+                  key={group.family}
+                  type="button"
+                  className={`library-card ${selectedEntryId === group.family ? 'library-card--active' : ''}`.trim()}
+                  onClick={() => setSelectedEntryId(group.family)}
+                >
+                  <div className="library-card__surface library-card__surface--font">
+                    <div className="library-card__font-preview" style={{ fontFamily: group.family }}>
+                      {fontPreviewText || DEFAULT_FONT_SPECIMEN}
+                    </div>
+                  </div>
+                  <div className="library-card__title">{group.family}</div>
+                  <div className="library-card__meta mono">{group.source === 'custom' ? 'CUSTOM' : 'SYSTEM'}</div>
+                  <div className="library-card__meta mono">{usedFontFamilies.has(group.family) ? 'USED' : 'UNUSED'}</div>
+                </button>
+              ))}
+              {filteredFontGroups.length === 0 ? <div className="inspector-empty">No fonts in current view.</div> : null}
+            </div>
           )}
         </div>
 
         <aside className="panel panel--right">
-          <div className="panel-title">Templates Protocol</div>
-          <p>
-            Package contract: <span className="mono">scenegraph + bindings + metadata + integrity</span> with v1/v2
-            migration tooling.
-          </p>
+          <div className="panel-title">{inspectorTitle}</div>
+          <div className="panel-subtitle">
+            {activeMode === 'Templates'
+              ? 'Template package metadata, versions, and binding coverage.'
+              : activeMode === 'Media'
+                ? 'Asset details, usage, and cleanup actions.'
+                : 'Font family groups and specimen preview.'}
+          </div>
+
+          {activeMode === 'Templates' ? (
+            selectedTemplate ? (
+              <div className="inspector-section">
+                <div className="template-thumb__surface">
+                  <SceneRenderer scene={selectedTemplate.scene} story={story} showSafeZone />
+                </div>
+                <div className="binding-panel">
+                  <div className="binding-panel__meta mono">ID: {selectedTemplate.id}</div>
+                  <div className="binding-panel__meta mono">Version: v{selectedTemplate.version ?? 1}</div>
+                  <div className="binding-panel__meta mono">Updated: {formatTemplateDate(selectedTemplate.updatedAt)}</div>
+                  <div className="binding-panel__meta mono">Bindings: {selectedTemplate.bindings?.length ?? 0}</div>
+                </div>
+                <div className="story-actions">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => handleTemplateRowClick(selectedTemplate.id)}
+                  >
+                    <Eye size={14} />
+                    Cue Preview
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--small btn--accent"
+                    onClick={() => handleLoadTemplate(selectedTemplate.id)}
+                  >
+                    Load to Design
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="inspector-empty">Select a template card to inspect metadata and bindings.</div>
+            )
+          ) : null}
+
+          {activeMode === 'Media' ? (
+            selectedMediaEntry ? (
+              <div className="inspector-section">
+                <div className="library-card__surface">
+                  {mediaTypeForEntry(selectedMediaEntry) === 'video' ? (
+                    <video src={selectedMediaEntry.dataUrl} controls muted preload="metadata" />
+                  ) : selectedMediaEntry.dataUrl ? (
+                    <img src={selectedMediaEntry.dataUrl} alt={selectedMediaEntry.name} />
+                  ) : (
+                    <div className="library-card__fallback mono">NO PREVIEW</div>
+                  )}
+                </div>
+                <div className="binding-panel">
+                  <div className="binding-panel__meta mono">Type: {mediaTypeForEntry(selectedMediaEntry).toUpperCase()}</div>
+                  <div className="binding-panel__meta mono">Size: {formatBytes(selectedMediaEntry.size)}</div>
+                  <div className="binding-panel__meta mono">Modified: {formatDate(selectedMediaEntry.modifiedAt)}</div>
+                  <div className="binding-panel__meta mono">Folder: {selectedMediaEntry.folder}</div>
+                  <div className="binding-panel__meta mono">
+                    <Tag size={12} />
+                    {(selectedMediaEntry.tags ?? []).join(', ') || 'No tags'}
+                  </div>
+                </div>
+                <div className="story-actions">
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => {
+                      setSelectedAssetFolder(selectedMediaEntry.folder)
+                      setExplorerMode('Media')
+                    }}
+                  >
+                    Show Folder
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--small btn--ghost"
+                    onClick={() => handleDeleteExplorerEntry(selectedMediaEntry.id)}
+                  >
+                    <Trash2 size={14} />
+                    Delete Asset
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="inspector-empty">Select a media card to inspect metadata and tags.</div>
+            )
+          ) : null}
+
+          {activeMode === 'Typography' ? (
+            selectedFontGroup ? (
+              <div className="inspector-section">
+                <div className="library-card__surface library-card__surface--font">
+                  <div className="library-card__font-preview" style={{ fontFamily: selectedFontGroup.family }}>
+                    {fontPreviewText || DEFAULT_FONT_SPECIMEN}
+                  </div>
+                </div>
+                <div className="binding-panel">
+                  <div className="binding-panel__meta mono">Source: {selectedFontGroup.source.toUpperCase()}</div>
+                  <div className="binding-panel__meta mono">Variants: {selectedFontGroup.entries.length}</div>
+                  <div className="binding-panel__meta mono">
+                    Usage: {usedFontFamilies.has(selectedFontGroup.family) ? 'In Use' : 'Unused'}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="inspector-empty">Select a font family to inspect variants and usage.</div>
+            )
+          ) : null}
+
+          <div className="protocol-item">
+            <FileText size={16} />
+            <span>Package contract: scenegraph + bindings + metadata + integrity</span>
+          </div>
           <div className="protocol-item">
             <Puzzle size={16} />
             <span>Import/export uses renderless.template-package v2</span>
