@@ -24,6 +24,25 @@ interface StageCanvasProps {
   onMoveLayers?: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
 }
 
+interface RulerTick {
+  value: number
+  percent: number
+  major: boolean
+}
+
+function buildRulerTicks(limit: number): RulerTick[] {
+  const ticks: RulerTick[] = []
+  for (let value = 0; value <= limit; value += 50) {
+    ticks.push({
+      value,
+      percent: value / limit,
+      major: value % 100 === 0,
+    })
+  }
+
+  return ticks
+}
+
 export function StageCanvas({
   scene,
   story,
@@ -40,34 +59,33 @@ export function StageCanvas({
 }: StageCanvasProps) {
   const [stageOffset, setStageOffset] = useState({ x: 0, y: 0 })
 
-  const rulerTicks = useMemo(() => {
-    const ticks: Array<{ value: number; percent: number }> = []
-    for (let value = 0; value <= 1900; value += 100) {
-      ticks.push({
-        value,
-        percent: value / 1920,
-      })
-    }
-
-    return ticks
-  }, [])
+  const horizontalTicks = useMemo(() => buildRulerTicks(scene.width), [scene.width])
+  const verticalTicks = useMemo(() => buildRulerTicks(scene.height), [scene.height])
 
   return (
     <div className="stage-canvas">
       {showRulers ? (
         <>
           <div className="stage-ruler stage-ruler--top mono">
-            {rulerTicks.map((tick) => (
-              <span key={tick.value} style={{ left: `${tick.percent * 100}%` }}>
-                {tick.value}
-              </span>
+            {horizontalTicks.map((tick) => (
+              <div
+                key={`h-${tick.value}`}
+                className={`stage-ruler__tick ${tick.major ? 'stage-ruler__tick--major' : ''}`.trim()}
+                style={{ left: `${tick.percent * 100}%` }}
+              >
+                {tick.major ? <span>{tick.value}</span> : null}
+              </div>
             ))}
           </div>
           <div className="stage-ruler stage-ruler--left mono">
-            {[0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000].map((tick) => (
-              <span key={tick} style={{ top: `${(tick / 1080) * 100}%` }}>
-                {tick}
-              </span>
+            {verticalTicks.map((tick) => (
+              <div
+                key={`v-${tick.value}`}
+                className={`stage-ruler__tick stage-ruler__tick--vertical ${tick.major ? 'stage-ruler__tick--major' : ''}`.trim()}
+                style={{ top: `${tick.percent * 100}%` }}
+              >
+                {tick.major ? <span>{tick.value}</span> : null}
+              </div>
             ))}
           </div>
         </>
@@ -75,8 +93,12 @@ export function StageCanvas({
 
       {showGuides ? (
         <div className="stage-guides">
-          <div className="stage-guide stage-guide--h" />
-          <div className="stage-guide stage-guide--v" />
+          <div className="stage-guide stage-guide--h stage-guide--center" style={{ top: '50%' }} />
+          <div className="stage-guide stage-guide--v stage-guide--center" style={{ left: '50%' }} />
+          <div className="stage-guide stage-guide--h" style={{ top: '33.333%' }} />
+          <div className="stage-guide stage-guide--h" style={{ top: '66.666%' }} />
+          <div className="stage-guide stage-guide--v" style={{ left: '33.333%' }} />
+          <div className="stage-guide stage-guide--v" style={{ left: '66.666%' }} />
         </div>
       ) : null}
 

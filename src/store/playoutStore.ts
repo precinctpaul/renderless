@@ -114,8 +114,8 @@ interface PlayoutStore {
   reorderPreviewLayerToIndex: (layerId: string, targetIndex: number) => void
   updatePreviewLayersTransform: (layerIds: string[], patch: SceneTransformPatch) => void
   movePreviewLayersByDelta: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
-  alignPreviewLayers: (layerIds: string[], mode: LayerAlignMode) => void
-  distributePreviewLayers: (layerIds: string[], axis: LayerDistributeAxis) => void
+  alignPreviewLayers: (layerIds: string[], mode: LayerAlignMode, snapToGrid?: boolean) => void
+  distributePreviewLayers: (layerIds: string[], axis: LayerDistributeAxis, snapToGrid?: boolean) => void
   updatePreviewLayerTransform: (layerId: string, patch: SceneTransformPatch) => void
   updatePreviewShapeStyle: (layerId: string, patch: ShapeStylePatch) => void
   updatePreviewTextStyle: (layerId: string, patch: TextStylePatch) => void
@@ -558,6 +558,10 @@ function moveLayersByDelta(
   }
 
   const snap = (value: number) => (snapToGrid ? Math.round(value / 10) * 10 : value)
+  const clampX = (layer: SceneDefinition['layers'][number], nextX: number) =>
+    Math.min(Math.max(0, nextX), Math.max(0, scene.width - layer.width))
+  const clampY = (layer: SceneDefinition['layers'][number], nextY: number) =>
+    Math.min(Math.max(0, nextY), Math.max(0, scene.height - layer.height))
 
   return {
     ...scene,
@@ -568,8 +572,8 @@ function moveLayersByDelta(
 
       return {
         ...layer,
-        x: Math.round(Math.max(0, snap(layer.x + deltaX))),
-        y: Math.round(Math.max(0, snap(layer.y + deltaY))),
+        x: Math.round(clampX(layer, snap(layer.x + deltaX))),
+        y: Math.round(clampY(layer, snap(layer.y + deltaY))),
       }
     }),
   }
@@ -580,7 +584,12 @@ function getSelectedLayers(scene: SceneDefinition, layerIds: string[]): SceneDef
   return scene.layers.filter((layer) => selectedIdSet.has(layer.id))
 }
 
-function alignLayersByMode(scene: SceneDefinition, layerIds: string[], mode: LayerAlignMode): SceneDefinition {
+function alignLayersByMode(
+  scene: SceneDefinition,
+  layerIds: string[],
+  mode: LayerAlignMode,
+  snapToGrid = false,
+): SceneDefinition {
   const selectedLayers = getSelectedLayers(scene, layerIds)
   if (selectedLayers.length < 2) {
     return scene
@@ -593,6 +602,7 @@ function alignLayersByMode(scene: SceneDefinition, layerIds: string[], mode: Lay
   const horizontalCenter = (leftEdge + rightEdge) / 2
   const verticalCenter = (topEdge + bottomEdge) / 2
   const selectedIdSet = new Set(layerIds)
+  const snap = (value: number) => (snapToGrid ? Math.round(value / 10) * 10 : value)
 
   return {
     ...scene,
@@ -601,19 +611,24 @@ function alignLayersByMode(scene: SceneDefinition, layerIds: string[], mode: Lay
         return layer
       }
 
+      const clampX = (nextX: number) => Math.min(Math.max(0, nextX), Math.max(0, scene.width - layer.width))
+      const clampY = (nextY: number) => Math.min(Math.max(0, nextY), Math.max(0, scene.height - layer.height))
+      const normalizedX = (nextX: number) => Math.round(clampX(snap(nextX)))
+      const normalizedY = (nextY: number) => Math.round(clampY(snap(nextY)))
+
       switch (mode) {
         case 'left':
-          return { ...layer, x: Math.round(leftEdge) }
+          return { ...layer, x: normalizedX(leftEdge) }
         case 'hCenter':
-          return { ...layer, x: Math.round(horizontalCenter - layer.width / 2) }
+          return { ...layer, x: normalizedX(horizontalCenter - layer.width / 2) }
         case 'right':
-          return { ...layer, x: Math.round(rightEdge - layer.width) }
+          return { ...layer, x: normalizedX(rightEdge - layer.width) }
         case 'top':
-          return { ...layer, y: Math.round(topEdge) }
+          return { ...layer, y: normalizedY(topEdge) }
         case 'vMiddle':
-          return { ...layer, y: Math.round(verticalCenter - layer.height / 2) }
+          return { ...layer, y: normalizedY(verticalCenter - layer.height / 2) }
         case 'bottom':
-          return { ...layer, y: Math.round(bottomEdge - layer.height) }
+          return { ...layer, y: normalizedY(bottomEdge - layer.height) }
         default:
           return layer
       }
@@ -621,7 +636,12 @@ function alignLayersByMode(scene: SceneDefinition, layerIds: string[], mode: Lay
   }
 }
 
-function distributeLayers(scene: SceneDefinition, layerIds: string[], axis: LayerDistributeAxis): SceneDefinition {
+function distributeLayers(
+  scene: SceneDefinition,
+  layerIds: string[],
+  axis: LayerDistributeAxis,
+  snapToGrid = false,
+): SceneDefinition {
   const selectedLayers = getSelectedLayers(scene, layerIds)
   if (selectedLayers.length < 3) {
     return scene
@@ -639,9 +659,10 @@ function distributeLayers(scene: SceneDefinition, layerIds: string[], axis: Laye
   const end = axis === 'horizontal' ? lastLayer.x : lastLayer.y
   const step = (end - start) / (sortedLayers.length - 1)
   const nextById = new Map<string, { x?: number; y?: number }>()
+  const snap = (value: number) => (snapToGrid ? Math.round(value / 10) * 10 : value)
 
   sortedLayers.forEach((layer, index) => {
-    const nextValue = Math.round(start + step * index)
+    const nextValue = snap(start + step * index)
     if (axis === 'horizontal') {
       nextById.set(layer.id, { x: nextValue })
       return
@@ -660,8 +681,12 @@ function distributeLayers(scene: SceneDefinition, layerIds: string[], axis: Laye
 
       return {
         ...layer,
-        x: Number.isFinite(entry.x) ? Math.max(0, Math.round(entry.x ?? layer.x)) : layer.x,
-        y: Number.isFinite(entry.y) ? Math.max(0, Math.round(entry.y ?? layer.y)) : layer.y,
+        x: Number.isFinite(entry.x)
+          ? Math.min(Math.max(0, Math.round(entry.x ?? layer.x)), Math.max(0, scene.width - layer.width))
+          : layer.x,
+        y: Number.isFinite(entry.y)
+          ? Math.min(Math.max(0, Math.round(entry.y ?? layer.y)), Math.max(0, scene.height - layer.height))
+          : layer.y,
       }
     }),
   }
@@ -1041,19 +1066,19 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       commitPreviewScene((scene) => moveLayersByDelta(scene, layerIds, delta, snapToGrid))
     },
-    alignPreviewLayers: (layerIds, mode) => {
+    alignPreviewLayers: (layerIds, mode, snapToGrid = false) => {
       if (layerIds.length < 2) {
         return
       }
 
-      commitPreviewScene((scene) => alignLayersByMode(scene, layerIds, mode))
+      commitPreviewScene((scene) => alignLayersByMode(scene, layerIds, mode, snapToGrid))
     },
-    distributePreviewLayers: (layerIds, axis) => {
+    distributePreviewLayers: (layerIds, axis, snapToGrid = false) => {
       if (layerIds.length < 3) {
         return
       }
 
-      commitPreviewScene((scene) => distributeLayers(scene, layerIds, axis))
+      commitPreviewScene((scene) => distributeLayers(scene, layerIds, axis, snapToGrid))
     },
     updatePreviewLayerTransform: (layerId, patch) => {
       commitPreviewScene((scene) => ({

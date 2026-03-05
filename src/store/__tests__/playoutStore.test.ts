@@ -145,6 +145,36 @@ describe('Playout reliability and QA regression suite', () => {
     expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')).toEqual({ x: 170, y: 120 })
   })
 
+  test('snap-enabled align and distribute actions round to the 10px grid', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 163, y: 117 })
+    usePlayoutStore.getState().updatePreviewLayerTransform('text-home-mark', { x: 247, y: 311 })
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-away-block', { x: 509, y: 523 })
+
+    const selection = ['shape-home-block', 'text-home-mark', 'shape-away-block']
+    usePlayoutStore.getState().alignPreviewLayers(selection, 'left', true)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x).toBe(160)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'text-home-mark').x).toBe(160)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-away-block').x).toBe(160)
+
+    usePlayoutStore.getState().distributePreviewLayers(selection, 'vertical', true)
+    const distributed = usePlayoutStore.getState().previewScene
+    expect(getLayerPosition(distributed, 'shape-home-block').y % 10).toBe(0)
+    expect(getLayerPosition(distributed, 'text-home-mark').y % 10).toBe(0)
+    expect(getLayerPosition(distributed, 'shape-away-block').y % 10).toBe(0)
+  })
+
+  test('layer movement clamps to stage bounds', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-home-block'], { x: 5000, y: 5000 }, false)
+    const clampedPosition = getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')
+    expect(clampedPosition).toEqual({ x: 1610, y: 820 })
+  })
+
   test('multi-layer align and distribute actions produce expected geometry', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 

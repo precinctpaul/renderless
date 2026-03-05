@@ -34,6 +34,7 @@ const toNumberOrNull = (value: string) => {
 const asPercent = (opacity: number) => Math.round(opacity * 100)
 const fromPercent = (percent: number) => Math.min(Math.max(percent, 0), 100) / 100
 const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'template-package'
+const GRID_SNAP_STEP = 10
 
 function downloadTemplatePackageFile(templatePackage: TemplatePackage) {
   const fileName = `${slugify(templatePackage.metadata.label)}.rltpl.json`
@@ -111,6 +112,8 @@ export function DesignPage() {
   const [uploadedAssets, setUploadedAssets] = useState<string[]>([])
   const [renamingLayerId, setRenamingLayerId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  const [isInspectorRenaming, setIsInspectorRenaming] = useState(false)
+  const [inspectorRenameDraft, setInspectorRenameDraft] = useState('')
   const assetInputRef = useRef<HTMLInputElement | null>(null)
 
   const orderedLayers = useMemo(() => [...scene.layers].reverse(), [scene.layers])
@@ -152,7 +155,7 @@ export function DesignPage() {
 
       let deltaX = 0
       let deltaY = 0
-      const nudgeBy = event.shiftKey ? 10 : 1
+      const nudgeBy = event.shiftKey ? GRID_SNAP_STEP : 1
 
       if (event.key === 'ArrowLeft') deltaX = -nudgeBy
       if (event.key === 'ArrowRight') deltaX = nudgeBy
@@ -161,12 +164,12 @@ export function DesignPage() {
 
       if (deltaX !== 0 || deltaY !== 0) {
         event.preventDefault()
-        movePreviewLayersByDelta(selectedIds, { x: deltaX, y: deltaY }, false)
+        movePreviewLayersByDelta(selectedIds, { x: deltaX, y: deltaY }, snapToGrid)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [activeSelectedLayerIds, interactionMode, movePreviewLayersByDelta, redoPreviewScene, undoPreviewScene])
+  }, [activeSelectedLayerIds, interactionMode, movePreviewLayersByDelta, redoPreviewScene, snapToGrid, undoPreviewScene])
 
   const handleLayerSelection = (layerId: string, modifiers?: SelectionModifiers) => {
     if (!layerId) {
@@ -193,8 +196,16 @@ export function DesignPage() {
   const commitTransform = (field: 'x' | 'y' | 'width' | 'height', value: string) => {
     const numberValue = toNumberOrNull(value)
     if (numberValue === null || selectedLayers.length === 0) return
-    if (selectedLayers.length === 1 && primarySelectedLayer) updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: numberValue })
-    else updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: numberValue })
+
+    const shouldSnap = snapToGrid && (field === 'x' || field === 'y' || field === 'width' || field === 'height')
+    const normalizedValue = shouldSnap ? Math.round(numberValue / GRID_SNAP_STEP) * GRID_SNAP_STEP : numberValue
+
+    if (selectedLayers.length === 1 && primarySelectedLayer) {
+      updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: normalizedValue })
+      return
+    }
+
+    updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: normalizedValue })
   }
   const commitAdvanced = (field: 'rotation' | 'anchorX' | 'anchorY' | 'scaleX' | 'scaleY', value: string) => {
     const numberValue = toNumberOrNull(value)
@@ -223,15 +234,32 @@ export function DesignPage() {
 
   const handleAlign = (mode: 'left' | 'hCenter' | 'right' | 'top' | 'vMiddle' | 'bottom') => {
     if (selectedLayers.length === 0) return setTransientStatus('Select at least one layer.')
-    if (selectedLayers.length >= 2) return alignPreviewLayers(activeSelectedLayerIds, mode)
+    if (selectedLayers.length >= 2) {
+      alignPreviewLayers(activeSelectedLayerIds, mode, snapToGrid)
+      setTransientStatus(`Aligned ${selectedLayers.length} layer(s).`, 1200)
+      return
+    }
+
     const layer = selectedLayers[0]
     if (!layer) return
+
+    const snap = (value: number) => (snapToGrid ? Math.round(value / GRID_SNAP_STEP) * GRID_SNAP_STEP : Math.round(value))
     if (mode === 'left') return updatePreviewLayerTransform(layer.id, { x: 0 })
-    if (mode === 'hCenter') return updatePreviewLayerTransform(layer.id, { x: Math.round((scene.width - layer.width) / 2) })
-    if (mode === 'right') return updatePreviewLayerTransform(layer.id, { x: scene.width - layer.width })
+    if (mode === 'hCenter') return updatePreviewLayerTransform(layer.id, { x: snap((scene.width - layer.width) / 2) })
+    if (mode === 'right') return updatePreviewLayerTransform(layer.id, { x: snap(scene.width - layer.width) })
     if (mode === 'top') return updatePreviewLayerTransform(layer.id, { y: 0 })
-    if (mode === 'vMiddle') return updatePreviewLayerTransform(layer.id, { y: Math.round((scene.height - layer.height) / 2) })
-    return updatePreviewLayerTransform(layer.id, { y: scene.height - layer.height })
+    if (mode === 'vMiddle') return updatePreviewLayerTransform(layer.id, { y: snap((scene.height - layer.height) / 2) })
+    return updatePreviewLayerTransform(layer.id, { y: snap(scene.height - layer.height) })
+  }
+
+  const handleDistribute = (axis: 'horizontal' | 'vertical') => {
+    if (selectedLayers.length < 3) {
+      setTransientStatus('Select at least 3 layers to distribute.')
+      return
+    }
+
+    distributePreviewLayers(activeSelectedLayerIds, axis, snapToGrid)
+    setTransientStatus(`Distributed ${selectedLayers.length} layer(s).`, 1200)
   }
 
   const handleSaveTemplate = () => {
@@ -260,8 +288,31 @@ export function DesignPage() {
   }
   const commitRenameLayer = () => {
     if (!renamingLayerId) return
-    renamePreviewLayer(renamingLayerId, renameDraft)
+
+    const nextName = renameDraft.trim()
+    if (nextName) {
+      renamePreviewLayer(renamingLayerId, nextName)
+    } else {
+      setTransientStatus('Layer name cannot be empty.')
+    }
     setRenamingLayerId(null)
+  }
+
+  const commitInspectorRename = () => {
+    if (selectedLayers.length !== 1 || !primarySelectedLayer) {
+      setIsInspectorRenaming(false)
+      return
+    }
+
+    const nextName = inspectorRenameDraft.trim()
+    if (nextName) {
+      renamePreviewLayer(primarySelectedLayer.id, nextName)
+      setInspectorRenameDraft(nextName)
+    } else {
+      setTransientStatus('Layer name cannot be empty.')
+      setInspectorRenameDraft(primarySelectedLayer.name)
+    }
+    setIsInspectorRenaming(false)
   }
 
   const bindingPreviewValue =
@@ -297,7 +348,21 @@ export function DesignPage() {
                   <div key={layer.id} className={classes.trim()} draggable onDragStart={(event) => { setDraggingLayerId(layer.id); setDragTargetLayerId(layer.id); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', layer.id) }} onDragOver={(event) => { event.preventDefault(); setDragTargetLayerId(layer.id) }} onDrop={(event) => { event.preventDefault(); handleDropOnLayer(layer.id); setDraggingLayerId(null); setDragTargetLayerId(null) }} onDragEnd={() => { setDraggingLayerId(null); setDragTargetLayerId(null) }}>
                     <button type="button" className="layer-item__main" onClick={(event) => handleLayerSelection(layer.id, { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey })} onDoubleClick={() => { setRenamingLayerId(layer.id); setRenameDraft(layer.name) }}>
                       {renamingLayerId === layer.id ? (
-                        <input className="mono" value={renameDraft} autoFocus onChange={(event) => setRenameDraft(event.target.value)} onBlur={commitRenameLayer} onKeyDown={(event) => { if (event.key === 'Enter') commitRenameLayer(); if (event.key === 'Escape') setRenamingLayerId(null) }} />
+                        <input
+                          className="mono"
+                          value={renameDraft}
+                          autoFocus
+                          onChange={(event) => setRenameDraft(event.target.value)}
+                          onBlur={commitRenameLayer}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') commitRenameLayer()
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              setRenameDraft(layer.name)
+                              setRenamingLayerId(null)
+                            }
+                          }}
+                        />
                       ) : <span>{layer.name}</span>}
                       <Move3D size={14} />
                     </button>
@@ -332,14 +397,53 @@ export function DesignPage() {
             <button type="button" className="btn btn--small btn--ghost" onClick={() => handleAlign('top')}><AlignJustify size={14} />Top</button>
             <button type="button" className="btn btn--small btn--ghost" onClick={() => handleAlign('vMiddle')}><AlignCenter size={14} />V Middle</button>
             <button type="button" className="btn btn--small btn--ghost" onClick={() => handleAlign('bottom')}><AlignJustify size={14} />Bottom</button>
-            <button type="button" className="btn btn--small btn--ghost" disabled={selectedLayers.length < 3} onClick={() => distributePreviewLayers(activeSelectedLayerIds, 'horizontal')}><AlignHorizontalDistributeCenter size={14} />Dist H</button>
-            <button type="button" className="btn btn--small btn--ghost" disabled={selectedLayers.length < 3} onClick={() => distributePreviewLayers(activeSelectedLayerIds, 'vertical')}><AlignVerticalDistributeCenter size={14} />Dist V</button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={selectedLayers.length < 3} onClick={() => handleDistribute('horizontal')}><AlignHorizontalDistributeCenter size={14} />Dist H</button>
+            <button type="button" className="btn btn--small btn--ghost" disabled={selectedLayers.length < 3} onClick={() => handleDistribute('vertical')}><AlignVerticalDistributeCenter size={14} />Dist V</button>
           </div>
           <div className="stage-toolbar stage-toolbar--subtle">
-            <button type="button" className={`btn btn--small ${showRulers ? 'btn--accent-soft' : 'btn--ghost'}`} onClick={() => setShowRulers((prev) => !prev)}>Rulers</button>
-            <button type="button" className={`btn btn--small ${showGuides ? 'btn--accent-soft' : 'btn--ghost'}`} onClick={() => setShowGuides((prev) => !prev)}>Guides</button>
-            <button type="button" className={`btn btn--small ${showGrid ? 'btn--accent-soft' : 'btn--ghost'}`} onClick={() => setShowGrid((prev) => !prev)}>Grid</button>
-            <button type="button" className={`btn btn--small ${snapToGrid ? 'btn--accent-soft' : 'btn--ghost'}`} onClick={() => setSnapToGrid((prev) => !prev)}>Snap</button>
+            <button
+              type="button"
+              className={`btn btn--small ${showRulers ? 'btn--accent-soft' : 'btn--ghost'}`}
+              onClick={() => {
+                setShowRulers((prev) => !prev)
+                setTransientStatus(showRulers ? 'Rulers hidden.' : 'Rulers enabled.', 1100)
+              }}
+            >
+              Rulers
+            </button>
+            <button
+              type="button"
+              className={`btn btn--small ${showGuides ? 'btn--accent-soft' : 'btn--ghost'}`}
+              onClick={() => {
+                setShowGuides((prev) => !prev)
+                setTransientStatus(showGuides ? 'Guides hidden.' : 'Guides enabled.', 1100)
+              }}
+            >
+              Guides
+            </button>
+            <button
+              type="button"
+              className={`btn btn--small ${showGrid ? 'btn--accent-soft' : 'btn--ghost'}`}
+              onClick={() => {
+                setShowGrid((prev) => !prev)
+                setTransientStatus(showGrid ? 'Grid hidden.' : 'Grid enabled.', 1100)
+              }}
+            >
+              Grid
+            </button>
+            <button
+              type="button"
+              className={`btn btn--small ${snapToGrid ? 'btn--accent-soft' : 'btn--ghost'}`}
+              onClick={() => {
+                setSnapToGrid((prev) => !prev)
+                setTransientStatus(snapToGrid ? 'Snap disabled.' : `Snap enabled (${GRID_SNAP_STEP}px).`, 1100)
+              }}
+            >
+              Snap
+            </button>
+            <span className="stage-toolbar__hint mono">
+              {snapToGrid ? `SNAP ${GRID_SNAP_STEP}px` : 'SNAP OFF'} | ARROWS NUDGE
+            </span>
             {versionHistory.length > 0 ? (
               <>
                 <select className="stage-select mono" value={versionToRestore} onChange={(event) => setVersionToRestore(event.target.value)}>
@@ -362,7 +466,40 @@ export function DesignPage() {
             <>
               <div className="inspector-section">
                 <div className="inspector-section__label mono">SELECTED ({selectedLayers.length})</div>
-                <div className="inspector-layer-name">{selectedLayers.length > 1 ? 'Multiple Layers' : <input value={primarySelectedLayer?.name ?? ''} onChange={(event) => primarySelectedLayer && renamePreviewLayer(primarySelectedLayer.id, event.target.value)} />}</div>
+                <div className="inspector-layer-name">
+                  {selectedLayers.length > 1 ? (
+                    'Multiple Layers'
+                  ) : isInspectorRenaming ? (
+                    <input
+                      value={inspectorRenameDraft}
+                      autoFocus
+                      onChange={(event) => setInspectorRenameDraft(event.target.value)}
+                      onBlur={commitInspectorRename}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') commitInspectorRename()
+                        if (event.key === 'Escape') {
+                          setIsInspectorRenaming(false)
+                          setInspectorRenameDraft(primarySelectedLayer?.name ?? '')
+                        }
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="inspector-rename-trigger"
+                      onDoubleClick={() => {
+                        setInspectorRenameDraft(primarySelectedLayer?.name ?? '')
+                        setIsInspectorRenaming(true)
+                      }}
+                      onClick={() => {
+                        setInspectorRenameDraft(primarySelectedLayer?.name ?? '')
+                        setIsInspectorRenaming(true)
+                      }}
+                    >
+                      {primarySelectedLayer?.name ?? ''}
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="inspector-section">
                 <div className="inspector-section__label">Transform</div>

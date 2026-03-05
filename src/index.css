@@ -718,6 +718,13 @@ select:focus {
   font-size: 11px;
 }
 
+.stage-toolbar__hint {
+  color: var(--zinc-300);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  margin-right: 4px;
+}
+
 .stage-select {
   min-height: 30px;
   font-size: 11px;
@@ -751,54 +758,97 @@ select:focus {
 
 .stage-ruler {
   position: absolute;
-  z-index: 4;
+  z-index: 5;
   pointer-events: none;
+  border: 1px solid #244064;
+  border-radius: 6px;
+  background: rgba(7, 17, 33, 0.8);
+  overflow: hidden;
 }
 
-.stage-ruler span {
+.stage-ruler__tick {
   position: absolute;
-  font-size: 10px;
-  color: #93c5fd;
+  width: 1px;
+  background: rgba(147, 197, 253, 0.4);
+}
+
+.stage-ruler__tick--major {
+  background: rgba(191, 219, 254, 0.82);
+}
+
+.stage-ruler__tick span {
+  position: absolute;
+  font-size: 9px;
+  color: #bfdbfe;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+.stage-ruler__tick--vertical span {
+  right: 2px;
+  top: -5px;
 }
 
 .stage-ruler--top {
   left: 10px;
   right: 10px;
-  top: 6px;
-  height: 14px;
+  top: 8px;
+  height: 20px;
+}
+
+.stage-ruler--top .stage-ruler__tick {
+  top: 0;
+  bottom: 0;
+}
+
+.stage-ruler--top .stage-ruler__tick span {
+  top: 2px;
+  left: 3px;
 }
 
 .stage-ruler--left {
-  top: 20px;
+  top: 32px;
   bottom: 10px;
-  left: 2px;
-  width: 42px;
+  left: 8px;
+  width: 40px;
+}
+
+.stage-ruler--left .stage-ruler__tick {
+  left: 0;
+  right: 0;
+  height: 1px;
+}
+
+.stage-ruler--left .stage-ruler__tick--vertical {
+  width: auto;
 }
 
 .stage-guides {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 3;
+  z-index: 4;
 }
 
 .stage-guide {
   position: absolute;
-  background: rgba(59, 130, 246, 0.55);
+  background: rgba(59, 130, 246, 0.38);
 }
 
 .stage-guide--h {
   left: 0;
   right: 0;
-  top: 50%;
   height: 1px;
 }
 
 .stage-guide--v {
   top: 0;
   bottom: 0;
-  left: 50%;
   width: 1px;
+}
+
+.stage-guide--center {
+  background: rgba(59, 130, 246, 0.72);
 }
 
 .inspector-section {
@@ -820,6 +870,26 @@ select:focus {
 .inspector-layer-name {
   font-size: 18px;
   font-weight: 700;
+}
+
+.inspector-rename-trigger {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--zinc-800);
+  border-radius: 8px;
+  background: #0d1728;
+  color: var(--zinc-100);
+  text-align: left;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 0 10px;
+  cursor: text;
+  transition: all 200ms ease-in-out;
+}
+
+.inspector-rename-trigger:hover {
+  border-color: #2f4f7c;
+  background: #122035;
 }
 
 .transform-grid {
