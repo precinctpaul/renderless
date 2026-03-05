@@ -135,11 +135,38 @@ export function DesignPage() {
         event.preventDefault()
         if (event.shiftKey) redoPreviewScene()
         else undoPreviewScene()
+        return
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setSelectedLayerIds([])
+        setSelectionAnchorId(null)
+        return
+      }
+
+      const selectedIds = activeSelectedLayerIds
+      if (selectedIds.length === 0 || interactionMode !== 'select') {
+        return
+      }
+
+      let deltaX = 0
+      let deltaY = 0
+      const nudgeBy = event.shiftKey ? 10 : 1
+
+      if (event.key === 'ArrowLeft') deltaX = -nudgeBy
+      if (event.key === 'ArrowRight') deltaX = nudgeBy
+      if (event.key === 'ArrowUp') deltaY = -nudgeBy
+      if (event.key === 'ArrowDown') deltaY = nudgeBy
+
+      if (deltaX !== 0 || deltaY !== 0) {
+        event.preventDefault()
+        movePreviewLayersByDelta(selectedIds, { x: deltaX, y: deltaY }, false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [redoPreviewScene, undoPreviewScene])
+  }, [activeSelectedLayerIds, interactionMode, movePreviewLayersByDelta, redoPreviewScene, undoPreviewScene])
 
   const handleLayerSelection = (layerId: string, modifiers?: SelectionModifiers) => {
     if (!layerId) {
@@ -186,6 +213,8 @@ export function DesignPage() {
       if (layerId) {
         setSelectedLayerIds([layerId])
         setSelectionAnchorId(layerId)
+        setInteractionMode('select')
+        setTransientStatus(`${item} layer created.`, 1400)
       }
       return
     }

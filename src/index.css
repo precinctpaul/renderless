@@ -1073,6 +1073,7 @@ select:focus {
   position: relative;
   overflow: hidden;
   background: #081224;
+  touch-action: none;
 }
 
 .scene-renderer--checkerboard {
@@ -1103,6 +1104,22 @@ select:focus {
 
 .scene-renderer__layer {
   user-select: none;
+}
+
+.scene-renderer--mode-select {
+  cursor: default;
+}
+
+.scene-renderer--mode-pan {
+  cursor: grab;
+}
+
+.scene-renderer--drag-pan {
+  cursor: grabbing;
+}
+
+.scene-renderer--drag-layers {
+  cursor: move;
 }
 
 .scene-renderer__safe-zone {

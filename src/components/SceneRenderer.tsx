@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useElementSize } from '../hooks/useElementSize'
 import type { SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
 import { resolveBindingValue } from '../lib/bindings'
@@ -99,6 +99,7 @@ export function SceneRenderer({
 }: SceneRendererProps) {
   const [containerRef, containerSize] = useElementSize<HTMLDivElement>()
   const dragStateRef = useRef<DragState | null>(null)
+  const [dragMode, setDragMode] = useState<'none' | 'pan' | 'layers'>('none')
   const scaleRef = useRef(1)
 
   const scale = useMemo(() => {
@@ -154,6 +155,7 @@ export function SceneRenderer({
 
     const handleUp = () => {
       dragStateRef.current = null
+      setDragMode('none')
     }
 
     window.addEventListener('mousemove', handleMove)
@@ -167,19 +169,21 @@ export function SceneRenderer({
   return (
     <div
       ref={containerRef}
-      className={`scene-renderer ${checkerboard ? 'scene-renderer--checkerboard' : ''} ${className ?? ''}`.trim()}
+      className={`scene-renderer ${checkerboard ? 'scene-renderer--checkerboard' : ''} ${className ?? ''} ${interactionMode === 'pan' ? 'scene-renderer--mode-pan' : 'scene-renderer--mode-select'} ${dragMode === 'pan' ? 'scene-renderer--drag-pan' : ''} ${dragMode === 'layers' ? 'scene-renderer--drag-layers' : ''}`.trim()}
       onMouseDown={(event) => {
         if (event.button !== 0) {
           return
         }
 
         if (interactionMode === 'pan') {
+          event.preventDefault()
           dragStateRef.current = {
             mode: 'pan',
             layerIds: [],
             lastClientX: event.clientX,
             lastClientY: event.clientY,
           }
+          setDragMode('pan')
           return
         }
 
@@ -213,12 +217,14 @@ export function SceneRenderer({
               }
 
               if (interactionMode === 'pan') {
+                event.preventDefault()
                 dragStateRef.current = {
                   mode: 'pan',
                   layerIds: [],
                   lastClientX: event.clientX,
                   lastClientY: event.clientY,
                 }
+                setDragMode('pan')
                 return
               }
 
@@ -229,12 +235,14 @@ export function SceneRenderer({
               })
 
               const dragLayerIds = selectedIdSet.has(layer.id) ? [...selectedIdSet] : [layer.id]
+              event.preventDefault()
               dragStateRef.current = {
                 mode: 'layers',
                 layerIds: dragLayerIds,
                 lastClientX: event.clientX,
                 lastClientY: event.clientY,
               }
+              setDragMode('layers')
             }}
           >
             {layer.kind === 'text' ? resolveText(layer, story) : null}

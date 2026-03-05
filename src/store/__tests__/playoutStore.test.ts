@@ -115,6 +115,36 @@ describe('Playout reliability and QA regression suite', () => {
     expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x).toBe(300)
   })
 
+  test('create layer actions append text and shape layers to preview scene', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    const baselineCount = usePlayoutStore.getState().previewScene.layers.length
+
+    const textLayerId = usePlayoutStore.getState().createPreviewLayer('text')
+    const shapeLayerId = usePlayoutStore.getState().createPreviewLayer('shape')
+
+    expect(textLayerId).toBeTruthy()
+    expect(shapeLayerId).toBeTruthy()
+
+    const scene = usePlayoutStore.getState().previewScene
+    expect(scene.layers.length).toBe(baselineCount + 2)
+    expect(scene.layers.some((layer) => layer.id === textLayerId && layer.kind === 'text')).toBe(true)
+    expect(scene.layers.some((layer) => layer.id === shapeLayerId && layer.kind === 'shape')).toBe(true)
+  })
+
+  test('layer move delta supports precise and snap-to-grid movement', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+
+    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-home-block'], { x: 3, y: 7 }, false)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')).toEqual({ x: 163, y: 117 })
+
+    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-home-block'], { x: 2, y: 2 }, true)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')).toEqual({ x: 170, y: 120 })
+  })
+
   test('multi-layer align and distribute actions produce expected geometry', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
