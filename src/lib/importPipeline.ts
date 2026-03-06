@@ -24,7 +24,7 @@ interface PsdLikeLayer {
   right?: number
   bottom?: number
   children?: PsdLikeLayer[]
-  text?: {
+  text?: Record<string, unknown> & {
     text?: string
     style?: {
       font?: { name?: string }
@@ -136,6 +136,49 @@ function psdColorToHex(raw: unknown): string {
   const green = asFiniteNumber(record.g) ?? 245
   const blue = asFiniteNumber(record.b) ?? 249
   return rgbToHex(red, green, blue)
+}
+
+function sanitizePsdText(raw: string): string {
+  return raw.split(String.fromCharCode(0)).join('').replace(/\r/g, '\n').trim()
+}
+
+function extractPsdText(rawText: unknown): string {
+  if (typeof rawText === 'string') {
+    return sanitizePsdText(rawText)
+  }
+  if (Array.isArray(rawText)) {
+    const stringValue = rawText
+      .map((entry) => (typeof entry === 'string' ? entry : typeof entry === 'number' ? String.fromCharCode(entry) : ''))
+      .join('')
+    return sanitizePsdText(stringValue)
+  }
+  return ''
+}
+
+function extractPsdTextValue(layer: PsdLikeLayer): string {
+  const textRecord = layer.text
+  if (!textRecord || typeof textRecord !== 'object') {
+    return ''
+  }
+
+  const candidates = [
+    textRecord.text,
+    textRecord['Txt '],
+    textRecord.Txt,
+    textRecord.txt,
+    textRecord.Text,
+    textRecord.textValue,
+    textRecord.value,
+  ]
+
+  for (const candidate of candidates) {
+    const parsed = extractPsdText(candidate)
+    if (parsed.length > 0) {
+      return parsed
+    }
+  }
+
+  return ''
 }
 
 function layerOpacityToUnit(rawOpacity: unknown): number {
@@ -330,7 +373,7 @@ function createTextLayerFromPsdLayer(
   sceneWidth: number,
   sceneHeight: number,
 ): { layer: TextLayer; hint: TemplateBindingHint | null } | null {
-  const rawText = typeof layer.text?.text === 'string' ? layer.text.text : ''
+  const rawText = extractPsdTextValue(layer)
   if (!rawText.trim()) {
     return null
   }
@@ -436,7 +479,7 @@ async function createDraftFromPsd(file: File): Promise<DesignImportDraft> {
     width,
     height,
     background: '#00142a',
-    layers: sceneLayers.reverse(),
+    layers: sceneLayers,
   }
 
   return {
