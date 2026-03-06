@@ -177,6 +177,7 @@ interface PlayoutStore {
   exportTemplatePackage: (templateId: string) => TemplatePackage | null
   exportPreviewTemplatePackage: () => TemplatePackage
   importTemplatePackage: (rawPackage: unknown) => { ok: boolean; templateId?: string; error?: string; migrationTrail?: string[] }
+  importTemplateDefinition: (template: TemplateDefinition) => { ok: boolean; templateId?: string; error?: string }
   setTransportMode: (mode: TransportMode) => void
   setTransportWsUrl: (url: string) => void
   setTransportStatus: (status: TransportConnectionStatus, error?: string | null) => void
@@ -449,6 +450,7 @@ function cloneTemplate(template: TemplateDefinition): TemplateDefinition {
   return {
     ...template,
     scene: cloneScene(template.scene),
+    bindingHints: (template.bindingHints ?? []).map((hint) => ({ ...hint })),
     versions: (template.versions ?? []).map((versionEntry) => ({
       ...versionEntry,
       scene: cloneScene(versionEntry.scene),
@@ -588,6 +590,39 @@ function normalizeTemplateFromStorage(rawTemplate: unknown): TemplateDefinition 
     bindings: Array.isArray(record.bindings)
       ? record.bindings.filter((binding): binding is DataBindingKey => isDataBindingKey(binding))
       : extractBindingKeys(scene),
+    bindingHints: Array.isArray(record.bindingHints)
+      ? record.bindingHints
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object') {
+              return null
+            }
+            const hintRecord = entry as Record<string, unknown>
+            const layerId = typeof hintRecord.layerId === 'string' && hintRecord.layerId.trim().length > 0
+              ? hintRecord.layerId.trim()
+              : null
+            const layerName = typeof hintRecord.layerName === 'string' && hintRecord.layerName.trim().length > 0
+              ? hintRecord.layerName.trim()
+              : null
+            if (!layerId || !layerName) {
+              return null
+            }
+            return {
+              layerId,
+              layerName,
+              sampleText: typeof hintRecord.sampleText === 'string' ? hintRecord.sampleText : '',
+              ...(typeof hintRecord.sourceToken === 'string' && hintRecord.sourceToken.trim().length > 0
+                ? { sourceToken: hintRecord.sourceToken.trim() }
+                : {}),
+              ...(isDataBindingKey(hintRecord.suggestedBinding)
+                ? { suggestedBinding: hintRecord.suggestedBinding }
+                : {}),
+              ...(Number.isFinite(Number(hintRecord.confidence))
+                ? { confidence: Math.min(Math.max(Number(hintRecord.confidence), 0), 1) }
+                : {}),
+            } satisfies NonNullable<TemplateDefinition['bindingHints']>[number]
+          })
+          .filter((entry): entry is NonNullable<TemplateDefinition['bindingHints']>[number] => entry !== null)
+      : [],
     favorite: Boolean(record.favorite),
     builtIn: false,
     version,
@@ -1729,6 +1764,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         label: trimmedName,
         scene: savedScene,
         bindings: extractBindingKeys(savedScene),
+        bindingHints: (activeTemplate?.bindingHints ?? []).map((hint) => ({ ...hint })),
         favorite: activeTemplate?.favorite ?? false,
         builtIn: false,
         version: nextVersion,
@@ -1775,6 +1811,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           name: activeTemplate?.label ?? state.previewScene.name,
         }),
         bindings: extractBindingKeys(state.previewScene),
+        bindingHints: (activeTemplate?.bindingHints ?? []).map((hint) => ({ ...hint })),
         favorite: activeTemplate?.favorite ?? false,
         builtIn: false,
         version: activeTemplate?.version ?? 1,
@@ -1843,6 +1880,80 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         ok: true,
         templateId: normalizedImportedTemplate.id,
         migrationTrail: parsedPackage.migrationTrail,
+      }
+    },
+    importTemplateDefinition: (template) => {
+      const state = get()
+      const now = Date.now()
+
+      let scene: SceneDefinition
+      try {
+        scene = cloneScene(template.scene)
+      } catch {
+        return {
+          ok: false,
+          error: 'Invalid scene payload.',
+        }
+      }
+
+      const nextTemplateId = createUniqueTemplateId(state.templates, template.id || createTemplateId())
+      const nextSceneId = createUniqueSceneId(state.templates, scene.id || createSceneId())
+      const bindingHints = (template.bindingHints ?? [])
+        .filter((hint) => typeof hint.layerId === 'string' && hint.layerId.length > 0)
+        .map((hint) => ({
+          ...hint,
+          layerId: hint.layerId.trim(),
+          layerName: hint.layerName.trim(),
+          sampleText: hint.sampleText ?? '',
+          sourceToken: hint.sourceToken?.trim() || undefined,
+          suggestedBinding: hint.suggestedBinding?.trim() || undefined,
+          confidence:
+            typeof hint.confidence === 'number'
+              ? Math.min(Math.max(hint.confidence, 0), 1)
+              : undefined,
+        }))
+
+      const normalizedImportedTemplate: TemplateDefinition = {
+        ...template,
+        id: nextTemplateId,
+        label: template.label.trim() || 'Imported Template',
+        scene: cloneScene({
+          ...scene,
+          id: nextSceneId,
+          name: template.label.trim() || scene.name || 'Imported Scene',
+        }),
+        builtIn: false,
+        favorite: false,
+        version: Math.max(1, Math.floor(template.version ?? 1)),
+        bindings: template.bindings ?? extractBindingKeys(scene),
+        bindingHints,
+        versions: (template.versions ?? []).map((entry) => ({
+          ...entry,
+          scene: cloneScene(entry.scene),
+          bindings: entry.bindings ?? extractBindingKeys(entry.scene),
+        })),
+        updatedAt: template.updatedAt ?? now,
+      }
+
+      set((currentState) => {
+        const nextTemplates = [...currentState.templates, normalizedImportedTemplate]
+
+        return {
+          templates: nextTemplates,
+          previewTemplateId: normalizedImportedTemplate.id,
+          previewScene: cloneScene(normalizedImportedTemplate.scene),
+          undoStack: [],
+          redoStack: [],
+          canUndo: false,
+          canRedo: false,
+          updatedAt: now,
+        }
+      })
+
+      persistCustomTemplates(get().templates, getSigningConfigFromState(state))
+      return {
+        ok: true,
+        templateId: normalizedImportedTemplate.id,
       }
     },
     setTransportMode: (mode) => {

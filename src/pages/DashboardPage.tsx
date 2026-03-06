@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import { usePlayoutStore } from '../store/playoutStore'
 import type { TemplateDefinition } from '../types/scene'
 import { SceneRenderer } from '../components/SceneRenderer'
+import { filterBindingFieldsForLeague } from '../lib/leagueBindings'
 import {
   ASSET_STORAGE_KEY,
   FONT_STORAGE_KEY,
@@ -31,6 +32,14 @@ import {
   registerFontEntries,
   type MediaLibraryEntry,
 } from '../lib/mediaLibrary'
+import {
+  createDesignImportDraft,
+  isDesignImportFile,
+  isLikelyLottieJsonPayload,
+  isTemplatePackageFile,
+  materializeTemplateFromDraft,
+  type DesignImportDraft,
+} from '../lib/importPipeline'
 
 const DASHBOARD_FOLDER_STORAGE_KEY = 'renderless.dashboard.folders.v1'
 const FOLDER_DRAG_MIME = 'application/x-renderless-dashboard-folder'
@@ -413,6 +422,15 @@ function formatUploadResult({
   return `${kind === 'fonts' ? 'Font' : 'Asset'} ingest: ${parts.join(', ')}.`
 }
 
+function looksLikeTemplatePackagePayload(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const record = value as Record<string, unknown>
+  return record.kind === 'renderless.template-package'
+}
+
 export function DashboardPage() {
   const navigate = useNavigate()
   const templates = usePlayoutStore((state) => state.templates)
@@ -420,12 +438,15 @@ export function DashboardPage() {
   const deleteTemplate = usePlayoutStore((state) => state.deleteTemplate)
   const resetDemo = usePlayoutStore((state) => state.resetDemo)
   const importTemplatePackage = usePlayoutStore((state) => state.importTemplatePackage)
+  const importTemplateDefinition = usePlayoutStore((state) => state.importTemplateDefinition)
   const packageSigningEnabled = usePlayoutStore((state) => state.packageSigningEnabled)
   const packageSigningKeyId = usePlayoutStore((state) => state.packageSigningKeyId)
   const packageSigningSecret = usePlayoutStore((state) => state.packageSigningSecret)
   const setPackageSigningConfig = usePlayoutStore((state) => state.setPackageSigningConfig)
   const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
   const story = usePlayoutStore((state) => state.story)
+  const bindingFields = usePlayoutStore((state) => state.bindingFields)
+  const simulationLeague = usePlayoutStore((state) => state.simulationLeague)
 
   const initialAssetEntries = useMemo(() => normalizeEntriesForRoot(readMediaEntries('asset'), ASSET_ROOT), [])
   const initialFontEntries = useMemo(() => normalizeEntriesForRoot(readMediaEntries('font'), FONT_ROOT), [])
@@ -468,6 +489,9 @@ export function DashboardPage() {
   const [draggedEntryId, setDraggedEntryId] = useState<string>('')
   const [draggedFolderPath, setDraggedFolderPath] = useState<string>('')
   const [folderDropTarget, setFolderDropTarget] = useState<string>('')
+  const [designImportDraft, setDesignImportDraft] = useState<DesignImportDraft | null>(null)
+  const [designImportLabel, setDesignImportLabel] = useState('')
+  const [designImportBindingMap, setDesignImportBindingMap] = useState<Record<string, string>>({})
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const setTransientStatus = (message: string, timeoutMs = 2800) => {
@@ -663,6 +687,47 @@ export function DashboardPage() {
     [effectiveExpandedFontFolders, folderCatalog.fonts],
   )
 
+  const openDesignImportWizard = (draft: DesignImportDraft) => {
+    const suggestedMap: Record<string, string> = {}
+    draft.bindingHints.forEach((hint) => {
+      if (hint.suggestedBinding) {
+        suggestedMap[hint.layerId] = hint.suggestedBinding
+      }
+    })
+    setDesignImportDraft(draft)
+    setDesignImportLabel(draft.templateLabel)
+    setDesignImportBindingMap(suggestedMap)
+    setExplorerMode('Templates')
+  }
+
+  const resetDesignImportWizard = () => {
+    setDesignImportDraft(null)
+    setDesignImportLabel('')
+    setDesignImportBindingMap({})
+  }
+
+  const applyDesignImportWizard = () => {
+    if (!designImportDraft) {
+      return
+    }
+
+    const template = materializeTemplateFromDraft(designImportDraft, {
+      label: designImportLabel,
+      layerBindingMap: designImportBindingMap,
+    })
+    const result = importTemplateDefinition(template)
+    if (!result.ok) {
+      setTransientStatus(result.error ?? 'Template import failed.')
+      return
+    }
+
+    resetDesignImportWizard()
+    setSelectedTemplateCardId(result.templateId ?? '')
+    setTransientStatus(
+      `Imported ${template.label} from ${designImportDraft.sourceType.toUpperCase()} with ${template.bindingHints?.length ?? 0} binding hints.`,
+    )
+  }
+
   const handleImportPackages = async (files: FileList | null) => {
     if (!files || files.length === 0) {
       return
@@ -672,13 +737,52 @@ export function DashboardPage() {
     let importedCount = 0
     let failedCount = 0
     let migratedCount = 0
+    let stagedDesignDraft = false
+    let stagedDesignSkipped = 0
     let firstError = ''
 
     for (const file of Array.from(files)) {
+      const lowerName = file.name.toLowerCase()
+
       try {
+        if (isDesignImportFile(file.name) || lowerName.endsWith('.psd') || lowerName.endsWith('.lottie')) {
+          if (stagedDesignDraft || designImportDraft) {
+            stagedDesignSkipped += 1
+            continue
+          }
+
+          const draft = await createDesignImportDraft(file)
+          openDesignImportWizard(draft)
+          stagedDesignDraft = true
+          continue
+        }
+
+        const isJsonLike = lowerName.endsWith('.json') || lowerName.endsWith('.rltpl') || isTemplatePackageFile(file.name)
+        if (!isJsonLike) {
+          failedCount += 1
+          if (!firstError) {
+            firstError = `Unsupported file type: ${file.name}`
+          }
+          continue
+        }
+
         const rawText = await file.text()
         const parsedJson = JSON.parse(rawText) as unknown
         const packageEntries = Array.isArray(parsedJson) ? parsedJson : [parsedJson]
+        const packagePayload = packageEntries.some((entry) => looksLikeTemplatePackagePayload(entry))
+        const lottiePayload = !packagePayload && !Array.isArray(parsedJson) && isLikelyLottieJsonPayload(parsedJson)
+
+        if (lottiePayload) {
+          if (stagedDesignDraft || designImportDraft) {
+            stagedDesignSkipped += 1
+            continue
+          }
+
+          const draft = await createDesignImportDraft(file)
+          openDesignImportWizard(draft)
+          stagedDesignDraft = true
+          continue
+        }
 
         packageEntries.forEach((entry) => {
           const result = importTemplatePackage(entry)
@@ -702,22 +806,28 @@ export function DashboardPage() {
       }
     }
 
-    if (importedCount > 0 && failedCount === 0) {
-      setTransientStatus(
+    const statusParts: string[] = []
+    if (importedCount > 0) {
+      statusParts.push(
         migratedCount > 0
-          ? `Imported ${importedCount} package(s), migrated ${migratedCount} to v2.`
-          : `Imported ${importedCount} template package(s).`,
+          ? `Imported ${importedCount} package(s), migrated ${migratedCount} to v2`
+          : `Imported ${importedCount} package(s)`,
       )
-    } else if (importedCount > 0) {
-      setTransientStatus(
-        `Imported ${importedCount}, failed ${failedCount}${migratedCount > 0 ? `, migrated ${migratedCount}` : ''}.`,
-      )
+    }
+    if (stagedDesignDraft) {
+      statusParts.push('Opened import wizard for external design')
+    }
+    if (stagedDesignSkipped > 0) {
+      statusParts.push(`Skipped ${stagedDesignSkipped} extra design file(s) while wizard is active`)
+    }
+    if (failedCount > 0) {
+      statusParts.push(`Failed ${failedCount}${firstError ? ` (${firstError})` : ''}`)
+    }
+
+    if (statusParts.length === 0) {
+      setTransientStatus('No importable files selected.')
     } else {
-      setTransientStatus(
-        firstError
-          ? `Import failed: ${firstError}`
-          : 'Import failed. Contract must be renderless.template-package.',
-      )
+      setTransientStatus(`${statusParts.join('. ')}.`)
     }
 
     setIsBusy(false)
@@ -1025,10 +1135,10 @@ export function DashboardPage() {
     setFolderDropTarget('')
   }
 
-  const uploadLabel = activeMode === 'Templates' ? 'Import Package' : activeMode === 'Typography' ? 'Upload Font' : 'Upload Media'
+  const uploadLabel = activeMode === 'Templates' ? 'Import File' : activeMode === 'Typography' ? 'Upload Font' : 'Upload Media'
   const uploadAccept =
     activeMode === 'Templates'
-      ? '.json,.rltpl,.rltpl.json'
+      ? '.json,.rltpl,.rltpl.json,.psd,.lottie,.lottie.zip,.zip'
       : activeMode === 'Typography'
         ? '.ttf,.otf,.woff,.woff2'
         : '*/*'
@@ -1188,6 +1298,24 @@ export function DashboardPage() {
       fonts: fontResults,
     }
   }, [assetEntries, fontFamilyGroups, query, searchAll, templates])
+  const leagueBindingOptions = useMemo(() => {
+    return filterBindingFieldsForLeague(bindingFields, simulationLeague)
+      .slice()
+      .sort((left, right) => left.label.localeCompare(right.label))
+  }, [bindingFields, simulationLeague])
+  const importHintRows = useMemo(() => {
+    if (!designImportDraft) {
+      return []
+    }
+
+    return designImportDraft.bindingHints.map((hint) => {
+      const resolvedBinding = designImportBindingMap[hint.layerId] || hint.suggestedBinding || ''
+      return {
+        ...hint,
+        resolvedBinding,
+      }
+    })
+  }, [designImportBindingMap, designImportDraft])
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateCardId || template.id === previewTemplateId) ?? null
   const selectedMediaEntry = assetEntries.find((entry) => entry.id === selectedEntryId) ?? null
   const selectedFontGroup = fontFamilyGroups.find((group) => group.family === selectedEntryId) ?? null
@@ -1337,6 +1465,32 @@ export function DashboardPage() {
 
     persistAssets(nextEntries)
     setTransientStatus(`Tagged ${visibleIds.size} visible media item(s).`)
+  }
+  const setDesignImportBindingForLayer = (layerId: string, binding: string) => {
+    setDesignImportBindingMap((previous) => {
+      if (!binding.trim()) {
+        const next = { ...previous }
+        delete next[layerId]
+        return next
+      }
+      return {
+        ...previous,
+        [layerId]: binding,
+      }
+    })
+  }
+  const applySuggestedImportBindings = () => {
+    if (!designImportDraft) {
+      return
+    }
+
+    const nextMap: Record<string, string> = {}
+    designImportDraft.bindingHints.forEach((hint) => {
+      if (hint.suggestedBinding) {
+        nextMap[hint.layerId] = hint.suggestedBinding
+      }
+    })
+    setDesignImportBindingMap(nextMap)
   }
   const handleMediaViewModeChange = (mode: MediaViewMode) => {
     setMediaViewMode(mode)
@@ -1871,6 +2025,93 @@ export function DashboardPage() {
 
           <div className="table-toolbar__status mono">{tableStatusLabel}</div>
           {statusMessage ? <div className="table-toolbar__status mono">{statusMessage}</div> : null}
+
+          {designImportDraft ? (
+            <div className="import-wizard">
+              <div className="import-wizard__header">
+                <div className="panel-title">Import Wizard</div>
+                <div className="import-wizard__meta mono">
+                  {designImportDraft.sourceType.toUpperCase()} | {designImportDraft.sourceName} | {designImportDraft.scene.width}x
+                  {designImportDraft.scene.height}
+                </div>
+              </div>
+              <div className="import-wizard__grid">
+                <div className="import-wizard__preview">
+                  <div className="import-wizard__surface">
+                    <SceneRenderer
+                      scene={designImportDraft.scene}
+                      story={story}
+                      showActionSafe
+                      showTitleSafe
+                      showCanvasBounds
+                    />
+                  </div>
+                  {designImportDraft.warnings.length > 0 ? (
+                    <div className="import-wizard__warnings mono">
+                      {designImportDraft.warnings.map((warning, index) => (
+                        <div key={`${warning}-${index}`}>- {warning}</div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <div className="import-wizard__bindings">
+                  <label className="table-toolbar__field">
+                    Template Label
+                    <input
+                      value={designImportLabel}
+                      onChange={(event) => setDesignImportLabel(event.target.value)}
+                      placeholder="Imported Template"
+                    />
+                  </label>
+                  <div className="import-wizard__bindings-header">
+                    <div className="mono">Binding Hints ({importHintRows.length})</div>
+                    <button type="button" className="btn btn--small btn--ghost" onClick={applySuggestedImportBindings}>
+                      Apply Suggestions
+                    </button>
+                  </div>
+                  {importHintRows.length > 0 ? (
+                    <div className="import-wizard__binding-list">
+                      {importHintRows.map((hint) => (
+                        <div key={hint.layerId} className="import-wizard__binding-row">
+                          <div className="import-wizard__binding-meta">
+                            <div className="import-wizard__binding-title">{hint.layerName}</div>
+                            <div className="mono import-wizard__binding-token">
+                              {hint.sourceToken ? `${hint.sourceToken}` : hint.sampleText || 'No token detected'}
+                              {typeof hint.confidence === 'number' ? ` | ${(hint.confidence * 100).toFixed(0)}%` : ''}
+                            </div>
+                          </div>
+                          <select
+                            className="mono"
+                            value={hint.resolvedBinding}
+                            onChange={(event) => setDesignImportBindingForLayer(hint.layerId, event.target.value)}
+                          >
+                            <option value="">No binding</option>
+                            {leagueBindingOptions.map((option) => (
+                              <option key={option.key} value={option.key}>
+                                {option.label} ({option.key})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="inspector-empty">
+                      No auto-detected binding tokens. You can still import this template and bind text in Stage Pro.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="import-wizard__actions">
+                <button type="button" className="btn btn--small btn--ghost" onClick={resetDesignImportWizard}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn--small btn--accent" onClick={applyDesignImportWizard}>
+                  Import Template
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {searchAll && query.trim().length > 0 ? (
             <div className="global-search-panel">

@@ -2,6 +2,7 @@ import type {
   DataBindingKey,
   SceneDefinition,
   SceneLayer,
+  TemplateBindingHint,
   TemplateDefinition,
   TemplateVersion,
 } from '../types/scene'
@@ -63,6 +64,7 @@ export interface TemplatePackageV2 {
   bindings: DataBindingKey[]
   scenegraph: SceneDefinition
   history: TemplatePackageVersionEntry[]
+  bindingHints?: TemplateBindingHint[]
   integrity: TemplatePackageIntegrity
 }
 
@@ -179,6 +181,56 @@ function normalizeBindings(rawBindings: unknown, fallbackScene: SceneDefinition)
 
   const normalized = [...unique].sort()
   return normalized.length > 0 ? normalized : fallbackBindings
+}
+
+function parseTemplateBindingHints(rawHints: unknown): TemplateBindingHint[] {
+  if (!Array.isArray(rawHints)) {
+    return []
+  }
+
+  return rawHints
+    .map((entry) => {
+      const record = asRecord(entry)
+      if (!record) {
+        return null
+      }
+
+      const layerId = asNonEmptyString(record.layerId)
+      const layerName = asNonEmptyString(record.layerName)
+      const sampleText = typeof record.sampleText === 'string' ? record.sampleText : ''
+      const sourceToken = asNonEmptyString(record.sourceToken) ?? undefined
+      const suggestedBinding = isDataBindingKey(record.suggestedBinding) ? record.suggestedBinding : undefined
+      const confidenceRaw = asFiniteNumber(record.confidence)
+      const confidence =
+        confidenceRaw === null ? undefined : Math.min(Math.max(Number(confidenceRaw), 0), 1)
+
+      if (!layerId || !layerName) {
+        return null
+      }
+
+      return {
+        layerId,
+        layerName,
+        sampleText,
+        ...(sourceToken ? { sourceToken } : {}),
+        ...(suggestedBinding ? { suggestedBinding } : {}),
+        ...(typeof confidence === 'number' ? { confidence } : {}),
+      } satisfies TemplateBindingHint
+    })
+    .filter((entry): entry is TemplateBindingHint => entry !== null)
+}
+
+function normalizeTemplateBindingHints(rawHints: unknown): TemplateBindingHint[] {
+  const parsed = parseTemplateBindingHints(rawHints)
+  if (parsed.length === 0) {
+    return []
+  }
+
+  const unique = new Map<string, TemplateBindingHint>()
+  parsed.forEach((hint) => {
+    unique.set(hint.layerId, hint)
+  })
+  return [...unique.values()]
 }
 
 function parseLayer(rawLayer: unknown): SceneLayer | null {
@@ -407,6 +459,7 @@ function unsignedPackageFromTemplatePackageV1(templatePackage: TemplatePackageV1
       bindings: [...entry.bindings],
       scenegraph: cloneValue(entry.scenegraph),
     })),
+    bindingHints: [],
   }
 }
 
@@ -598,6 +651,7 @@ function parseTemplatePackageV2(record: Record<string, unknown>): TemplatePackag
           .map((entry) => parseVersionEntry(entry))
           .filter((entry): entry is TemplatePackageVersionEntry => entry !== null)
       : [],
+    bindingHints: normalizeTemplateBindingHints(record.bindingHints),
     integrity: {
       checksum: {
         algorithm: TEMPLATE_PACKAGE_CHECKSUM_ALGORITHM,
@@ -623,6 +677,7 @@ function verifyChecksum(templatePackage: TemplatePackageV2): boolean {
       bindings: [...entry.bindings],
       scenegraph: cloneValue(entry.scenegraph),
     })),
+    bindingHints: normalizeTemplateBindingHints(templatePackage.bindingHints),
   }
 
   const expectedChecksum = hashFnv1a32(canonicalizeUnsignedPackage(unsignedPackage))
@@ -681,6 +736,7 @@ export function buildTemplatePackage(
     bindings: normalizeBindings(template.bindings, scenegraph),
     scenegraph,
     history,
+    bindingHints: normalizeTemplateBindingHints(template.bindingHints),
   }
 
   return attachIntegrity(unsignedPackage, signingConfig)
@@ -776,6 +832,7 @@ export function migrateTemplatePackage(
       bindings: [...entry.bindings],
       scenegraph: cloneValue(entry.scenegraph),
     })),
+    bindingHints: normalizeTemplateBindingHints(parsedPackage.value.bindingHints),
   }
 
   return {
@@ -804,6 +861,7 @@ export function templateFromPackage(templatePackage: TemplatePackage): TemplateD
       height: templatePackage.metadata.size.height,
     }),
     bindings: [...templatePackage.bindings],
+    bindingHints: normalizeTemplateBindingHints(templatePackage.bindingHints),
     builtIn: false,
     favorite: false,
     version: templatePackage.metadata.templateVersion,

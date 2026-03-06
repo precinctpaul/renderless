@@ -91,11 +91,21 @@ export interface TemplateVersion {
   updatedAt: number
 }
 
+export interface TemplateBindingHint {
+  layerId: string
+  layerName: string
+  sampleText: string
+  sourceToken?: string
+  suggestedBinding?: DataBindingKey
+  confidence?: number
+}
+
 export interface TemplateDefinition {
   id: string
   label: string
   scene: SceneDefinition
   bindings?: DataBindingKey[]
+  bindingHints?: TemplateBindingHint[]
   favorite?: boolean
   builtIn?: boolean
   version?: number
