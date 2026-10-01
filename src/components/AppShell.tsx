@@ -1,5 +1,5 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { buildOutputPath, withBasePath } from '../lib/outputUrls'
 import { usePlayoutStore } from '../store/playoutStore'
@@ -24,6 +24,14 @@ function formatTime(date: Date): string {
 
 export function AppShell() {
   const onAir = usePlayoutStore((state) => state.onAir)
+  const { pathname } = useLocation()
+  const navRef = useRef<HTMLElement>(null)
+
+  // On narrow screens the tab strip scrolls sideways; keep the current page's tab in view.
+  useEffect(() => {
+    const activeTab = navRef.current?.querySelector<HTMLElement>('.nav-tab--active')
+    activeTab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [pathname])
   const take = usePlayoutStore((state) => state.take)
   const resetDemo = usePlayoutStore((state) => state.resetDemo)
   const [clock, setClock] = useState(() => formatTime(new Date()))
@@ -44,7 +52,7 @@ export function AppShell() {
             RenderLess
           </Link>
 
-          <nav className="nav-tabs" aria-label="Main">
+          <nav ref={navRef} className="nav-tabs" aria-label="Main">
             {NAV_ITEMS.map((item) =>
               item.external ? (
                 <a key={item.label} href={withBasePath(buildOutputPath('program'))} className="nav-tab" target="_blank" rel="noreferrer">

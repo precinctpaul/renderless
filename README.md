@@ -39,7 +39,12 @@ receive-only: they mirror the room's controller and never publish state.
 ### Hosted relay (Cloudflare)
 
 The GitHub Pages build connects to a Cloudflare Worker relay in `relay/`
-(one Durable Object per room, free plan). To redeploy it:
+(one Durable Object per room, free plan).
+
+Pushing changes under `relay/` to `main` redeploys it automatically via
+`.github/workflows/deploy-relay.yml`. That needs a `CLOUDFLARE_API_TOKEN`
+repo secret (a Cloudflare API token from the "Edit Cloudflare Workers"
+template) and the `CLOUDFLARE_ACCOUNT_ID` repo variable. To deploy by hand:
 
 ```bash
 cd relay

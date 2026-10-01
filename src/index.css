@@ -1743,21 +1743,6 @@ select:focus {
   color: var(--zinc-400);
 }
 
-.control-layout {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
-  gap: 10px;
-}
-
-.control-main {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: minmax(0, 2.1fr) minmax(180px, 0.9fr) minmax(180px, 0.9fr);
-  gap: 10px;
-}
-
 .data-engine-layout {
   flex: 1;
   min-height: 0;
@@ -2072,66 +2057,6 @@ select:focus {
   text-align: center;
 }
 
-.monitors-panel {
-  min-height: 0;
-  overflow: hidden;
-}
-
-.control-top-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px minmax(0, 1fr);
-  gap: 10px;
-  align-items: stretch;
-}
-
-.monitor-tile {
-  border: 1px solid var(--zinc-800);
-  border-radius: 10px;
-  background: #0d1829;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
-  min-height: 0;
-}
-
-.monitor-tile header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  color: var(--zinc-200);
-}
-
-.monitor-surface {
-  position: relative;
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  min-width: 0;
-  min-height: 0;
-  border-radius: 10px;
-  border: 1px solid #25426d;
-  overflow: hidden;
-  background: #090e18;
-}
-
-.monitor-surface > .scene-renderer {
-  position: absolute;
-  inset: 0;
-}
-
-.transition-console {
-  border: 1px solid var(--zinc-800);
-  border-radius: 10px;
-  background: #0b1526;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
 .transition-group,
 .take-group,
 .copy-group,
@@ -2140,26 +2065,6 @@ select:focus {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.copy-group {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-
-.hotkey-strip {
-  min-height: 30px;
-  border: 1px solid var(--zinc-800);
-  border-radius: 8px;
-  padding: 6px 10px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  color: var(--zinc-300);
-  font-size: 11px;
-  letter-spacing: 0.03em;
 }
 
 .range-wrap {
@@ -2178,20 +2083,6 @@ select:focus {
 .transition-status {
   font-size: 11px;
   color: #93c5fd;
-}
-
-.control-thumb-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-height: 0;
-}
-
-.template-thumb-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
-  min-height: 0;
 }
 
 .template-thumb {
@@ -2524,14 +2415,6 @@ html.renderless-output-embed #root,
     grid-template-columns: 260px minmax(0, 1fr) 260px;
   }
 
-  .control-layout {
-    grid-template-columns: 230px minmax(0, 1fr);
-  }
-
-  .control-top-row {
-    grid-template-columns: minmax(0, 1fr) 280px minmax(0, 1fr);
-  }
-
   .data-engine-layout {
     grid-template-columns: 240px minmax(0, 1fr) 270px;
   }
@@ -2563,24 +2446,401 @@ html.renderless-output-embed #root,
 
   .dashboard-layout,
   .design-layout,
-  .control-layout,
   .data-engine-layout {
     display: flex;
     flex-direction: column;
     overflow: visible;
   }
 
-  .control-main {
+  .global-search-panel__columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Control Room: fluid switcher layout.
+   Works at any window size or aspect ratio:
+   - the workspace fills the window and monitors scale to fit their space at 16:9;
+   - panels scroll internally instead of clipping controls;
+   - the arrangement reflows from the space actually available (container
+     queries), not from a list of device sizes;
+   - feedback (e.g. "Copied") changes content in place and never reflows.
+   -------------------------------------------------------------------------- */
+
+.screen--control-room {
+  container: control-screen / inline-size;
+  min-height: 0;
+}
+
+.screen--control-room > h1 {
+  font-size: clamp(18px, 0.9rem + 1.2vh, 30px);
+}
+
+.control-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(170px, 14vw, 250px) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.control-main {
+  /* Measured container (queries can't restyle it), scroll box when content is taller than the window. */
+  container: control-main / inline-size;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.control-stack {
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(260px, 1fr) auto;
+  gap: 10px;
+}
+
+.control-top-row {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(210px, 17vw, 290px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'preview console program';
+  gap: 10px;
+  padding: 10px;
+}
+
+.monitor-tile--preview {
+  grid-area: preview;
+}
+
+.monitor-tile--program {
+  grid-area: program;
+}
+
+.monitor-tile {
+  border: 1px solid var(--zinc-800);
+  border-radius: 10px;
+  background: #0d1829;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.monitor-tile header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 26px;
+  font-size: 13px;
+  color: var(--zinc-200);
+}
+
+.monitor-tile header > span:first-child {
+  flex: none;
+}
+
+.monitor-tile__meta {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.monitor-tile__scene {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Fixed width so the label swap to "Copied" never moves the header. */
+.monitor-tile .copy-button {
+  flex: none;
+  min-height: 28px;
+  min-width: 104px;
+  padding: 0 10px;
+}
+
+/* The fit box takes whatever space the tile has; the 16:9 monitor is the largest
+   rectangle that fits inside it, centered (like object-fit: contain). */
+.monitor-fit {
+  flex: 1;
+  min-height: 0;
+  container-type: size;
+  display: grid;
+  place-items: center;
+}
+
+.monitor-surface {
+  position: relative;
+  width: min(100cqw, 100cqh * 16 / 9);
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  border: 1px solid #25426d;
+  overflow: hidden;
+  background: #090e18;
+}
+
+.monitor-surface > .scene-renderer {
+  position: absolute;
+  inset: 0;
+}
+
+.transition-console {
+  grid-area: console;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--zinc-800);
+  border-radius: 10px;
+  background: #0b1526;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.console-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.copy-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.copy-button {
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.copy-button--copied {
+  border-color: #22c55e;
+  color: #86efac;
+}
+
+.transport-status {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hotkey-strip {
+  flex: none;
+  min-height: 30px;
+  border: 1px solid var(--zinc-800);
+  border-radius: 8px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--zinc-300);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.control-bins {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.control-thumb-row {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Bins scroll sideways; thumbnails scale with both window width and height. */
+.template-thumb-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: clamp(110px, min(11vw, 20vh), 200px);
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+}
+
+.template-thumb-grid > .rundown-empty {
+  grid-column: 1 / -1;
+}
+
+.template-thumb {
+  scroll-snap-align: start;
+  min-width: 0;
+}
+
+.template-thumb__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Constrained space: switch from the fill-the-window grid to normal flow. Monitors
+   size from their width (16:9), the console wraps beneath them, and the column
+   scrolls. Flow layout (flex-wrap) is used because grid row sizing measures
+   aspect-ratio monitors before they have a width, which collapses the rows. */
+@container control-main (max-width: 980px) {
+  .control-stack {
+    height: auto;
     display: flex;
     flex-direction: column;
+  }
+
+  .control-stack > * {
+    flex: none;
   }
 
   .control-top-row {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: flex-start;
   }
 
-  .global-search-panel__columns {
-    grid-template-columns: 1fr;
+  .monitor-tile {
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  .monitor-tile--preview {
+    order: 1;
+  }
+
+  .monitor-tile--program {
+    order: 2;
+  }
+
+  .monitor-fit {
+    flex: none;
+    container-type: normal;
+    display: block;
+  }
+
+  .monitor-surface {
+    width: 100%;
+  }
+
+  .transition-console {
+    order: 3;
+    flex: 1 1 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    align-items: start;
+    overflow: visible;
+  }
+
+  .hotkey-strip {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Narrow space: single column, Program first. */
+@container control-main (max-width: 620px) {
+  .monitor-tile {
+    flex-basis: 100%;
+  }
+
+  .monitor-tile--program {
+    order: 1;
+  }
+
+  .monitor-tile--preview {
+    order: 2;
+  }
+
+  .control-bins {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Not enough room for a sidebar: the template library becomes a strip on top. */
+@container control-screen (max-width: 760px) {
+  .control-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .rundown-panel .panel-subtitle {
+    display: none;
+  }
+
+  .rundown-list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .rundown-item {
+    width: auto;
+    flex: 0 0 auto;
+  }
+}
+
+/* Top navigation: never wider than the window. On narrow screens the brand and tabs
+   wrap onto their own line and the tabs scroll sideways instead of running off-screen. */
+.top-nav,
+.brand-row {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.nav-tabs {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
+
+.nav-tab {
+  flex: none;
+  white-space: nowrap;
+}
+
+.header-actions {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .brand-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .brand-link {
+    font-size: 26px;
   }
 }

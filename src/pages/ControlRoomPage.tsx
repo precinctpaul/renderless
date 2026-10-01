@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Copy, Keyboard, Star } from 'lucide-react'
+import { Check, Copy, Keyboard, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
 import { buildDefaultTransportWsUrl, buildOutputUrl, getRoomId } from '../lib/outputUrls'
@@ -44,6 +44,7 @@ export function ControlRoomPage() {
   const setTransportWsUrl = usePlayoutStore((state) => state.setTransportWsUrl)
 
   const [copyLabel, setCopyLabel] = useState<string>('')
+  const [copiedFollow, setCopiedFollow] = useState<'preview' | 'program' | null>(null)
 
   const hasTemplates = templates.length > 0
   const favoriteTemplates = useMemo(() => templates.filter((template) => template.favorite).slice(0, 6), [templates])
@@ -75,13 +76,39 @@ export function ControlRoomPage() {
   }, [clearProgram, take])
 
   const copyFeedUrl = async (follow: 'preview' | 'program') => {
+    // Only touch transport settings when they change, so copying never forces a reconnect.
     const defaultWsUrl = buildDefaultTransportWsUrl()
-    setTransportWsUrl(defaultWsUrl)
-    setTransportMode('ws')
+    if (transportWsUrl !== defaultWsUrl) {
+      setTransportWsUrl(defaultWsUrl)
+    }
+    if (transportMode !== 'ws') {
+      setTransportMode('ws')
+    }
 
     const copied = await copyToClipboard(buildOutputUrl(follow))
+    // Feedback swaps the button label in place (and is announced to screen readers) so nothing reflows.
+    setCopiedFollow(copied ? follow : null)
     setCopyLabel(copied ? `${follow.toUpperCase()} URL copied (WebSocket relay armed)` : 'Clipboard unavailable')
-    window.setTimeout(() => setCopyLabel(''), 1800)
+    window.setTimeout(() => {
+      setCopyLabel('')
+      setCopiedFollow(null)
+    }, 1800)
+  }
+
+  const renderCopyButton = (follow: 'preview' | 'program') => {
+    const label = follow === 'preview' ? 'Copy Preview URL' : 'Copy Program URL'
+    const copied = copiedFollow === follow
+    return (
+      <button
+        type="button"
+        className={`btn btn--small btn--ghost copy-button ${copied ? 'copy-button--copied' : ''}`.trim()}
+        aria-label={label}
+        onClick={() => copyFeedUrl(follow)}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />}
+        <span>{copied ? 'Copied' : 'Copy URL'}</span>
+      </button>
+    )
   }
 
   return (
@@ -127,175 +154,185 @@ export function ControlRoomPage() {
         </aside>
 
         <section className="control-main">
-          <section className="panel monitors-panel control-top-row">
-            <article className="monitor-tile">
-              <header>
-                <span>Preview</span>
-                <span className="mono">{previewScene.name}</span>
-              </header>
-              <div className="monitor-surface">
-                <SceneRenderer
-                  scene={previewScene}
-                  story={story}
-                  checkerboard
-                  showActionSafe
-                  showTitleSafe
-                  showCanvasBounds
-                />
-              </div>
-            </article>
+          <div className="control-stack">
+            <section className="panel monitors-panel control-top-row">
+              <article className="monitor-tile monitor-tile--preview">
+                <header>
+                  <span>Preview</span>
+                  <span className="monitor-tile__meta">
+                    <span className="mono monitor-tile__scene">{previewScene.name}</span>
+                    {renderCopyButton('preview')}
+                  </span>
+                </header>
+                <div className="monitor-fit">
+                  <div className="monitor-surface">
+                    <SceneRenderer
+                      scene={previewScene}
+                      story={story}
+                      checkerboard
+                      showActionSafe
+                      showTitleSafe
+                      showCanvasBounds
+                    />
+                  </div>
+                </div>
+              </article>
 
-            <div className="transition-console">
-              <div className="panel-title">Transitions</div>
-              <div className="transition-group">
-                {TRANSITIONS.map((transition) => (
+              <div className="transition-console">
+                <div className="console-section">
+                  <div className="panel-title">Transitions</div>
+                  <div className="transition-group">
+                    {TRANSITIONS.map((transition) => (
+                      <button
+                        key={transition.id}
+                        type="button"
+                        className={`btn btn--small ${transitionType === transition.id ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                        onClick={() => setTransition(transition.id)}
+                        disabled={transitionInProgress}
+                      >
+                        {transition.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <label className="range-wrap mono">
+                    TRANSITION {transitionDurationMs}ms
+                    <input
+                      type="range"
+                      min={0}
+                      max={1000}
+                      step={50}
+                      value={transitionDurationMs}
+                      onChange={(event) => setTransitionDuration(Number(event.target.value))}
+                      disabled={transitionInProgress}
+                    />
+                  </label>
+                </div>
+
+                <div className="take-group">
                   <button
-                    key={transition.id}
                     type="button"
-                    className={`btn btn--small ${transitionType === transition.id ? 'btn--accent' : 'btn--ghost'}`.trim()}
-                    onClick={() => setTransition(transition.id)}
-                    disabled={transitionInProgress}
+                    className={`btn btn--take btn--wide btn--tactile ${transitionInProgress ? 'btn--take-pending' : ''}`.trim()}
+                    onClick={take}
+                    disabled={!hasTemplates || transitionInProgress}
                   >
-                    {transition.label}
+                    {transitionInProgress ? 'TAKING...' : 'TAKE'}
                   </button>
-                ))}
-              </div>
-
-              <label className="range-wrap mono">
-                TRANSITION {transitionDurationMs}ms
-                <input
-                  type="range"
-                  min={0}
-                  max={1000}
-                  step={50}
-                  value={transitionDurationMs}
-                  onChange={(event) => setTransitionDuration(Number(event.target.value))}
-                  disabled={transitionInProgress}
-                />
-              </label>
-
-              <div className="take-group">
-                <button
-                  type="button"
-                  className={`btn btn--take btn--wide btn--tactile ${transitionInProgress ? 'btn--take-pending' : ''}`.trim()}
-                  onClick={take}
-                  disabled={!hasTemplates || transitionInProgress}
-                >
-                  {transitionInProgress ? 'TAKING...' : 'TAKE'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--wide btn--tactile"
-                  onClick={clearProgram}
-                  disabled={!onAir && !transitionInProgress}
-                >
-                  CLEAR
-                </button>
-              </div>
-
-              <div className="copy-group">
-                <button type="button" className="btn btn--small btn--ghost" onClick={() => copyFeedUrl('preview')}>
-                  <Copy size={14} />
-                  Copy Preview URL
-                </button>
-                <button type="button" className="btn btn--small btn--ghost" onClick={() => copyFeedUrl('program')}>
-                  <Copy size={14} />
-                  Copy Program URL
-                </button>
-              </div>
-
-              <div className="story-actions">
-                <button
-                  type="button"
-                  className={`btn btn--small ${transportMode === 'local' ? 'btn--accent' : 'btn--ghost'}`.trim()}
-                  onClick={() => setTransportMode('local')}
-                >
-                  Local
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn--small ${transportMode === 'ws' ? 'btn--accent' : 'btn--ghost'}`.trim()}
-                  onClick={() => setTransportMode('ws')}
-                >
-                  WebSocket
-                </button>
-              </div>
-              <div className="transport-status mono">
-                {transportMode.toUpperCase()} | {transportWsUrl} | ROOM {getRoomId()}
-              </div>
-
-              <div className="hotkey-strip mono">
-                <Keyboard size={14} />
-                <span>SPACE = TAKE</span>
-                <span>C = CLEAR</span>
-                {transitionInProgress ? <span className="transition-status">TAKE IN PROGRESS</span> : null}
-                {copyLabel ? <span className="copy-status">{copyLabel}</span> : null}
-              </div>
-            </div>
-
-            <article className="monitor-tile">
-              <header>
-                <span>Program</span>
-                <span className={`badge badge--mono ${onAir ? 'badge--air' : ''}`.trim()}>{onAir ? 'ON AIR' : 'CLEAR'}</span>
-              </header>
-              <div className="monitor-surface">
-                <ProgramTransitionSurface
-                  scene={programScene}
-                  story={story}
-                  transition={programTransition}
-                  showActionSafe
-                  showTitleSafe
-                  showCanvasBounds
-                />
-              </div>
-            </article>
-          </section>
-
-          <section className="panel control-thumb-row">
-            <div className="panel-title">Favorites</div>
-            <div className="template-thumb-grid">
-              {favoriteTemplates.length === 0 ? (
-                <div className="rundown-empty">No favorites pinned yet.</div>
-              ) : (
-                favoriteTemplates.map((template) => (
                   <button
-                    key={`favorite-${template.id}`}
                     type="button"
-                    className={`template-thumb ${previewTemplateId === template.id ? 'template-thumb--active' : ''}`.trim()}
-                    onClick={() => cuePreview(template.id)}
+                    className="btn btn--ghost btn--wide btn--tactile"
+                    onClick={clearProgram}
+                    disabled={!onAir && !transitionInProgress}
                   >
-                    <div className="template-thumb__surface">
-                      <SceneRenderer scene={template.scene} story={story} />
-                    </div>
-                    <div className="template-thumb__label mono">{template.label}</div>
+                    CLEAR
                   </button>
-                ))
-              )}
-            </div>
-          </section>
+                </div>
 
-          <section className="panel control-thumb-row">
-            <div className="panel-title">Quick Launch</div>
-            <div className="template-thumb-grid">
-              {quickLaunchTemplates.length === 0 ? (
-                <div className="rundown-empty">No additional templates available.</div>
-              ) : (
-                quickLaunchTemplates.map((template) => (
-                  <button
-                    key={`quick-${template.id}`}
-                    type="button"
-                    className={`template-thumb ${previewTemplateId === template.id ? 'template-thumb--active' : ''}`.trim()}
-                    onClick={() => cuePreview(template.id)}
-                  >
-                    <div className="template-thumb__surface">
-                      <SceneRenderer scene={template.scene} story={story} checkerboard />
-                    </div>
-                    <div className="template-thumb__label mono">{template.label}</div>
-                  </button>
-                ))
-              )}
+                <div className="console-section console-section--outputs">
+                  <div className="panel-title">Output Transport</div>
+                  <div className="story-actions">
+                    <button
+                      type="button"
+                      className={`btn btn--small ${transportMode === 'local' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                      onClick={() => setTransportMode('local')}
+                    >
+                      Local
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn--small ${transportMode === 'ws' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                      onClick={() => setTransportMode('ws')}
+                    >
+                      WebSocket
+                    </button>
+                  </div>
+                  <div className="transport-status mono" title={transportWsUrl}>
+                    {transportMode.toUpperCase()} | ROOM {getRoomId()}
+                  </div>
+                </div>
+
+                <div className="hotkey-strip mono">
+                  <Keyboard size={14} />
+                  <span>SPACE = TAKE</span>
+                  <span>C = CLEAR</span>
+                  {transitionInProgress ? <span className="transition-status">TAKE IN PROGRESS</span> : null}
+                </div>
+                <span className="visually-hidden" role="status" aria-live="polite">
+                  {copyLabel}
+                </span>
+              </div>
+
+              <article className="monitor-tile monitor-tile--program">
+                <header>
+                  <span>Program</span>
+                  <span className="monitor-tile__meta">
+                    <span className={`badge badge--mono ${onAir ? 'badge--air' : ''}`.trim()}>{onAir ? 'ON AIR' : 'CLEAR'}</span>
+                    {renderCopyButton('program')}
+                  </span>
+                </header>
+                <div className="monitor-fit">
+                  <div className="monitor-surface">
+                    <ProgramTransitionSurface
+                      scene={programScene}
+                      story={story}
+                      transition={programTransition}
+                      showActionSafe
+                      showTitleSafe
+                      showCanvasBounds
+                    />
+                  </div>
+                </div>
+              </article>
+            </section>
+
+            <div className="control-bins">
+              <section className="panel control-thumb-row">
+                <div className="panel-title">Favorites</div>
+                <div className="template-thumb-grid">
+                  {favoriteTemplates.length === 0 ? (
+                    <div className="rundown-empty">No favorites pinned yet.</div>
+                  ) : (
+                    favoriteTemplates.map((template) => (
+                      <button
+                        key={`favorite-${template.id}`}
+                        type="button"
+                        className={`template-thumb ${previewTemplateId === template.id ? 'template-thumb--active' : ''}`.trim()}
+                        onClick={() => cuePreview(template.id)}
+                      >
+                        <div className="template-thumb__surface">
+                          <SceneRenderer scene={template.scene} story={story} />
+                        </div>
+                        <div className="template-thumb__label mono">{template.label}</div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="panel control-thumb-row">
+                <div className="panel-title">Quick Launch</div>
+                <div className="template-thumb-grid">
+                  {quickLaunchTemplates.length === 0 ? (
+                    <div className="rundown-empty">No additional templates available.</div>
+                  ) : (
+                    quickLaunchTemplates.map((template) => (
+                      <button
+                        key={`quick-${template.id}`}
+                        type="button"
+                        className={`template-thumb ${previewTemplateId === template.id ? 'template-thumb--active' : ''}`.trim()}
+                        onClick={() => cuePreview(template.id)}
+                      >
+                        <div className="template-thumb__surface">
+                          <SceneRenderer scene={template.scene} story={story} checkerboard />
+                        </div>
+                        <div className="template-thumb__label mono">{template.label}</div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </section>
             </div>
-          </section>
+          </div>
         </section>
       </div>
     </section>
