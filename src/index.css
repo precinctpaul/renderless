@@ -334,14 +334,6 @@ select:focus {
   color: var(--zinc-400);
 }
 
-.dashboard-layout {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 280px minmax(500px, 1fr) 260px;
-  gap: 10px;
-}
-
 .panel--explorer {
   display: flex;
   flex-direction: column;
@@ -1743,14 +1735,6 @@ select:focus {
   color: var(--zinc-400);
 }
 
-.data-engine-layout {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 300px;
-  gap: 10px;
-}
-
 .data-engine-sidebar,
 .data-engine-main,
 .data-engine-egress {
@@ -2394,15 +2378,6 @@ html.renderless-output-embed #root,
 }
 
 @media (max-width: 1400px) {
-  .dashboard-layout {
-    grid-template-columns: 260px minmax(0, 1fr);
-  }
-
-  .panel--right {
-    grid-column: 1 / -1;
-    max-height: 340px;
-  }
-
   .global-search-panel__columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2415,13 +2390,6 @@ html.renderless-output-embed #root,
     grid-template-columns: 260px minmax(0, 1fr) 260px;
   }
 
-  .data-engine-layout {
-    grid-template-columns: 240px minmax(0, 1fr) 270px;
-  }
-
-  .data-engine-player-board {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 1160px) {
@@ -2444,9 +2412,7 @@ html.renderless-output-embed #root,
     min-height: 980px;
   }
 
-  .dashboard-layout,
-  .design-layout,
-  .data-engine-layout {
+  .design-layout {
     display: flex;
     flex-direction: column;
     overflow: visible;
@@ -2788,9 +2754,20 @@ html.renderless-output-embed #root,
 
 /* Not enough room for a sidebar: the template library becomes a strip on top. */
 @container control-screen (max-width: 760px) {
+  /* One scrolling column in normal flow, rather than a scroll area nested under the strip. */
   .control-layout {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .control-layout > * {
+    flex: none;
+  }
+
+  .control-main {
+    overflow: visible;
   }
 
   .rundown-panel .panel-subtitle {
@@ -2868,5 +2845,188 @@ html.renderless-output-embed #root,
 
   .rundown-panel .panel-subtitle {
     display: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Dashboard and Data Engine: same fluid approach as the Control Room.
+   Columns size proportionally, every panel scrolls internally instead of
+   clipping, and the arrangement reflows from the space actually available
+   (container queries on the screen) down to a single scrolling column.
+   -------------------------------------------------------------------------- */
+
+.screen--dashboard {
+  container: dashboard-screen / inline-size;
+  min-height: 0;
+}
+
+.dashboard-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(200px, 18%, 280px) minmax(0, 1fr) clamp(220px, 21%, 300px);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'explorer table inspector';
+  gap: 10px;
+}
+
+.dashboard-layout > .panel--explorer {
+  grid-area: explorer;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dashboard-layout > .panel--explorer > * {
+  flex-shrink: 0;
+}
+
+.dashboard-layout > .panel--table {
+  grid-area: table;
+  /* Toolbar, import wizard and search results stay reachable; the grid keeps a usable height. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dashboard-layout > .panel--right {
+  grid-area: inspector;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.panel--table > .library-grid {
+  flex: 1 0 auto;
+  min-height: min(240px, 50%);
+  overflow: visible;
+}
+
+.panel--explorer > .explorer-sections {
+  flex: 1;
+  min-height: 120px;
+  overscroll-behavior: contain;
+}
+
+/* Medium: the inspector moves under the explorer so the grid keeps full height. */
+@container dashboard-screen (max-width: 1180px) {
+  .dashboard-layout {
+    grid-template-columns: clamp(200px, 30%, 280px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'explorer table'
+      'inspector table';
+  }
+}
+
+/* Narrow: one column in normal flow; the layout itself scrolls. */
+@container dashboard-screen (max-width: 760px) {
+  .dashboard-layout {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .dashboard-layout > * {
+    flex: none;
+  }
+
+  .dashboard-layout > .panel--table,
+  .dashboard-layout > .panel--right {
+    overflow: visible;
+  }
+
+  .panel--explorer > .explorer-sections {
+    flex: none;
+    max-height: min(60vh, 520px);
+  }
+
+  .panel--table > .library-grid {
+    min-height: 0;
+  }
+}
+
+.screen--data-engine {
+  container: data-screen / inline-size;
+  min-height: 0;
+}
+
+.data-engine-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(220px, 19%, 280px) minmax(0, 1fr) clamp(220px, 21%, 300px);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'sidebar main egress';
+  gap: 10px;
+}
+
+.data-engine-layout > .data-engine-sidebar {
+  grid-area: sidebar;
+}
+
+.data-engine-layout > .data-engine-main {
+  grid-area: main;
+}
+
+.data-engine-layout > .data-engine-egress {
+  grid-area: egress;
+}
+
+/* Each column scrolls on its own instead of clipping its controls. */
+.data-engine-layout > .panel {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.data-engine-layout > .panel > * {
+  flex-shrink: 0;
+}
+
+.data-engine-main > .registry-scroll {
+  flex: 1 0 auto;
+  min-height: min(280px, 60%);
+  overflow: visible;
+}
+
+.data-engine-egress > .egress-feed {
+  flex: 1 0 auto;
+  overflow: visible;
+}
+
+.data-engine-player-board {
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+}
+
+/* Medium: egress drops under the registry; the sidebar keeps the full height. */
+@container data-screen (max-width: 1100px) {
+  .data-engine-layout {
+    grid-template-columns: clamp(220px, 30%, 280px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1.6fr) minmax(0, 1fr);
+    grid-template-areas:
+      'sidebar main'
+      'sidebar egress';
+  }
+}
+
+/* Narrow: one column in normal flow; the layout itself scrolls. */
+@container data-screen (max-width: 720px) {
+  .data-engine-layout {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .data-engine-layout > .panel {
+    flex: none;
+    overflow: visible;
+  }
+
+  .data-engine-main > .registry-scroll {
+    min-height: 0;
+  }
+
+  .data-engine-egress > .egress-feed {
+    max-height: min(50vh, 420px);
+    overflow-y: auto;
   }
 }
