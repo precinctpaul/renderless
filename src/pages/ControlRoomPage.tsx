@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Copy, Keyboard, Star } from 'lucide-react'
+import { Check, Copy, Keyboard, RefreshCw, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
-import { buildDefaultTransportWsUrl, buildOutputUrl, getRoomId } from '../lib/outputUrls'
+import { buildDefaultTransportWsUrl, buildOutputUrl } from '../lib/outputUrls'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
 
 const TRANSITIONS: Array<{ id: TransitionType; label: string }> = [
@@ -45,6 +45,40 @@ export function ControlRoomPage() {
 
   const [copyLabel, setCopyLabel] = useState<string>('')
   const [copiedFollow, setCopiedFollow] = useState<'preview' | 'program' | null>(null)
+  const [confirmingNewRoom, setConfirmingNewRoom] = useState(false)
+  const transportRoomId = usePlayoutStore((state) => state.transportRoomId)
+  const rotateTransportRoom = usePlayoutStore((state) => state.rotateTransportRoom)
+
+  // The confirm state expires on its own and Escape cancels it, so a stray click never rotates.
+  useEffect(() => {
+    if (!confirmingNewRoom) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => setConfirmingNewRoom(false), 4000)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setConfirmingNewRoom(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.clearTimeout(timeout)
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [confirmingNewRoom])
+
+  const handleNewRoom = () => {
+    if (!confirmingNewRoom) {
+      setConfirmingNewRoom(true)
+      return
+    }
+
+    setConfirmingNewRoom(false)
+    const nextRoomId = rotateTransportRoom()
+    setCopyLabel(`New room ${nextRoomId}. Old output links are disconnected; copy the URLs again.`)
+    window.setTimeout(() => setCopyLabel(''), 4000)
+  }
 
   const hasTemplates = templates.length > 0
   const favoriteTemplates = useMemo(() => templates.filter((template) => template.favorite).slice(0, 6), [templates])
@@ -247,8 +281,17 @@ export function ControlRoomPage() {
                     </button>
                   </div>
                   <div className="transport-status mono" title={transportWsUrl}>
-                    {transportMode.toUpperCase()} | ROOM {getRoomId()}
+                    {transportMode.toUpperCase()} | ROOM {transportRoomId}
                   </div>
+                  <button
+                    type="button"
+                    className={`btn btn--small btn--wide new-room-button ${confirmingNewRoom ? 'new-room-button--confirm' : 'btn--ghost'}`.trim()}
+                    onClick={handleNewRoom}
+                    title="Generate a new room code. Every existing Output link stops updating."
+                  >
+                    <RefreshCw size={14} />
+                    <span>{confirmingNewRoom ? (onAir ? 'On air: click to confirm' : 'Click to confirm') : 'New room'}</span>
+                  </button>
                 </div>
 
                 <div className="hotkey-strip mono">

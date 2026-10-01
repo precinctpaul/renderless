@@ -68,12 +68,34 @@ export class RelayRoom extends DurableObject {
       return
     }
 
+    if (payload?.type === 'renderless-room-retire') {
+      // A controller moved to a new room: forget the replay state and blank the remaining viewers.
+      try {
+        await this.ctx.storage.delete(LAST_PAYLOAD_KEY)
+      } catch {
+        // Nothing stored.
+      }
+      this.broadcast(socket, message)
+      return
+    }
+
     if (payload?.type !== 'renderless-playout-sync' || !payload?.snapshot) {
       return
     }
 
+    this.broadcast(socket, message)
+
+    try {
+      // Persist so a viewer that connects later (or after eviction) gets the current program.
+      await this.ctx.storage.put(LAST_PAYLOAD_KEY, message)
+    } catch {
+      // Oversized snapshots (e.g. large embedded images) still relay live; they just are not replayed.
+    }
+  }
+
+  broadcast(sender, message) {
     for (const peer of this.ctx.getWebSockets()) {
-      if (peer === socket) {
+      if (peer === sender) {
         continue
       }
 
@@ -82,13 +104,6 @@ export class RelayRoom extends DurableObject {
       } catch {
         // A peer that cannot be written to will be cleaned up by its close event.
       }
-    }
-
-    try {
-      // Persist so a viewer that connects later (or after eviction) gets the current program.
-      await this.ctx.storage.put(LAST_PAYLOAD_KEY, message)
-    } catch {
-      // Oversized snapshots (e.g. large embedded images) still relay live; they just are not replayed.
     }
   }
 

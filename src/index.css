@@ -3152,3 +3152,14 @@ html.renderless-output-embed #root,
     min-height: max(100%, 460px);
   }
 }
+
+/* New room: the confirm state only recolors and relabels the same box (no reflow). */
+.new-room-button {
+  white-space: nowrap;
+}
+
+.new-room-button--confirm {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+}

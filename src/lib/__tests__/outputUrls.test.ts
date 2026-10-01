@@ -4,7 +4,9 @@ import {
   buildRelayRoomUrl,
   getRoomId,
   isOutputViewerLocation,
+  isViewingOtherRoom,
   normalizeRoomId,
+  rotateRoomId,
 } from '../outputUrls'
 
 afterEach(() => {
@@ -45,5 +47,26 @@ describe('relay rooms', () => {
     expect(isOutputViewerLocation()).toBe(true)
     window.history.replaceState(null, '', '/control-room')
     expect(isOutputViewerLocation()).toBe(false)
+  })
+
+  test('New Room replaces the persisted room and new output links use it', () => {
+    const before = getRoomId()
+    const next = rotateRoomId()
+    expect(next).not.toBe(before)
+    expect(normalizeRoomId(next)).toBe(next)
+    expect(getRoomId()).toBe(next)
+    expect(buildOutputPath('program')).toContain(`room=${next}`)
+  })
+
+  test('an output page on a retired room is detected so same-browser sync is ignored', () => {
+    const oldRoom = getRoomId()
+    window.history.replaceState(null, '', `/output-feed?follow=program&room=${oldRoom}`)
+    expect(isViewingOtherRoom()).toBe(false)
+
+    rotateRoomId()
+    expect(isViewingOtherRoom()).toBe(true)
+
+    window.history.replaceState(null, '', '/control-room')
+    expect(isViewingOtherRoom()).toBe(false)
   })
 })

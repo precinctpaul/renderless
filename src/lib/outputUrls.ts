@@ -1,6 +1,6 @@
 export type OutputFollow = 'preview' | 'program'
 
-const ROOM_STORAGE_KEY = 'renderless.transport.room.v1'
+export const ROOM_STORAGE_KEY = 'renderless.transport.room.v1'
 const ROOM_PATTERN = /^[A-Za-z0-9_-]{6,64}$/
 const ROOM_ALPHABET = 'abcdefghijkmnpqrstuvwxyz23456789'
 const ROOM_LENGTH = 12
@@ -58,6 +58,50 @@ export function getRoomId(): string {
   } catch {
     return fallbackRoomId ?? (fallbackRoomId = generateRoomId())
   }
+}
+
+/**
+ * Replaces this browser's room with a fresh code. Every existing Output link points at the
+ * old room, so they stop receiving updates; links must be copied again.
+ */
+export function rotateRoomId(): string {
+  const next = generateRoomId()
+  fallbackRoomId = next
+  if (typeof window !== 'undefined') {
+    try {
+      window.localStorage.setItem(ROOM_STORAGE_KEY, next)
+    } catch {
+      // Storage unavailable: the in-memory fallback keeps this tab on the new room.
+    }
+  }
+  return next
+}
+
+function readStoredRoomId(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    return normalizeRoomId(window.localStorage.getItem(ROOM_STORAGE_KEY))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * True for an Output page whose ?room= no longer matches this browser's current room
+ * (e.g. after New Room). Same-browser sync (BroadcastChannel/localStorage) is not
+ * room-scoped, so such pages must ignore it and rely on the relay only.
+ */
+export function isViewingOtherRoom(): boolean {
+  if (!isOutputViewerLocation()) {
+    return false
+  }
+
+  const viewedRoom = normalizeRoomId(new URLSearchParams(window.location.search).get('room'))
+  const storedRoom = readStoredRoomId()
+  return Boolean(viewedRoom && storedRoom && viewedRoom !== storedRoom)
 }
 
 /** Output feed pages only mirror what a controller publishes; they never publish state themselves. */

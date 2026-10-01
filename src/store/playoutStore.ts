@@ -28,8 +28,12 @@ import {
   buildDefaultTransportWsUrl,
   buildHostRelayUrl,
   buildRelayRoomUrl,
+  getRoomId,
   hasConfiguredRelay,
   isOutputViewerLocation,
+  isViewingOtherRoom,
+  ROOM_STORAGE_KEY,
+  rotateRoomId,
 } from '../lib/outputUrls'
 
 const STORAGE_KEY = 'renderless.playout.snapshot.v1'
@@ -108,6 +112,12 @@ interface TransportSyncPayload {
   snapshot: PersistedPlayoutSnapshot
 }
 
+/** Sent by a controller leaving a room (New Room): the relay drops its replay state and viewers go blank. */
+interface RoomRetirePayload {
+  type: 'renderless-room-retire'
+  source: string
+}
+
 declare global {
   interface Window {
     __renderlessSyncCleanup?: () => void
@@ -135,6 +145,7 @@ interface PlayoutStore {
   transportWsUrl: string
   transportStatus: TransportConnectionStatus
   transportError: string | null
+  transportRoomId: string
   packageSigningEnabled: boolean
   packageSigningKeyId: string
   packageSigningSecret: string
@@ -187,6 +198,7 @@ interface PlayoutStore {
   setTransportMode: (mode: TransportMode) => void
   setTransportWsUrl: (url: string) => void
   setTransportStatus: (status: TransportConnectionStatus, error?: string | null) => void
+  rotateTransportRoom: () => string
   setPackageSigningConfig: (patch: Partial<PackageSigningState>) => void
   setSimulationLeague: (league: SupportedLeague) => void
   setSimulationSpeed: (speed: SimulationSpeed) => void
@@ -1141,6 +1153,10 @@ const initialProgramScene =
     ? cloneScene(CLEAR_SCENE)
     : cloneScene(hydratedSnapshot.programScene)
 
+// Set by the sync layer below so store actions can reach the live relay connection.
+let retireActiveRelayRoom: (() => void) | null = null
+let reconcileTransportNow: (() => void) | null = null
+
 export const usePlayoutStore = create<PlayoutStore>((set, get) => {
   let pendingTakeHandle: ReturnType<typeof setTimeout> | null = null
   let simulationPlaybackHandle: ReturnType<typeof setTimeout> | null = null
@@ -1234,6 +1250,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     transportWsUrl: initialTransportConfig.wsUrl,
     transportStatus: 'offline',
     transportError: null,
+    transportRoomId: getRoomId(),
     packageSigningEnabled: initialPackageSigningState.enabled,
     packageSigningKeyId: initialPackageSigningState.keyId,
     packageSigningSecret: initialPackageSigningState.secret,
@@ -2004,6 +2021,17 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
     },
+    rotateTransportRoom: () => {
+      // Tell the old room it is retired before leaving it, then reconnect on the new code at once.
+      retireActiveRelayRoom?.()
+      const nextRoomId = rotateRoomId()
+      set(() => ({
+        transportRoomId: nextRoomId,
+        transportError: null,
+      }))
+      reconcileTransportNow?.()
+      return nextRoomId
+    },
     setTransportStatus: (status, error = null) => {
       set((state) => {
         if (state.transportStatus === status && state.transportError === error) {
@@ -2379,7 +2407,12 @@ if (typeof window !== 'undefined') {
     }
   }
 
-  const applyExternalSnapshot = (incomingSnapshot: Partial<PersistedPlayoutSnapshot>) => {
+  const applyExternalSnapshot = (incomingSnapshot: Partial<PersistedPlayoutSnapshot>, fromRelay = false) => {
+    // Same-browser sync is not room-scoped: an Output on a retired room listens to the relay only.
+    if (!fromRelay && isViewingOtherRoom()) {
+      return
+    }
+
     const state = usePlayoutStore.getState()
     const defaultId = state.templates[0]?.id ?? ''
     const normalized = normalizeSnapshot(incomingSnapshot, state.templates, defaultId)
@@ -2409,6 +2442,20 @@ if (typeof window !== 'undefined') {
       canUndo: false,
       canRedo: false,
       updatedAt: normalized.updatedAt,
+    })
+    isApplyingExternalSnapshot = false
+  }
+
+  // A viewer whose room was retired drops whatever it was showing.
+  const blankRetiredRoomViewer = () => {
+    isApplyingExternalSnapshot = true
+    usePlayoutStore.setState({
+      programTemplateId: CLEAR_TEMPLATE_ID,
+      programScene: cloneScene(CLEAR_SCENE),
+      previewScene: cloneScene(CLEAR_SCENE),
+      onAir: false,
+      transitionInProgress: false,
+      programTransition: null,
     })
     isApplyingExternalSnapshot = false
   }
@@ -2494,12 +2541,20 @@ if (typeof window !== 'undefined') {
         }
 
         try {
-          const payload = JSON.parse(event.data) as Partial<TransportSyncPayload>
+          const message = JSON.parse(event.data) as Partial<TransportSyncPayload> | Partial<RoomRetirePayload>
+          if (message.type === 'renderless-room-retire') {
+            if (message.source !== INSTANCE_ID && isOutputViewerLocation()) {
+              blankRetiredRoomViewer()
+            }
+            return
+          }
+
+          const payload = message as Partial<TransportSyncPayload>
           if (payload.type !== 'renderless-playout-sync' || payload.source === INSTANCE_ID || !payload.snapshot) {
             return
           }
 
-          applyExternalSnapshot(payload.snapshot)
+          applyExternalSnapshot(payload.snapshot, true)
         } catch {
           // Ignore malformed websocket messages.
         }
@@ -2625,6 +2680,12 @@ if (typeof window !== 'undefined') {
       reconcileWebSocketTransport()
     }
 
+    if (event.key === ROOM_STORAGE_KEY) {
+      // Another tab rotated the room; follow it (the socket moves on the next reconcile).
+      usePlayoutStore.setState(() => ({ transportRoomId: getRoomId() }))
+      reconcileWebSocketTransport()
+    }
+
     if (event.key === PACKAGE_SIGNING_STORAGE_KEY) {
       const signingState = readPackageSigningState()
       usePlayoutStore.setState(() => ({
@@ -2662,12 +2723,28 @@ if (typeof window !== 'undefined') {
     reconcileWebSocketTransport()
   }, 1000)
 
+  retireActiveRelayRoom = () => {
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    try {
+      const retire: RoomRetirePayload = { type: 'renderless-room-retire', source: INSTANCE_ID }
+      websocket.send(JSON.stringify(retire))
+    } catch {
+      // The old room simply keeps its last state if the retire message cannot be sent.
+    }
+  }
+  reconcileTransportNow = reconcileWebSocketTransport
+
   channel?.addEventListener('message', onChannelMessage)
   window.addEventListener('storage', onStorage)
   reconcileWebSocketTransport()
 
   window.__renderlessSyncCleanup = () => {
     isCleaningUp = true
+    retireActiveRelayRoom = null
+    reconcileTransportNow = null
     usePlayoutStore.getState().pauseSimulation()
     clearReconnect()
     unsubscribe()

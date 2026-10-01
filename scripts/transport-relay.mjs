@@ -59,6 +59,12 @@ server.on('connection', (socket, request) => {
       return
     }
 
+    if (payload?.type === 'renderless-room-retire') {
+      room.lastPayload = null
+      broadcast(room, encoded, socket)
+      return
+    }
+
     if (payload?.type !== 'renderless-playout-sync' || !payload?.snapshot) {
       return
     }
