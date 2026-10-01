@@ -1,6 +1,7 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
+import { withBasePath } from '../lib/outputUrls'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const NAV_ITEMS = [
@@ -45,7 +46,7 @@ export function AppShell() {
           <nav className="nav-tabs" aria-label="Main">
             {NAV_ITEMS.map((item) =>
               item.external ? (
-                <a key={item.label} href={item.to} className="nav-tab" target="_blank" rel="noreferrer">
+                <a key={item.label} href={withBasePath(item.to)} className="nav-tab" target="_blank" rel="noreferrer">
                   {item.label}
                 </a>
               ) : (

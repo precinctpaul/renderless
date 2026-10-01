@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages serves the app from /<repo>/; local dev and tests stay at the root.
+  base: process.env.PAGES_BASE_PATH ?? '/',
   plugins: [react()],
   test: {
     environment: 'jsdom',
