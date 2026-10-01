@@ -2844,3 +2844,29 @@ html.renderless-output-embed #root,
     font-size: 26px;
   }
 }
+
+/* Very short windows (e.g. a phone held sideways): the active nav tab already names the
+   page, so drop the page title and tighten the header to give the workspace the room. */
+@media (max-height: 520px) {
+  .screen > h1 {
+    display: none;
+  }
+
+  .top-nav {
+    min-height: 0;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .brand-link {
+    font-size: 22px;
+  }
+
+  .app-main {
+    padding: 8px;
+  }
+
+  .rundown-panel .panel-subtitle {
+    display: none;
+  }
+}
