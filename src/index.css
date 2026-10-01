@@ -1247,14 +1247,6 @@ select:focus {
   min-height: 0;
 }
 
-.design-layout {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 300px minmax(550px, 1fr) 280px;
-  gap: 10px;
-}
-
 .stage-sidebar,
 .inspector {
   display: flex;
@@ -2386,10 +2378,6 @@ html.renderless-output-embed #root,
     grid-template-columns: 1fr;
   }
 
-  .design-layout {
-    grid-template-columns: 260px minmax(0, 1fr) 260px;
-  }
-
 }
 
 @media (max-width: 1160px) {
@@ -2410,12 +2398,6 @@ html.renderless-output-embed #root,
 
   .screen {
     min-height: 980px;
-  }
-
-  .design-layout {
-    display: flex;
-    flex-direction: column;
-    overflow: visible;
   }
 
   .global-search-panel__columns {
@@ -3028,5 +3010,145 @@ html.renderless-output-embed #root,
   .data-engine-egress > .egress-feed {
     max-height: min(50vh, 420px);
     overflow-y: auto;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Design: fluid editor layout. The canvas keeps the most space and always
+   fits its area; side panels scroll internally instead of clipping; toolbars
+   wrap instead of pushing buttons out of view; the arrangement reflows from
+   the space actually available down to a single scrolling column.
+   -------------------------------------------------------------------------- */
+
+.screen--design {
+  container: design-screen / inline-size;
+  min-height: 0;
+}
+
+.design-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(200px, 18%, 300px) minmax(0, 1fr) clamp(220px, 19%, 280px);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: 'sidebar stage inspector';
+  gap: 10px;
+}
+
+.design-layout > .stage-sidebar {
+  grid-area: sidebar;
+}
+
+.design-layout > .stage-center {
+  grid-area: stage;
+  min-width: 0;
+}
+
+.design-layout > .inspector {
+  grid-area: inspector;
+}
+
+.design-layout > .stage-sidebar,
+.design-layout > .inspector,
+.design-layout > .stage-center {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.design-layout > .panel > * {
+  flex-shrink: 0;
+}
+
+/* Lists keep a usable height; when the column is shorter, the column scrolls. */
+.stage-sidebar > .layer-list,
+.stage-sidebar > .asset-list {
+  flex: 1 0 auto;
+  min-height: min(220px, 45%);
+  max-height: none;
+}
+
+.stage-toolbar {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.stage-toolbar__actions {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.stage-toolbar__template-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The canvas takes the remaining height but never collapses below a workable size. */
+.stage-center > .stage-canvas-wrap {
+  flex: 1 1 auto;
+  min-height: 260px;
+}
+
+/* Medium: the inspector moves under the tools column so the canvas keeps its width. */
+@container design-screen (max-width: 1100px) {
+  .design-layout {
+    grid-template-columns: clamp(220px, 32%, 300px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      'sidebar stage'
+      'inspector stage';
+  }
+}
+
+/* Narrow: one column in normal flow, canvas first; the layout itself scrolls. */
+@container design-screen (max-width: 720px) {
+  .design-layout {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .design-layout > .panel {
+    flex: none;
+    overflow: visible;
+  }
+
+  .design-layout > .stage-center {
+    order: -1;
+  }
+
+  /* Canvas first, tools beneath it, as in mobile editors. */
+  .stage-center > .stage-canvas-wrap {
+    order: -1;
+    flex: none;
+    min-height: 0;
+    aspect-ratio: 16 / 10;
+  }
+
+  .stage-sidebar > .layer-list,
+  .stage-sidebar > .asset-list {
+    flex: none;
+    min-height: 0;
+    max-height: min(50vh, 420px);
+  }
+}
+
+/* Minimum workspace height: on very short windows the page scrolls as a whole
+   instead of squeezing every panel into a sliver. */
+@media (max-height: 520px) {
+  .app-main {
+    overflow-y: auto;
+  }
+
+  .screen--dashboard,
+  .screen--design,
+  .screen--data-engine,
+  .screen--control-room {
+    height: auto;
+    min-height: max(100%, 460px);
   }
 }
