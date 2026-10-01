@@ -2,10 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
+import {
+  FONT_STORAGE_KEY,
+  MEDIA_LIBRARY_UPDATED_EVENT,
+  invalidateMediaEntriesCache,
+  readMediaEntriesAsync,
+  registerFontEntries,
+} from '../lib/mediaLibrary'
 import { buildDefaultTransportWsUrl, normalizeOutputFollow } from '../lib/outputUrls'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const OUTPUT_HEARTBEAT_BASE_KEY = 'renderless.output.heartbeat.v1'
+const EMBED_DOCUMENT_CLASS = 'renderless-output-embed'
 const STALE_THRESHOLD_MS = 15000
 
 declare global {
@@ -53,6 +61,54 @@ export function OutputFeedPage() {
       setTransportMode('ws')
     }
   }, [embed, setTransportMode, setTransportWsUrl, transportMode, transportWsUrl])
+
+  // The page, body and #root paint opaque app-shell backgrounds; drop them for keyable embeds.
+  useEffect(() => {
+    if (!embed) {
+      return
+    }
+
+    document.documentElement.classList.add(EMBED_DOCUMENT_CLASS)
+    return () => document.documentElement.classList.remove(EMBED_DOCUMENT_CLASS)
+  }, [embed])
+
+  // Uploaded fonts are only registered by the pages that load the media library, so a
+  // standalone output tab has to register them itself or templates fall back to defaults.
+  useEffect(() => {
+    let cancelled = false
+
+    const hydrateFonts = async () => {
+      const entries = await readMediaEntriesAsync('font')
+      if (!cancelled) {
+        await registerFontEntries(entries)
+      }
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === FONT_STORAGE_KEY) {
+        invalidateMediaEntriesCache('font')
+        void hydrateFonts()
+      }
+    }
+
+    const onMediaLibraryUpdated = (event: Event) => {
+      const payload = (event as CustomEvent<{ kind?: 'asset' | 'font' }>).detail
+      if (!payload || payload.kind === 'font') {
+        invalidateMediaEntriesCache('font')
+        void hydrateFonts()
+      }
+    }
+
+    void hydrateFonts()
+    window.addEventListener('storage', onStorage)
+    window.addEventListener(MEDIA_LIBRARY_UPDATED_EVENT, onMediaLibraryUpdated as EventListener)
+
+    return () => {
+      cancelled = true
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener(MEDIA_LIBRARY_UPDATED_EVENT, onMediaLibraryUpdated as EventListener)
+    }
+  }, [])
 
   useEffect(() => {
     const heartbeatKey = `${OUTPUT_HEARTBEAT_BASE_KEY}.${follow}`

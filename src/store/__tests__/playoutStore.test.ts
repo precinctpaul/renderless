@@ -50,6 +50,51 @@ describe('Playout reliability and QA regression suite', () => {
     expect(getLayerPosition(refreshedState.programScene, 'shape-home-block').x).toBe(420)
   })
 
+  test('cold start without a snapshot keeps program clear and off air', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const state = usePlayoutStore.getState()
+
+    expect(state.onAir).toBe(false)
+    expect(state.programTemplateId).toBe('__clear__')
+    expect(state.programScene.layers).toHaveLength(0)
+  })
+
+  test('off-air snapshots never hydrate a program scene', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().take()
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+
+    const snapshot = JSON.parse(window.localStorage.getItem(SNAPSHOT_KEY) ?? '{}') as Record<string, unknown>
+    window.localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ ...snapshot, onAir: false }))
+
+    const { usePlayoutStore: refreshedStore } = await loadStoreModule()
+    expect(refreshedStore.getState().programTemplateId).toBe('__clear__')
+    expect(refreshedStore.getState().programScene.layers).toHaveLength(0)
+  })
+
+  test('reset demo and deleting the on-air template both clear program', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().take()
+    usePlayoutStore.getState().resetDemo()
+    expect(usePlayoutStore.getState().onAir).toBe(false)
+    expect(usePlayoutStore.getState().programTemplateId).toBe('__clear__')
+    expect(usePlayoutStore.getState().programScene.layers).toHaveLength(0)
+
+    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().savePreviewTemplate('On Air Custom')
+    const customTemplateId = usePlayoutStore.getState().previewTemplateId
+    usePlayoutStore.getState().take()
+    expect(usePlayoutStore.getState().programTemplateId).toBe(customTemplateId)
+
+    usePlayoutStore.getState().deleteTemplate(customTemplateId)
+    expect(usePlayoutStore.getState().onAir).toBe(false)
+    expect(usePlayoutStore.getState().programTemplateId).toBe('__clear__')
+    expect(usePlayoutStore.getState().programScene.layers).toHaveLength(0)
+  })
+
   test('non-cut transitions defer program switch and expose in-progress state', async () => {
     vi.useFakeTimers()
     const { usePlayoutStore } = await loadStoreModule()

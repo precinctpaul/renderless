@@ -980,16 +980,21 @@ function normalizeSnapshot(
     ? (rawSnapshot?.previewTemplateId ?? defaultTemplateId)
     : defaultTemplateId
 
-  const incomingProgramTemplateId = rawSnapshot?.programTemplateId ?? defaultTemplateId
+  // Program is only populated while on air; a missing snapshot, an off-air snapshot, or a
+  // program template that no longer exists all resolve to CLEAR rather than a fallback template.
+  const incomingProgramTemplateId = rawSnapshot?.programTemplateId ?? CLEAR_TEMPLATE_ID
   const programTemplateId =
-    incomingProgramTemplateId === CLEAR_TEMPLATE_ID || findTemplateById(templates, incomingProgramTemplateId)
+    Boolean(rawSnapshot?.onAir) && findTemplateById(templates, incomingProgramTemplateId)
       ? incomingProgramTemplateId
-      : defaultTemplateId
+      : CLEAR_TEMPLATE_ID
 
   const previewScene = sceneFromUnknown(rawSnapshot?.previewScene) ?? resolveSceneForTemplate(templates, previewTemplateId)
   const fallbackProgramScene =
     programTemplateId === CLEAR_TEMPLATE_ID ? cloneScene(CLEAR_SCENE) : resolveSceneForTemplate(templates, programTemplateId)
-  const programScene = sceneFromUnknown(rawSnapshot?.programScene) ?? fallbackProgramScene
+  const programScene =
+    programTemplateId === CLEAR_TEMPLATE_ID
+      ? fallbackProgramScene
+      : (sceneFromUnknown(rawSnapshot?.programScene) ?? fallbackProgramScene)
 
   const transitionType =
     rawSnapshot?.transitionType === 'fade' || rawSnapshot?.transitionType === 'lumaWipe'
@@ -1066,7 +1071,7 @@ function normalizeSnapshot(
     transitionInProgress,
     programTransition,
     story,
-    onAir: Boolean(rawSnapshot?.onAir),
+    onAir: programTemplateId !== CLEAR_TEMPLATE_ID,
     updatedAt,
   }
 }
@@ -2242,12 +2247,9 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
             ? fallbackTemplateId
             : (findTemplateById(nextTemplates, state.previewTemplateId)?.id ?? fallbackTemplateId)
 
+        // Deleting the on-air template clears program instead of airing a different template.
         const nextProgramTemplateId =
-          state.programTemplateId === CLEAR_TEMPLATE_ID
-            ? CLEAR_TEMPLATE_ID
-            : state.programTemplateId === templateId
-              ? fallbackTemplateId
-              : (findTemplateById(nextTemplates, state.programTemplateId)?.id ?? fallbackTemplateId)
+          findTemplateById(nextTemplates, state.programTemplateId)?.id ?? CLEAR_TEMPLATE_ID
 
         const nextPreviewScene = nextPreviewTemplateId
           ? resolveSceneForTemplate(nextTemplates, nextPreviewTemplateId)
@@ -2292,9 +2294,9 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
         return {
           previewTemplateId: primaryTemplateId,
-          programTemplateId: primaryTemplateId,
+          programTemplateId: CLEAR_TEMPLATE_ID,
           previewScene: primaryTemplateId ? resolveSceneForTemplate(state.templates, primaryTemplateId) : cloneScene(CLEAR_SCENE),
-          programScene: primaryTemplateId ? resolveSceneForTemplate(state.templates, primaryTemplateId) : cloneScene(CLEAR_SCENE),
+          programScene: cloneScene(CLEAR_SCENE),
           transitionType: 'cut',
           transitionDurationMs: 300,
           transitionInProgress: false,
@@ -2573,9 +2575,7 @@ if (typeof window !== 'undefined') {
           findTemplateById(nextTemplates, state.previewTemplateId)?.id ?? fallbackTemplateId
 
         const programTemplateId =
-          state.programTemplateId === CLEAR_TEMPLATE_ID
-            ? CLEAR_TEMPLATE_ID
-            : (findTemplateById(nextTemplates, state.programTemplateId)?.id ?? fallbackTemplateId)
+          findTemplateById(nextTemplates, state.programTemplateId)?.id ?? CLEAR_TEMPLATE_ID
 
         return {
           templates: nextTemplates,
@@ -2591,6 +2591,7 @@ if (typeof window !== 'undefined') {
               : programTemplateId && programTemplateId !== state.programTemplateId
                 ? resolveSceneForTemplate(nextTemplates, programTemplateId)
                 : state.programScene,
+          onAir: programTemplateId !== CLEAR_TEMPLATE_ID && state.onAir,
         }
       })
     }
