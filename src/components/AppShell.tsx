@@ -1,7 +1,7 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
-import { withBasePath } from '../lib/outputUrls'
+import { buildOutputPath, withBasePath } from '../lib/outputUrls'
 import { usePlayoutStore } from '../store/playoutStore'
 
 const NAV_ITEMS = [
@@ -9,7 +9,8 @@ const NAV_ITEMS = [
   { to: '/design', label: 'Design' },
   { to: '/data-engine', label: 'Data Engine' },
   { to: '/control-room', label: 'Control Room' },
-  { to: '/output-feed?follow=program&embed=1', label: 'Output', external: true },
+  // The Output href is built at render time so it carries this browser's relay room.
+  { to: '', label: 'Output', external: true },
 ]
 
 function formatTime(date: Date): string {
@@ -46,7 +47,7 @@ export function AppShell() {
           <nav className="nav-tabs" aria-label="Main">
             {NAV_ITEMS.map((item) =>
               item.external ? (
-                <a key={item.label} href={withBasePath(item.to)} className="nav-tab" target="_blank" rel="noreferrer">
+                <a key={item.label} href={withBasePath(buildOutputPath('program'))} className="nav-tab" target="_blank" rel="noreferrer">
                   {item.label}
                 </a>
               ) : (

@@ -1,0 +1,18 @@
+{
+  // Hosted RenderLess playout relay: one Durable Object per room, WebSocket hibernation.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "renderless-relay",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY_ROOM", "class_name": "RelayRoom" }]
+  },
+  // SQLite-backed Durable Objects are what the Workers free plan supports.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayRoom"] }],
+  "vars": {
+    // Comma-separated browser origins allowed to connect. Room codes are the real access control;
+    // this just stops other websites from using the relay.
+    "ALLOWED_ORIGINS": "https://precinctpaul.github.io,http://localhost:5173,http://127.0.0.1:5173"
+  }
+}

@@ -4,12 +4,27 @@ const port = Number(process.env.RENDERLESS_WS_PORT ?? 8787)
 const host = process.env.RENDERLESS_WS_HOST ?? '0.0.0.0'
 
 const server = new WebSocketServer({ port, host })
-const clients = new Set()
-let lastPayload = null
+// Mirrors the hosted relay (relay/src/index.js): traffic is scoped per room, keyed by the
+// request path (/room/<id>). Clients connecting to any other path share a default room.
+const rooms = new Map()
 
-function broadcast(payload, excludeClient = null) {
-  const encoded = JSON.stringify(payload)
-  clients.forEach((client) => {
+function roomKeyFor(request) {
+  const pathname = new URL(request.url ?? '/', 'http://relay.local').pathname
+  const match = pathname.match(/^\/room\/([A-Za-z0-9_-]{6,64})\/?$/)
+  return match ? match[1] : '__default__'
+}
+
+function getRoom(key) {
+  let room = rooms.get(key)
+  if (!room) {
+    room = { clients: new Set(), lastPayload: null }
+    rooms.set(key, room)
+  }
+  return room
+}
+
+function broadcast(room, encoded, excludeClient = null) {
+  room.clients.forEach((client) => {
     if (client === excludeClient || client.readyState !== client.OPEN) {
       return
     }
@@ -22,21 +37,24 @@ function broadcast(payload, excludeClient = null) {
   })
 }
 
-server.on('connection', (socket) => {
-  clients.add(socket)
+server.on('connection', (socket, request) => {
+  const roomKey = roomKeyFor(request)
+  const room = getRoom(roomKey)
+  room.clients.add(socket)
 
-  if (lastPayload) {
+  if (room.lastPayload) {
     try {
-      socket.send(JSON.stringify(lastPayload))
+      socket.send(room.lastPayload)
     } catch {
       // Ignore bootstrap send failures.
     }
   }
 
   socket.on('message', (buffer) => {
+    const encoded = buffer.toString()
     let payload
     try {
-      payload = JSON.parse(buffer.toString())
+      payload = JSON.parse(encoded)
     } catch {
       return
     }
@@ -45,17 +63,19 @@ server.on('connection', (socket) => {
       return
     }
 
-    lastPayload = payload
-    broadcast(payload, socket)
+    room.lastPayload = encoded
+    broadcast(room, encoded, socket)
   })
 
-  socket.on('close', () => {
-    clients.delete(socket)
-  })
+  const leave = () => {
+    room.clients.delete(socket)
+    if (room.clients.size === 0 && !room.lastPayload) {
+      rooms.delete(roomKey)
+    }
+  }
 
-  socket.on('error', () => {
-    clients.delete(socket)
-  })
+  socket.on('close', leave)
+  socket.on('error', leave)
 })
 
 server.on('listening', () => {

@@ -24,7 +24,13 @@ import {
   type SimulationTimeline,
   type SupportedLeague,
 } from '../lib/simulationEngine'
-import { buildDefaultTransportWsUrl } from '../lib/outputUrls'
+import {
+  buildDefaultTransportWsUrl,
+  buildHostRelayUrl,
+  buildRelayRoomUrl,
+  hasConfiguredRelay,
+  isOutputViewerLocation,
+} from '../lib/outputUrls'
 
 const STORAGE_KEY = 'renderless.playout.snapshot.v1'
 const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
@@ -204,10 +210,12 @@ function cloneStory(story: StoryState): StoryState {
 
 function readTransportConfig(): TransportConfigState {
   const defaultWsUrl = buildDefaultTransportWsUrl()
+  // With a hosted relay configured, cross-device sync is the default; otherwise stay browser-local.
+  const defaultMode: TransportMode = hasConfiguredRelay() ? 'ws' : 'local'
 
   if (typeof window === 'undefined') {
     return {
-      mode: 'local',
+      mode: defaultMode,
       wsUrl: defaultWsUrl,
     }
   }
@@ -216,14 +224,19 @@ function readTransportConfig(): TransportConfigState {
     const raw = window.localStorage.getItem(TRANSPORT_STORAGE_KEY)
     if (!raw) {
       return {
-        mode: 'local',
+        mode: defaultMode,
         wsUrl: defaultWsUrl,
       }
     }
 
     const parsed = JSON.parse(raw) as Partial<TransportConfigState>
     const mode = parsed.mode === 'ws' ? 'ws' : 'local'
-    const wsUrl = typeof parsed.wsUrl === 'string' && parsed.wsUrl.trim().length > 0 ? parsed.wsUrl.trim() : defaultWsUrl
+    const storedWsUrl = typeof parsed.wsUrl === 'string' ? parsed.wsUrl.trim() : ''
+    // Older builds persisted <host>:8787, which never exists on a hosted origin; upgrade it to the relay.
+    const wsUrl =
+      storedWsUrl.length === 0 || (hasConfiguredRelay() && storedWsUrl === buildHostRelayUrl())
+        ? defaultWsUrl
+        : storedWsUrl
 
     return {
       mode,
@@ -231,7 +244,7 @@ function readTransportConfig(): TransportConfigState {
     }
   } catch {
     return {
-      mode: 'local',
+      mode: defaultMode,
       wsUrl: defaultWsUrl,
     }
   }
@@ -2370,7 +2383,9 @@ if (typeof window !== 'undefined') {
     const state = usePlayoutStore.getState()
     const defaultId = state.templates[0]?.id ?? ''
     const normalized = normalizeSnapshot(incomingSnapshot, state.templates, defaultId)
-    if (normalized.updatedAt <= state.updatedAt) {
+    // Viewers always mirror the controller: a freshly opened viewer has a newer local timestamp,
+    // and device clocks differ, so timestamp ordering only applies between controllers.
+    if (!isOutputViewerLocation() && normalized.updatedAt <= state.updatedAt) {
       return
     }
 
@@ -2432,14 +2447,15 @@ if (typeof window !== 'undefined') {
       return
     }
 
-    const nextUrl = state.transportWsUrl.trim()
-    if (!/^wss?:\/\//i.test(nextUrl)) {
+    const baseUrl = state.transportWsUrl.trim()
+    if (!/^wss?:\/\//i.test(baseUrl)) {
       clearReconnect()
       closeWebSocket()
       state.setTransportStatus('error', 'WebSocket URL must start with ws:// or wss://')
       return
     }
 
+    const nextUrl = buildRelayRoomUrl(baseUrl)
     if (websocket && websocketUrl === nextUrl && (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING)) {
       return
     }
@@ -2460,6 +2476,10 @@ if (typeof window !== 'undefined') {
 
         reconnectAttempt = 0
         usePlayoutStore.getState().setTransportStatus('online')
+        if (isOutputViewerLocation()) {
+          return
+        }
+
         const snapshot = toSnapshot(usePlayoutStore.getState())
         publishPayloadToWebSocket({
           type: 'renderless-playout-sync',
@@ -2515,7 +2535,7 @@ if (typeof window !== 'undefined') {
   }
 
   const unsubscribe = usePlayoutStore.subscribe((state) => {
-    if (isApplyingExternalSnapshot) {
+    if (isApplyingExternalSnapshot || isOutputViewerLocation()) {
       return
     }
 

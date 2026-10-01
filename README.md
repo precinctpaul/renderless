@@ -29,6 +29,28 @@ npm run transport:relay
 Default relay URL is `ws://localhost:8787`.
 Set transport mode/URL in Control Room under **Cross-Device Transport**.
 
+### Rooms
+
+Relay traffic is scoped to a room so only screens sharing a code see each other.
+Each browser gets a random room code (shown in Control Room as `ROOM ...`), and
+**Copy Program/Preview URL** includes it as `?room=`. Output feed pages are
+receive-only: they mirror the room's controller and never publish state.
+
+### Hosted relay (Cloudflare)
+
+The GitHub Pages build connects to a Cloudflare Worker relay in `relay/`
+(one Durable Object per room, free plan). To redeploy it:
+
+```bash
+cd relay
+npm install
+npx wrangler deploy
+```
+
+Allowed browser origins are set by `ALLOWED_ORIGINS` in `relay/wrangler.jsonc`.
+The Pages build picks up the relay via `VITE_RELAY_URL` in
+`.github/workflows/deploy-pages.yml`.
+
 ## Template Package Contract (V2)
 
 Template package kind:

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Copy, Keyboard, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
-import { buildDefaultTransportWsUrl, buildOutputUrl } from '../lib/outputUrls'
+import { buildDefaultTransportWsUrl, buildOutputUrl, getRoomId } from '../lib/outputUrls'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
 
 const TRANSITIONS: Array<{ id: TransitionType; label: string }> = [
@@ -220,7 +220,9 @@ export function ControlRoomPage() {
                   WebSocket
                 </button>
               </div>
-              <div className="transport-status mono">{transportMode.toUpperCase()} | {transportWsUrl}</div>
+              <div className="transport-status mono">
+                {transportMode.toUpperCase()} | {transportWsUrl} | ROOM {getRoomId()}
+              </div>
 
               <div className="hotkey-strip mono">
                 <Keyboard size={14} />

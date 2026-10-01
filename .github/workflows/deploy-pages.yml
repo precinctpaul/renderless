@@ -29,6 +29,8 @@ jobs:
       - run: npm run build
         env:
           PAGES_BASE_PATH: /${{ github.event.repository.name }}/
+          # Hosted Cloudflare relay (relay/) so Output works on other devices.
+          VITE_RELAY_URL: wss://renderless-relay.renderless-relay.workers.dev
       # Pages has no SPA rewrites; serving index.html as 404.html lets deep links like /control-room load.
       - run: cp dist/index.html dist/404.html
       - uses: actions/upload-pages-artifact@v3
