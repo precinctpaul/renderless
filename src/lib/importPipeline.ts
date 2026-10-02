@@ -3,7 +3,7 @@ import { strFromU8, unzipSync } from 'fflate'
 import type { DataBindingKey, SceneDefinition, SceneLayer, TemplateBindingHint, TemplateDefinition, TextLayer } from '../types/scene'
 import { isDataBindingKey } from './bindings'
 
-export type DesignImportSourceType = 'psd' | 'lottie'
+export type DesignImportSourceType = 'psd' | 'lottie' | 'illustrator'
 
 export interface DesignImportDraft {
   id: string
@@ -704,9 +704,35 @@ export function isTemplatePackageFile(fileName: string): boolean {
   return lower.endsWith('.rltpl') || lower.endsWith('.rltpl.json')
 }
 
+export function isIllustratorImportFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase()
+  return lower.endsWith('.ai') || lower.endsWith('.pdf')
+}
+
 export function isDesignImportFile(fileName: string): boolean {
   const lower = fileName.toLowerCase()
-  return lower.endsWith('.psd') || lower.endsWith('.lottie') || lower.endsWith('.lottie.zip') || lower.endsWith('.zip')
+  return (
+    isIllustratorImportFile(lower) ||
+    lower.endsWith('.psd') ||
+    lower.endsWith('.lottie') ||
+    lower.endsWith('.lottie.zip') ||
+    lower.endsWith('.zip')
+  )
+}
+
+async function createDraftFromIllustrator(file: File, fontFamilies: string[]): Promise<DesignImportDraft> {
+  // Loaded on demand: keeps PDF.js and pdf-lib out of the main bundle.
+  const { importIllustratorFile } = await import('./illustrator/importIllustrator')
+  const { scene, warnings } = await importIllustratorFile(file, { fontFamilies })
+  return {
+    id: createImportId('import-ai'),
+    sourceType: 'illustrator',
+    sourceName: file.name,
+    templateLabel: getFileNameWithoutExtension(file.name),
+    scene,
+    bindingHints: [],
+    warnings,
+  }
 }
 
 export function isLikelyLottieJsonPayload(rawValue: unknown): boolean {
@@ -718,8 +744,12 @@ export function isLikelyLottieJsonPayload(rawValue: unknown): boolean {
   return Array.isArray(record.layers) && Number.isFinite(Number(record.w)) && Number.isFinite(Number(record.h))
 }
 
-export async function createDesignImportDraft(file: File): Promise<DesignImportDraft> {
+export async function createDesignImportDraft(file: File, options: { fontFamilies?: string[] } = {}): Promise<DesignImportDraft> {
   const lower = file.name.toLowerCase()
+  if (isIllustratorImportFile(lower)) {
+    return createDraftFromIllustrator(file, options.fontFamilies ?? [])
+  }
+
   if (lower.endsWith('.psd')) {
     return createDraftFromPsd(file)
   }

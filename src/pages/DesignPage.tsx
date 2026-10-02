@@ -15,7 +15,8 @@ import {
   Unlock,
 } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
-import type { DataBindingKey, SceneLayer } from '../types/scene'
+import { TextBoxInspector } from '../components/TextBoxInspector'
+import { LAYER_BLEND_MODES, type DataBindingKey, type LayerBlendMode, type SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 import { resolveBindingValue } from '../lib/bindings'
 import { deriveBindingLevel, filterBindingFieldsForLeague, type BindingLevel } from '../lib/leagueBindings'
@@ -143,6 +144,7 @@ export function DesignPage() {
   const updatePreviewLayersTransform = usePlayoutStore((state) => state.updatePreviewLayersTransform)
   const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
   const updatePreviewTextStyle = usePlayoutStore((state) => state.updatePreviewTextStyle)
+  const updatePreviewLayerBlendMode = usePlayoutStore((state) => state.updatePreviewLayerBlendMode)
   const updatePreviewTextBinding = usePlayoutStore((state) => state.updatePreviewTextBinding)
   const addPreviewImageLayerFromAsset = usePlayoutStore((state) => state.addPreviewImageLayerFromAsset)
   const duplicatePreviewLayer = usePlayoutStore((state) => state.duplicatePreviewLayer)
@@ -1055,7 +1057,8 @@ export function DesignPage() {
                   <div className="inspector-section__label">Text Style</div>
                   <label>
                     Text
-                    <input
+                    <textarea
+                      rows={Math.min(4, Math.max(2, primarySelectedLayer.text.split('\n').length))}
                       value={primarySelectedLayer.text}
                       onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { text: event.target.value })}
                     />
@@ -1097,7 +1100,44 @@ export function DesignPage() {
                       }}
                     />
                   </label>
+                  <label>
+                    Line Height
+                    <input
+                      className="mono"
+                      type="number"
+                      min={0.5}
+                      max={4}
+                      step={0.05}
+                      value={primarySelectedLayer.lineHeight ?? 1}
+                      onChange={(event) => {
+                        const numberValue = toNumberOrNull(event.target.value)
+                        if (numberValue !== null) {
+                          updatePreviewTextStyle(primarySelectedLayer.id, { lineHeight: numberValue })
+                        }
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Align
+                    <select
+                      className="mono"
+                      value={primarySelectedLayer.align ?? 'left'}
+                      onChange={(event) =>
+                        updatePreviewTextStyle(primarySelectedLayer.id, { align: event.target.value as 'left' | 'center' | 'right' })
+                      }
+                    >
+                      <option value="left">Left</option>
+                      <option value="center">Center</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </label>
                 </div>
+              ) : null}
+              {primarySelectedLayer?.kind === 'text' ? (
+                <TextBoxInspector
+                  box={primarySelectedLayer.box}
+                  onChange={(box) => updatePreviewTextStyle(primarySelectedLayer.id, { box })}
+                />
               ) : null}
               <div className="inspector-section">
                 <div className="inspector-section__label">Transform</div>
@@ -1113,6 +1153,22 @@ export function DesignPage() {
                   <label>Rotation<input className="mono" type="number" value={mixedTransform(selectedLayers, 'rotation')} placeholder="mixed" onChange={(event) => commitAdvanced('rotation', event.target.value)} /></label>
                   <label>Opacity<input className="mono" type="number" min={0} max={100} value={mixedOpacity(selectedLayers)} placeholder="mixed" onChange={(event) => commitAdvanced('opacity', event.target.value)} /></label>
                 </div>
+                {primarySelectedLayer && selectedLayers.length === 1 ? (
+                  <label>
+                    Blend
+                    <select
+                      className="mono"
+                      value={primarySelectedLayer.blendMode ?? 'normal'}
+                      onChange={(event) => updatePreviewLayerBlendMode(primarySelectedLayer.id, event.target.value as LayerBlendMode)}
+                    >
+                      {LAYER_BLEND_MODES.map((mode) => (
+                        <option key={mode} value={mode}>
+                          {mode.replace(/-/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
               </div>
               <div className="inspector-section">
                 <div className="inspector-section__label">Binding & Style</div>

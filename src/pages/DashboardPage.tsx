@@ -728,6 +728,12 @@ export function DashboardPage() {
     )
   }
 
+  // Fonts from the library, registered so the importer can measure text with the real typeface.
+  const loadImportFontFamilies = async (): Promise<string[]> => {
+    const registration = await registerFontEntries(await readMediaEntriesAsync('font'))
+    return registration.entries.map((entry) => entry.fontFamily).filter((family): family is string => Boolean(family))
+  }
+
   const handleImportPackages = async (files: FileList | null) => {
     if (!files || files.length === 0) {
       return
@@ -751,7 +757,7 @@ export function DashboardPage() {
             continue
           }
 
-          const draft = await createDesignImportDraft(file)
+          const draft = await createDesignImportDraft(file, { fontFamilies: await loadImportFontFamilies() })
           openDesignImportWizard(draft)
           stagedDesignDraft = true
           continue
@@ -778,7 +784,7 @@ export function DashboardPage() {
             continue
           }
 
-          const draft = await createDesignImportDraft(file)
+          const draft = await createDesignImportDraft(file, { fontFamilies: await loadImportFontFamilies() })
           openDesignImportWizard(draft)
           stagedDesignDraft = true
           continue
@@ -1138,7 +1144,7 @@ export function DashboardPage() {
   const uploadLabel = activeMode === 'Templates' ? 'Import File' : activeMode === 'Typography' ? 'Upload Font' : 'Upload Media'
   const uploadAccept =
     activeMode === 'Templates'
-      ? '.json,.rltpl,.rltpl.json,.psd,.lottie,.lottie.zip,.zip'
+      ? '.json,.rltpl,.rltpl.json,.ai,.pdf,.psd,.lottie,.lottie.zip,.zip'
       : activeMode === 'Typography'
         ? '.ttf,.otf,.woff,.woff2'
         : '*/*'

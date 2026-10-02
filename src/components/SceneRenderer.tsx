@@ -64,6 +64,7 @@ function layerStyle(layer: SceneLayer): CSSProperties {
     display: layer.visible ? 'block' : 'none',
     transformOrigin: `${anchorX}px ${anchorY}px`,
     transform: `rotate(${rotation}deg) scale(${scaleX}, ${scaleY})`,
+    mixBlendMode: layer.blendMode && layer.blendMode !== 'normal' ? layer.blendMode : undefined,
   }
 
   if (layer.kind === 'shape') {
@@ -80,16 +81,49 @@ function layerStyle(layer: SceneLayer): CSSProperties {
     }
   }
 
-  return {
+  const textStyle: CSSProperties = {
     ...baseStyle,
     color: layer.color,
     fontSize: layer.fontSize,
     fontFamily: layer.fontFamily,
     fontWeight: layer.fontWeight,
     textAlign: layer.align,
-    lineHeight: 1,
+    lineHeight: layer.lineHeight ?? 1,
     whiteSpace: 'pre-wrap',
   }
+
+  if (!layer.box) {
+    return textStyle
+  }
+
+  // Boxed text: the frame only anchors; the box hugs the text and may extend past the frame.
+  return {
+    ...textStyle,
+    display: layer.visible ? 'flex' : 'none',
+    alignItems: 'center',
+    justifyContent: layer.align === 'left' ? 'flex-start' : layer.align === 'right' ? 'flex-end' : 'center',
+    overflow: 'visible',
+  }
+}
+
+function textBoxStyle(layer: TextLayer): CSSProperties | undefined {
+  if (!layer.box) {
+    return undefined
+  }
+
+  return {
+    flex: 'none',
+    display: 'inline-block',
+    whiteSpace: 'pre',
+    background: layer.box.fill,
+    padding: `${layer.box.paddingTop}px ${layer.box.paddingRight}px ${layer.box.paddingBottom}px ${layer.box.paddingLeft}px`,
+    borderRadius: layer.box.radius,
+  }
+}
+
+function renderTextContent(layer: TextLayer, story: StoryState) {
+  const text = resolveText(layer, story)
+  return layer.box ? <span className="scene-renderer__text-box" style={textBoxStyle(layer)}>{text}</span> : text
 }
 
 export function SceneRenderer({
@@ -320,7 +354,7 @@ export function SceneRenderer({
               setDragMode('layers')
             }}
           >
-            {layer.kind === 'text' ? resolveText(layer, story) : null}
+            {layer.kind === 'text' ? renderTextContent(layer, story) : null}
             {layer.kind === 'image' ? (
               <img
                 src={layer.src}

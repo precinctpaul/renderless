@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
-import type { DataBindingKey, SceneDefinition, SceneLayer, StoryState, TemplateDefinition, TemplateVersion } from '../types/scene'
+import type {
+  DataBindingKey,
+  LayerBlendMode,
+  SceneDefinition,
+  SceneLayer,
+  StoryState,
+  TemplateDefinition,
+  TemplateVersion,
+  TextBoxStyle,
+} from '../types/scene'
 import { extractBindingKeys, isDataBindingKey } from '../lib/bindings'
 import { STORY_FIELD_DEFS, type StoryFieldDef } from '../data/storySchema'
 import {
@@ -71,8 +80,14 @@ type SceneTransformPatch = Partial<
 >
 type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'shape' }>, 'fill' | 'opacity'>>
 type TextStylePatch = Partial<
-  Pick<Extract<SceneDefinition['layers'][number], { kind: 'text' }>, 'text' | 'fontSize' | 'color' | 'opacity' | 'fontFamily'>
->
+  Pick<
+    Extract<SceneDefinition['layers'][number], { kind: 'text' }>,
+    'text' | 'fontSize' | 'color' | 'opacity' | 'fontFamily' | 'lineHeight' | 'align'
+  >
+> & {
+  /** A box style to set, or null to remove the text box. */
+  box?: TextBoxStyle | null
+}
 type LayerAlignMode = 'left' | 'hCenter' | 'right' | 'top' | 'vMiddle' | 'bottom'
 type LayerDistributeAxis = 'horizontal' | 'vertical'
 export type TransportMode = 'local' | 'ws'
@@ -180,6 +195,7 @@ interface PlayoutStore {
   updatePreviewLayerTransform: (layerId: string, patch: SceneTransformPatch) => void
   updatePreviewShapeStyle: (layerId: string, patch: ShapeStylePatch) => void
   updatePreviewTextStyle: (layerId: string, patch: TextStylePatch) => void
+  updatePreviewLayerBlendMode: (layerId: string, blendMode: LayerBlendMode) => void
   updatePreviewTextBinding: (layerId: string, binding: DataBindingKey | null) => void
   addPreviewImageLayerFromAsset: (asset: { name: string; dataUrl: string; x: number; y: number }) => string | null
   duplicatePreviewLayer: (layerId: string) => string | null
@@ -1544,8 +1560,34 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               : layer.fontFamily,
             fontSize: nextFontSize,
             opacity: nextOpacity,
+            lineHeight: Number.isFinite(patch.lineHeight)
+              ? Math.min(Math.max(patch.lineHeight ?? 1, 0.5), 4)
+              : layer.lineHeight,
+            align: patch.align === 'left' || patch.align === 'center' || patch.align === 'right' ? patch.align : layer.align,
+            box:
+              patch.box === null
+                ? undefined
+                : patch.box
+                  ? {
+                      ...patch.box,
+                      paddingTop: Math.max(0, patch.box.paddingTop),
+                      paddingRight: Math.max(0, patch.box.paddingRight),
+                      paddingBottom: Math.max(0, patch.box.paddingBottom),
+                      paddingLeft: Math.max(0, patch.box.paddingLeft),
+                    }
+                  : layer.box,
           }
         }),
+      }))
+    },
+    updatePreviewLayerBlendMode: (layerId, blendMode) => {
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) =>
+          layer.id === layerId && !layer.locked
+            ? { ...layer, blendMode: blendMode === 'normal' ? undefined : blendMode }
+            : layer,
+        ),
       }))
     },
     updatePreviewTextBinding: (layerId, binding) => {

@@ -32,6 +32,23 @@ export interface StoryState {
   bindings: Record<string, BindingPrimitive>
 }
 
+/** CSS mix-blend-mode values a layer can use (e.g. Illustrator "Soft Light" texture layers). */
+export const LAYER_BLEND_MODES = [
+  'normal',
+  'multiply',
+  'screen',
+  'overlay',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+  'soft-light',
+  'difference',
+  'exclusion',
+] as const
+export type LayerBlendMode = (typeof LAYER_BLEND_MODES)[number]
+
 export interface BaseLayer {
   id: string
   name: string
@@ -47,6 +64,21 @@ export interface BaseLayer {
   anchorY?: number
   scaleX?: number
   scaleY?: number
+  blendMode?: LayerBlendMode
+}
+
+/**
+ * A background box drawn behind a text layer that sizes itself to the text plus padding,
+ * so it grows and shrinks as the words change. The layer frame anchors the box: it is
+ * centered in the frame and may extend past it when the text gets longer.
+ */
+export interface TextBoxStyle {
+  fill: string
+  paddingTop: number
+  paddingRight: number
+  paddingBottom: number
+  paddingLeft: number
+  radius?: number
 }
 
 export interface ShapeLayer extends BaseLayer {
@@ -63,6 +95,9 @@ export interface TextLayer extends BaseLayer {
   fontFamily: string
   fontWeight: number
   align?: 'left' | 'center' | 'right'
+  /** Line spacing as a multiple of the font size (default 1). */
+  lineHeight?: number
+  box?: TextBoxStyle
   binding?: DataBindingKey
 }
 

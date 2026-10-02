@@ -1,10 +1,13 @@
-import type {
-  DataBindingKey,
-  SceneDefinition,
-  SceneLayer,
-  TemplateBindingHint,
-  TemplateDefinition,
-  TemplateVersion,
+import {
+  LAYER_BLEND_MODES,
+  type DataBindingKey,
+  type LayerBlendMode,
+  type SceneDefinition,
+  type SceneLayer,
+  type TemplateBindingHint,
+  type TemplateDefinition,
+  type TemplateVersion,
+  type TextBoxStyle,
 } from '../types/scene'
 import { extractBindingKeys, isDataBindingKey } from './bindings'
 
@@ -269,6 +272,7 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
     anchorY: asFiniteNumber(record.anchorY) ?? undefined,
     scaleX: asFiniteNumber(record.scaleX) ?? undefined,
     scaleY: asFiniteNumber(record.scaleY) ?? undefined,
+    blendMode: parseBlendMode(record.blendMode),
   }
 
   if (kind === 'shape') {
@@ -311,6 +315,8 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       fontFamily,
       fontWeight: Math.round(Math.max(100, fontWeight)),
       align,
+      lineHeight: parseLineHeight(record.lineHeight),
+      box: parseTextBox(record.box),
       binding,
     }
   }
@@ -336,6 +342,36 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
   }
 
   return null
+}
+
+function parseBlendMode(raw: unknown): LayerBlendMode | undefined {
+  return typeof raw === 'string' && (LAYER_BLEND_MODES as readonly string[]).includes(raw) && raw !== 'normal'
+    ? (raw as LayerBlendMode)
+    : undefined
+}
+
+function parseLineHeight(raw: unknown): number | undefined {
+  const value = asFiniteNumber(raw)
+  return value === null ? undefined : Math.min(Math.max(value, 0.5), 4)
+}
+
+function parseTextBox(raw: unknown): TextBoxStyle | undefined {
+  const record = asRecord(raw)
+  const fill = record ? asNonEmptyString(record.fill) : null
+  if (!record || !fill) {
+    return undefined
+  }
+
+  const padding = (value: unknown) => Math.max(0, asFiniteNumber(value) ?? 0)
+  const radius = asFiniteNumber(record.radius)
+  return {
+    fill,
+    paddingTop: padding(record.paddingTop),
+    paddingRight: padding(record.paddingRight),
+    paddingBottom: padding(record.paddingBottom),
+    paddingLeft: padding(record.paddingLeft),
+    radius: radius === null ? undefined : Math.max(0, radius),
+  }
 }
 
 function parseScene(rawScene: unknown): SceneDefinition | null {
