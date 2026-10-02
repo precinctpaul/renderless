@@ -48,8 +48,9 @@ export function AppShell() {
     <div className="app-shell">
       <header className="top-nav">
         <div className="brand-row">
-          <Link to="/dashboard" className="brand-link">
-            RenderLess
+          <Link to="/dashboard" className="brand-link" aria-label="RenderLess home">
+            <img className="brand-wordmark" src={`${import.meta.env.BASE_URL}brand/wordmark.png`} alt="Majority Democrats" />
+            <span className="brand-product">RENDERLESS</span>
           </Link>
 
           <nav ref={navRef} className="nav-tabs" aria-label="Main">
