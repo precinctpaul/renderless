@@ -1,0 +1,144 @@
+/* Panels and shared list rows (rundown, layers, modes). */
+
+.panel {
+  border: 1px solid var(--zinc-800);
+  border-radius: 0;
+  background: var(--zinc-900);
+  padding: 12px;
+  overflow: hidden;
+}
+
+.panel-title {
+  font-size: 12px;
+  color: #f9fbed;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.panel-subtitle {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  color: var(--zinc-400);
+}
+
+.panel--explorer {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel--table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.panel--right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.explorer-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 10px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.explorer-toolbar {
+  border: 1px solid var(--zinc-800);
+  border-radius: 0;
+  background: #181818;
+  padding: 8px;
+  margin-bottom: 4px;
+}
+
+.explorer-section {
+  border: 1px solid var(--zinc-800);
+  border-radius: 0;
+  background: #181818;
+  padding: 10px;
+}
+
+.explorer-section--dev {
+  margin-top: 4px;
+  border-top: 1px solid #333333;
+}
+
+.explorer-section__body {
+  margin-top: 8px;
+}
+
+.rundown-list,
+.layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mode-item,
+.layer-item,
+.rundown-item {
+  width: 100%;
+  border: 1px solid var(--zinc-800);
+  border-radius: 0;
+  background: #181818;
+  color: var(--zinc-100);
+  text-align: left;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 200ms ease-in-out;
+}
+
+.mode-item:hover,
+.layer-item:hover,
+.rundown-item:hover {
+  border-color: #555555;
+  background: #1e1e1e;
+}
+
+.mode-item--active,
+.layer-item--active,
+.rundown-item--preview {
+  border-color: #3c77bb;
+  background: #3c77bb;
+}
+
+.mode-item--dev {
+  margin-top: 0;
+}
+
+.mode-item--bucket {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  min-height: 38px;
+  background: #1e1e1e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.mode-item__toggle {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  color: #f9fbed;
+}
+
+.mode-item__toggle:hover {
+  background: rgba(153, 153, 153, 0.2);
+}

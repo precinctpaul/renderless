@@ -1,0 +1,127 @@
+/* Control Room: rundown, transitions, transport. */
+
+.rundown-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.rundown-list {
+  overflow: auto;
+  min-height: 0;
+  padding-right: 2px;
+}
+
+.rundown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rundown-item--program {
+  border-color: #ed2426;
+  box-shadow: none;
+}
+
+.rundown-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--zinc-300);
+  font-size: 11px;
+}
+
+.rundown-empty {
+  border: 1px dashed var(--zinc-700);
+  border-radius: 0;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--zinc-400);
+  text-align: center;
+}
+
+.transition-group,
+.take-group,
+.story-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.range-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #f9fbed;
+  font-size: 11px;
+}
+
+.transition-status {
+  font-size: 11px;
+  color: #c8c9bf;
+}
+
+.template-thumb {
+  border: 1px solid var(--zinc-800);
+  border-radius: 0;
+  background: #181818;
+  color: var(--zinc-100);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 200ms ease-in-out;
+}
+
+.template-thumb:hover {
+  border-color: #555555;
+  background: #222222;
+}
+
+.template-thumb--active {
+  border-color: #3c77bb;
+  box-shadow: none;
+}
+
+.template-thumb__surface {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 1px solid #333333;
+  border-radius: 0;
+  overflow: hidden;
+  background: #181818;
+}
+
+.template-thumb__surface > .scene-renderer {
+  position: absolute;
+  inset: 0;
+}
+
+.template-thumb__label {
+  font-size: 11px;
+  color: #f9fbed;
+}
+
+.binding-panel {
+  border: 1px solid var(--zinc-800);
+  border-radius: 0;
+  background: #181818;
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.binding-panel__meta {
+  color: #c8c9bf;
+  font-size: 11px;
+}
+
+.transport-status {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #c8c9bf;
+}

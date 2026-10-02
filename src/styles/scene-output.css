@@ -1,0 +1,159 @@
+/* Scene renderer, output feed and transition surfaces. */
+
+.scene-renderer {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: #111111;
+  touch-action: none;
+}
+
+.scene-renderer--checkerboard {
+  background:
+    linear-gradient(45deg, #1a1a1a 25%, transparent 25%),
+    linear-gradient(-45deg, #1a1a1a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1a1a1a 75%),
+    linear-gradient(-45deg, transparent 75%, #1a1a1a 75%);
+  background-size: 24px 24px;
+  background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+
+.scene-renderer__stage {
+  position: absolute;
+  transform-origin: top left;
+  overflow: hidden;
+  will-change: transform;
+}
+
+/* Drawn as an outline so the bounds line never shifts or crops the scene (a border would). */
+.scene-renderer__stage--bounds {
+  outline: var(--stage-px, 1px) solid rgba(249, 251, 237, 0.35);
+}
+
+.scene-renderer__layer {
+  user-select: none;
+}
+
+.scene-renderer__image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.scene-renderer__image--contain {
+  object-fit: contain;
+}
+
+.scene-renderer__image--cover {
+  object-fit: cover;
+}
+
+.scene-renderer__image--stretch {
+  object-fit: fill;
+}
+
+.scene-renderer--mode-select {
+  cursor: default;
+}
+
+.scene-renderer--mode-pan {
+  cursor: grab;
+}
+
+.scene-renderer--drag-pan {
+  cursor: grabbing;
+}
+
+.scene-renderer--drag-layers {
+  cursor: move;
+}
+
+.scene-renderer__safe-zone {
+  position: absolute;
+  pointer-events: none;
+}
+
+.scene-renderer__safe-zone--action {
+  border: var(--stage-px, 1px) dashed rgba(249, 251, 237, 0.55);
+}
+
+.scene-renderer__safe-zone--title {
+  border: var(--stage-px, 1px) dotted rgba(249, 251, 237, 0.4);
+  pointer-events: none;
+}
+
+.scene-renderer__selection {
+  position: absolute;
+  box-sizing: border-box;
+  border: calc(var(--stage-px, 1px) * 2) solid var(--blue-500);
+  pointer-events: none;
+}
+
+/* Anchor point marker: a small crosshair, sized in screen pixels. */
+.scene-renderer__anchor {
+  position: absolute;
+  width: calc(var(--stage-px, 1px) * 13);
+  height: calc(var(--stage-px, 1px) * 13);
+  margin: calc(var(--stage-px, 1px) * -6.5) 0 0 calc(var(--stage-px, 1px) * -6.5);
+  border: calc(var(--stage-px, 1px) * 1.5) solid var(--blue-500);
+  border-radius: 0;
+  background:
+    linear-gradient(var(--blue-500), var(--blue-500)) center / 100% calc(var(--stage-px, 1px) * 1.5) no-repeat,
+    linear-gradient(var(--blue-500), var(--blue-500)) center / calc(var(--stage-px, 1px) * 1.5) 100% no-repeat;
+}
+
+.output-feed-root {
+  width: 100vw;
+  height: 100vh;
+  background: #111111;
+  overflow: hidden;
+  position: relative;
+}
+
+.output-feed-root--embed {
+  background: transparent;
+}
+
+html.renderless-output-embed,
+html.renderless-output-embed body,
+html.renderless-output-embed #root,
+.output-feed-root--embed .scene-renderer {
+  background: transparent;
+}
+
+.output-feed-surface {
+  width: 100%;
+  height: 100%;
+}
+
+.transition-surface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.transition-surface__layer {
+  position: absolute;
+  inset: 0;
+  transition: opacity 30ms linear;
+}
+
+.transition-surface__layer > .scene-renderer {
+  width: 100%;
+  height: 100%;
+}
+
+.output-watermark {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border-radius: 0;
+  border: 1px solid rgba(60, 119, 187, 0.45);
+  background: rgba(17, 17, 17, 0.66);
+  color: #f9fbed;
+  padding: 5px 8px;
+  font-size: 10px;
+}

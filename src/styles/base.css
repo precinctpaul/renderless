@@ -1,0 +1,97 @@
+/* Design tokens (legacy names), reset, form controls. */
+
+:root {
+  --zinc-950: #111111;
+  --zinc-900: #1e1e1e;
+  --zinc-875: #222222;
+  --zinc-850: #2a2a2a;
+  --zinc-800: #333333;
+  --zinc-700: #444444;
+  --zinc-500: #555555;
+  --zinc-400: #777777;
+  --zinc-300: #999999;
+  --zinc-200: #c8c9bf;
+  --zinc-100: #f9fbed;
+  --blue-600: #3c77bb;
+  --blue-500: #3c77bb;
+  --green-500: #e7eb94;
+  --amber-500: #e7eb94;
+  --red-600: #ed2426;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 320px;
+}
+
+body {
+  margin: 0;
+  background: var(--zinc-950);
+  color: var(--zinc-100);
+  font-family: 'Inter', 'Roboto', sans-serif;
+  line-height: 1.4;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--zinc-800);
+  border-radius: 0;
+  background: #181818;
+  color: var(--zinc-100);
+  padding: 0.48rem 0.62rem;
+  transition: border-color 200ms ease-in-out, background 200ms ease-in-out;
+}
+
+textarea {
+  resize: vertical;
+  line-height: 1.35;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--blue-500);
+  background: #1e1e1e;
+}
+
+select {
+  border: 1px solid var(--zinc-800);
+  border-radius: 0;
+  background: #181818;
+  color: var(--zinc-100);
+  padding: 0.45rem 0.56rem;
+  transition: border-color 200ms ease-in-out, background 200ms ease-in-out;
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--blue-500);
+  background: #1e1e1e;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}

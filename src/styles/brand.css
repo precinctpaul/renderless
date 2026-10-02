@@ -1,0 +1,320 @@
+/* Brand layer: basIQ / Majority Democrats tokens, faces and component roles. */
+
+/* ==========================================================================
+   BRAND LAYER: Majority Democrats / basIQ Studio Hub
+   Tokens, faces and component roles copied from basiq-studio-web/app/globals.css
+   so RenderLess reads as part of the same suite. Colour, type and borders only:
+   layout and sizing stay with the rules above (and their responsive variants).
+   ========================================================================== */
+
+@font-face { font-family: "Druk Wide"; src: url("/fonts/druk-wide-medium.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Druk Wide"; src: url("/fonts/druk-wide-bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Druk"; src: url("/fonts/druk-medium.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Druk"; src: url("/fonts/druk-bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Recoleta"; src: url("/fonts/recoleta-regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Recoleta"; src: url("/fonts/recoleta-medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Recoleta"; src: url("/fonts/recoleta-semibold.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Recoleta"; src: url("/fonts/recoleta-bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+
+:root {
+  --bg-main: #111111;
+  --bg-panel: #1e1e1e;
+  --bg-sidebar: #181818;
+  --bg-list: #222222;
+  --bg-field: #2a2a2a;
+  --bg-button: #333333;
+  --bg-button-hover: #444444;
+  --bg-button-down: #282828;
+  --milk: #f9fbed;
+  --acid: #e7eb94;
+  --red: #ed2426;
+  --blue: #3c77bb;
+  --muted: #777777;
+  --muted-dim: #555555;
+  --border: #333333;
+  --ink: #111111;
+  --acid-hover: #f2f6a8;
+  --acid-down: #cdd17e;
+  --row-sep: #1a1a1a;
+  --row-hover: #2a2a2a;
+
+  --font-display: "Druk Wide", "Archivo Expanded", Oswald, "Arial Black", Impact, sans-serif;
+  --font-ui: "Druk", Oswald, "Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+  --font-body: "Recoleta", Bitter, "Zilla Slab", Georgia, "Iowan Old Style", serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", Menlo, monospace;
+
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg-main);
+  color: var(--milk);
+  font-family: var(--font-body);
+}
+
+.mono,
+.badge--mono {
+  font-family: var(--font-mono);
+}
+
+::selection {
+  background: var(--blue);
+  color: #ffffff;
+}
+
+/* ---------- Header ---------- */
+.top-nav {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
+/* The wordmark file carries generous transparent margins, so it is sized by height. */
+.brand-wordmark {
+  display: block;
+  height: 46px;
+  width: auto;
+}
+
+.brand-product {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.nav-tabs {
+  background: transparent;
+  border: none;
+  padding: 0;
+  gap: 2px;
+}
+
+.nav-tab {
+  font-family: var(--font-body);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+}
+
+.nav-tab:hover {
+  color: var(--milk);
+  background: transparent;
+}
+
+.nav-tab--active {
+  color: var(--acid);
+  background: transparent;
+  border-bottom-color: var(--acid);
+}
+
+.badge {
+  font-family: var(--font-mono);
+  background: var(--bg-field);
+  border: none;
+  color: var(--milk);
+}
+
+.badge--ready {
+  color: var(--acid);
+  background: var(--bg-field);
+}
+
+.badge--air {
+  color: var(--milk);
+  background: var(--red);
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+  font-family: var(--font-body);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--milk);
+  background: var(--bg-button);
+  border: 1px solid transparent;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.btn:hover {
+  transform: none;
+  background: var(--bg-button-hover);
+}
+
+.btn:active {
+  background: var(--bg-button-down);
+}
+
+.btn:disabled {
+  opacity: 1;
+  background: #262626;
+  color: var(--muted-dim);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+
+.btn--ghost:hover {
+  background: var(--bg-button);
+  color: var(--milk);
+}
+
+.btn--ghost:disabled {
+  background: transparent;
+}
+
+/* Toggled-on toolbar buttons (Rulers, Grid, Snap...): basIQ's checked ghost. */
+.btn--accent-soft {
+  background: var(--bg-button);
+  border-color: transparent;
+  color: var(--acid);
+}
+
+.btn--accent,
+.btn--take {
+  background: var(--acid);
+  border-color: var(--acid);
+  color: var(--ink);
+}
+
+.btn--accent:hover,
+.btn--take:hover {
+  background: var(--acid-hover);
+}
+
+.btn--accent:active,
+.btn--take:active {
+  background: var(--acid-down);
+}
+
+.btn--take {
+  font-family: var(--font-ui);
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+
+.btn--take-pending {
+  outline: 2px solid var(--milk);
+  outline-offset: 2px;
+}
+
+.btn--warning {
+  background: transparent;
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.btn--warning:hover {
+  background: var(--red);
+  color: var(--milk);
+}
+
+/* ---------- Panels & labels ---------- */
+.panel {
+  background: var(--bg-panel);
+  border-color: var(--bg-panel);
+}
+
+.panel-title,
+.inspector-section__label {
+  font-family: var(--font-body);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--muted);
+}
+
+.panel-subtitle {
+  color: var(--muted);
+}
+
+/* ---------- Inputs (basIQ .field / .select) ---------- */
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+textarea {
+  background: var(--bg-field);
+  color: var(--milk);
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):focus,
+textarea:focus {
+  background: var(--bg-field);
+  border-color: transparent;
+  border-bottom-color: var(--acid);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+select {
+  background: var(--bg-field);
+  color: var(--milk);
+  border: 1px solid var(--border);
+}
+
+select:hover {
+  border-color: var(--muted-dim);
+}
+
+select:focus {
+  background: var(--bg-field);
+  border-color: var(--blue);
+}
+
+select option {
+  background: var(--bg-panel);
+  color: var(--milk);
+}
+
+input[type='checkbox'] {
+  accent-color: var(--acid);
+}
+
+/* ---------- Stage ---------- */
+.stage-canvas-wrap {
+  background: var(--bg-main);
+  border-color: var(--border);
+}
+
+.scene-renderer {
+  background: var(--bg-main);
+}
+
+.scene-renderer__selection {
+  border-color: var(--acid);
+}
+
+.scene-renderer__anchor {
+  border-color: var(--acid);
+  background:
+    linear-gradient(var(--acid), var(--acid)) center / 100% calc(var(--stage-px, 1px) * 1.5) no-repeat,
+    linear-gradient(var(--acid), var(--acid)) center / calc(var(--stage-px, 1px) * 1.5) 100% no-repeat;
+}
+
+.anchor-picker__point--active {
+  background: var(--acid);
+  border-color: var(--acid);
+}
+
+/* ---------- Scrollbars ---------- */
+* {
+  scrollbar-color: #444444 transparent;
+}
