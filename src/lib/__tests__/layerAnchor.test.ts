@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { anchorForPreset, anchorPosition, anchorPresetOf, boxPositionForAnchorPosition, withAnchor } from '../layerAnchor'
+import { anchorForPreset, anchorPosition, anchorPresetOf, boxPositionForAnchorPosition, resolveAnchor, withAnchor } from '../layerAnchor'
 import type { SceneLayer } from '../../types/scene'
 
 const layer: SceneLayer = {
@@ -18,8 +18,7 @@ const layer: SceneLayer = {
 
 /** Where a point of the layer's box lands on screen (rotate then scale about the anchor). */
 function screenPoint(target: SceneLayer, px: number, py: number) {
-  const ax = target.anchorX ?? 0
-  const ay = target.anchorY ?? 0
+  const { x: ax, y: ay } = resolveAnchor(target)
   const r = ((target.rotation ?? 0) * Math.PI) / 180
   const sx = (target.scaleX ?? 100) / 100
   const sy = (target.scaleY ?? 100) / 100
@@ -54,6 +53,8 @@ describe('anchor point', () => {
 
   test('a custom anchor point is not reported as a preset', () => {
     expect(anchorPresetOf({ ...layer, anchorX: 37, anchorY: 12 })).toBeNull()
-    expect(anchorPresetOf(layer)).toBe('tl')
+    // No anchor set: layers anchor at their center.
+    expect(anchorPresetOf(layer)).toBe('cc')
+    expect(anchorPresetOf({ ...layer, anchorX: 0, anchorY: 0 })).toBe('tl')
   })
 })

@@ -190,29 +190,29 @@ describe('Playout reliability and QA regression suite', () => {
     expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')).toEqual({ x: 170, y: 120 })
   })
 
-  test('align and distribute work from anchor points, exactly', async () => {
+  test('align works from anchor points, exactly', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
     usePlayoutStore.getState().cuePreview('template-scorebug')
     usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 163, y: 117 })
     usePlayoutStore.getState().updatePreviewLayerTransform('text-home-mark', { x: 247, y: 311 })
     usePlayoutStore.getState().updatePreviewLayerTransform('shape-away-block', { x: 509, y: 523 })
-    // Center the away block's anchor: aligning left now lines up its center with the others' left edges.
-    usePlayoutStore.getState().setPreviewLayersAnchor(['shape-away-block'], { preset: 'cc' })
-    const awayBlock = usePlayoutStore.getState().previewScene.layers.find((layer) => layer.id === 'shape-away-block')
-    const halfWidth = (awayBlock?.width ?? 0) / 2
+    // A top-left anchor on one layer: its corner lines up with the others' centers.
+    usePlayoutStore.getState().setPreviewLayersAnchor(['shape-away-block'], { preset: 'tl' })
 
     const selection = ['shape-home-block', 'text-home-mark', 'shape-away-block']
+    const anchorX = (id: string) => {
+      const layer = usePlayoutStore.getState().previewScene.layers.find((entry) => entry.id === id)
+      return layer ? layer.x + (layer.anchorX ?? layer.width / 2) : NaN
+    }
+    const leftMost = Math.min(...selection.map(anchorX))
     usePlayoutStore.getState().alignPreviewLayers(selection, 'left')
-    const aligned = usePlayoutStore.getState().previewScene
-    expect(getLayerPosition(aligned, 'shape-home-block').x).toBe(163)
-    // Text anchors at its middle (140px wide), so its box sits half a width left of the line.
-    expect(getLayerPosition(aligned, 'text-home-mark').x).toBe(163 - 70)
-    expect(getLayerPosition(aligned, 'shape-away-block').x).toBe(163 - halfWidth)
+    selection.forEach((id) => expect(anchorX(id)).toBeCloseTo(leftMost, 5))
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-away-block').x).toBeCloseTo(leftMost, 5)
 
     // One layer aligns its anchor to the canvas: a centered anchor lands on the right edge.
-    usePlayoutStore.getState().alignPreviewLayers(['shape-away-block'], 'right')
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-away-block').x).toBe(1920 - halfWidth)
+    usePlayoutStore.getState().alignPreviewLayers(['shape-home-block'], 'right')
+    expect(anchorX('shape-home-block')).toBe(1920)
   })
 
   test('layer movement clamps to stage bounds', async () => {
@@ -234,7 +234,7 @@ describe('Playout reliability and QA regression suite', () => {
     const anchorY = (id: string) => {
       const layer = scene.layers.find((entry) => entry.id === id)
       if (!layer) return NaN
-      return layer.y + (layer.anchorY ?? (layer.kind === 'text' ? layer.height / 2 : 0))
+      return layer.y + (layer.anchorY ?? layer.height / 2)
     }
     const ys = selection.map(anchorY).sort((a, b) => a - b)
     expect(ys[1] - ys[0]).toBeCloseTo(ys[2] - ys[1], 5)

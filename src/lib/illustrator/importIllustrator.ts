@@ -476,8 +476,6 @@ function buildTextLayer(block: TextBlock, box: FilledRect | null, font: Measured
     visible: layerVisible,
     locked: false,
     rotation: 0,
-    anchorX: 0,
-    anchorY: 0,
     scaleX: 100,
     scaleY: 100,
   }
@@ -605,8 +603,6 @@ export async function importIllustratorFile(file: File, options: IllustratorImpo
         visible: section.visible,
         locked: false,
         rotation: 0,
-        anchorX: 0,
-        anchorY: 0,
         scaleX: 100,
         scaleY: 100,
         blendMode: section.blendMode,

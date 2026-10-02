@@ -24,14 +24,13 @@ export type AnchorPresetId = (typeof ANCHOR_PRESETS)[number]['id']
 const round2 = (value: number) => Math.round(value * 100) / 100
 
 /**
- * The layer's anchor in its own box. When none is set, text anchors at the center of its box
- * (so it aligns by its middle); shapes and images anchor at the top-left.
+ * The layer's anchor in its own box. When none is set, every layer anchors at the center of
+ * its box, so it aligns, rotates and scales around its middle.
  */
 export function resolveAnchor(layer: SceneLayer): { x: number; y: number } {
-  const centered = layer.kind === 'text'
   return {
-    x: Number.isFinite(layer.anchorX) ? (layer.anchorX ?? 0) : centered ? layer.width / 2 : 0,
-    y: Number.isFinite(layer.anchorY) ? (layer.anchorY ?? 0) : centered ? layer.height / 2 : 0,
+    x: Number.isFinite(layer.anchorX) ? (layer.anchorX ?? 0) : layer.width / 2,
+    y: Number.isFinite(layer.anchorY) ? (layer.anchorY ?? 0) : layer.height / 2,
   }
 }
 

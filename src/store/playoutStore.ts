@@ -1598,8 +1598,6 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         visible: true,
         locked: false,
         rotation: 0,
-        anchorX: 0,
-        anchorY: 0,
         scaleX: 100,
         scaleY: 100,
       }
@@ -1719,8 +1717,6 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               locked: false,
               radius: 0,
               rotation: 0,
-              anchorX: 0,
-              anchorY: 0,
               scaleX: 100,
               scaleY: 100,
             }
