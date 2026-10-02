@@ -31,6 +31,8 @@ interface StageCanvasProps {
   guideStorageKey?: string
   /** Called when a guide is pulled from a ruler while guides are hidden. */
   onShowGuides?: () => void
+  /** Snap dragged layers to the canvas, other layers and visible guides. */
+  smartSnap?: boolean
 }
 
 interface RulerTick {
@@ -80,6 +82,7 @@ function StageOverlay({
   guides,
   onGuidesChange,
   snapStep,
+  snapLines,
 }: {
   geometry: StageGeometry
   scene: SceneDefinition
@@ -89,6 +92,7 @@ function StageOverlay({
   guides: StageGuide[]
   onGuidesChange: (next: StageGuide[]) => void
   snapStep: number | null
+  snapLines: { x: number | null; y: number | null } | null
 }) {
   const { scale, stageLeftPx, stageTopPx, stageWidthPx, stageHeightPx, containerWidth, containerHeight } = geometry
   const stageRect = { left: stageLeftPx, top: stageTopPx, width: stageWidthPx, height: stageHeightPx }
@@ -150,6 +154,13 @@ function StageOverlay({
         </>
       ) : null}
 
+      {snapLines?.x != null ? (
+        <div className="snap-line snap-line--v" style={{ left: Math.round(stageLeftPx + snapLines.x * scale), top: stageTopPx, height: stageHeightPx }} />
+      ) : null}
+      {snapLines?.y != null ? (
+        <div className="snap-line snap-line--h" style={{ top: Math.round(stageTopPx + snapLines.y * scale), left: stageLeftPx, width: stageWidthPx }} />
+      ) : null}
+
       {showGuides || showRulers ? (
         <UserGuides
           geometry={geometry}
@@ -181,9 +192,18 @@ export function StageCanvas({
   onAssetDrop,
   guideStorageKey = 'default',
   onShowGuides,
+  smartSnap = true,
 }: StageCanvasProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [guides, setGuides] = useStoredGuides(guideStorageKey)
+  const [snapLines, setSnapLines] = useState<{ x: number | null; y: number | null } | null>(null)
+  // Visible guides are snap targets: the user's guides plus the center/thirds composition guides.
+  const snapGuides = showGuides
+    ? {
+        x: [...guides.filter((guide) => guide.axis === 'x').map((guide) => guide.position), scene.width / 3, (scene.width * 2) / 3],
+        y: [...guides.filter((guide) => guide.axis === 'y').map((guide) => guide.position), scene.height / 3, (scene.height * 2) / 3],
+      }
+    : { x: [], y: [] }
   const handleGuidesChange = (next: StageGuide[]) => {
     if (!showGuides && next.length > guides.length) onShowGuides?.()
     setGuides(next)
@@ -244,6 +264,9 @@ export function StageCanvas({
         stageOffsetPx={stageOffset}
         stageZoomMultiplier={zoomMultiplier}
         fitInsetPx={showRulers ? RULER_INSET : STAGE_INSET}
+        smartSnap={smartSnap}
+        snapGuides={snapGuides}
+        onSnapLinesChange={setSnapLines}
         renderOverlay={(geometry) => (
           <StageOverlay
             geometry={geometry}
@@ -254,6 +277,7 @@ export function StageCanvas({
             guides={guides}
             onGuidesChange={handleGuidesChange}
             snapStep={snapToGrid ? 10 : null}
+            snapLines={snapLines}
           />
         )}
       />

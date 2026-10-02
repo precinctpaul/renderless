@@ -184,6 +184,7 @@ export function DesignPage() {
   const [showRulers, setShowRulers] = useState(false)
   const [showGuides, setShowGuides] = useState(false)
   const [snapToGrid, setSnapToGrid] = useState(true)
+  const [smartSnap, setSmartSnap] = useState(true)
   const [assetEntries, setAssetEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('asset'))
   const [fontEntries, setFontEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('font'))
   const [renamingLayerId, setRenamingLayerId] = useState<string | null>(null)
@@ -1069,8 +1070,19 @@ export function DesignPage() {
             >
               Snap
             </button>
+            <button
+              type="button"
+              className={`btn btn--small ${smartSnap ? 'btn--accent-soft' : 'btn--ghost'}`}
+              title="Snap dragged layers to the canvas edges and center, other layers and visible guides"
+              onClick={() => {
+                setSmartSnap((prev) => !prev)
+                setTransientStatus(smartSnap ? 'Smart snap off.' : 'Smart snap on: canvas, layers and guides.', 1400)
+              }}
+            >
+              Smart
+            </button>
             <span className="stage-toolbar__hint mono">
-              {snapToGrid ? `SNAP ${GRID_SNAP_STEP}px` : 'SNAP OFF'} | ARROWS NUDGE
+              {snapToGrid ? `GRID ${GRID_SNAP_STEP}px` : 'GRID SNAP OFF'} | ALT = FREE DRAG | ARROWS NUDGE
             </span>
             {versionHistory.length > 0 ? (
               <>
@@ -1098,6 +1110,7 @@ export function DesignPage() {
               showSafeZone={showSafeZones}
               snapToGrid={snapToGrid}
               guideStorageKey={previewTemplateId ?? 'unsaved'}
+              smartSnap={smartSnap}
               onShowGuides={() => setShowGuides(true)}
             />
           </div>

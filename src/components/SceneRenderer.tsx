@@ -4,6 +4,7 @@ import { useElementSize } from '../hooks/useElementSize'
 import type { SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
 import { resolveBindingValue } from '../lib/bindings'
 import { resolveAnchor } from '../lib/layerAnchor'
+import { collectSnapTargets, computeSmartSnap, type SnapTargets } from '../lib/smartSnap'
 
 interface SceneRendererProps {
   scene: SceneDefinition
@@ -36,6 +37,11 @@ interface SceneRendererProps {
   onAssetDrop?: (entryId: string, position: { x: number; y: number }) => void
   /** Editor overlays (rulers, grid, guides) drawn in screen pixels, aligned to the stage. */
   renderOverlay?: (geometry: StageGeometry) => ReactNode
+  /** Snap dragged layers to the canvas, other layers and these guide lines (Alt drags freely). */
+  smartSnap?: boolean
+  snapGuides?: SnapTargets
+  /** The lines currently snapped to while dragging (null when not dragging/snapping). */
+  onSnapLinesChange?: (lines: { x: number | null; y: number | null } | null) => void
 }
 
 /** Where the scene's stage sits inside the renderer, in screen pixels. */
@@ -60,15 +66,15 @@ interface DragState {
   /** Movement already applied to the layers, in scene units. */
   appliedX: number
   appliedY: number
+  /** Dragged layers as they were when the drag started (for snapping). */
+  startLayers: SceneLayer[]
+  /** What the selection can snap to, gathered when the drag started. */
+  snapTargets: SnapTargets | null
 }
 
 const DRAG_SNAP_STEP = 10
-
-/** Splits accumulated drag movement into the part to apply now and the remainder to keep. */
-function takeDragStep(pending: number, snap: boolean): number {
-  if (snap) return Math.round(pending / DRAG_SNAP_STEP) * DRAG_SNAP_STEP
-  return Math.trunc(pending)
-}
+/** How close (screen px) an edge/center must come to a target before it snaps. */
+const SMART_SNAP_THRESHOLD_PX = 6
 
 function resolveText(layer: TextLayer, story: StoryState): string {
   if (!layer.binding) {
@@ -203,6 +209,9 @@ export function SceneRenderer({
   onPanBy,
   onAssetDrop,
   renderOverlay,
+  smartSnap = false,
+  snapGuides,
+  onSnapLinesChange,
 }: SceneRendererProps) {
   const [containerRef, containerSize] = useElementSize<HTMLDivElement>()
   const dragStateRef = useRef<DragState | null>(null)
@@ -284,17 +293,43 @@ export function SceneRenderer({
       const lockToY = event.shiftKey && !lockToX
       const targetX = lockToY ? 0 : dragState.pendingX
       const targetY = lockToX ? 0 : dragState.pendingY
-      const stepX = takeDragStep(targetX - dragState.appliedX, snapToGrid)
-      const stepY = takeDragStep(targetY - dragState.appliedY, snapToGrid)
+
+      // Alt drags freely. Otherwise snap to guides/layers/canvas first, then to the grid.
+      const free = event.altKey
+      const smart =
+        !free && dragState.snapTargets
+          ? computeSmartSnap(
+              dragState.startLayers,
+              { x: targetX, y: targetY },
+              dragState.snapTargets,
+              SMART_SNAP_THRESHOLD_PX / sceneScale,
+              { x: lockToY, y: lockToX },
+            )
+          : null
+      const gridSnap = (axisTarget: number, start: number) =>
+        Math.round((start + axisTarget) / DRAG_SNAP_STEP) * DRAG_SNAP_STEP - start
+      const startLeft = Math.min(...dragState.startLayers.map((layer) => layer.x))
+      const startTop = Math.min(...dragState.startLayers.map((layer) => layer.y))
+      const finalX = Math.round(
+        smart?.lineX != null ? smart.delta.x : snapToGrid && !free && !lockToY && dragState.startLayers.length ? gridSnap(targetX, startLeft) : targetX,
+      )
+      const finalY = Math.round(
+        smart?.lineY != null ? smart.delta.y : snapToGrid && !free && !lockToX && dragState.startLayers.length ? gridSnap(targetY, startTop) : targetY,
+      )
+      onSnapLinesChange?.(smart && (smart.lineX != null || smart.lineY != null) ? { x: smart.lineX, y: smart.lineY } : null)
+
+      const stepX = finalX - dragState.appliedX
+      const stepY = finalY - dragState.appliedY
       if (stepX === 0 && stepY === 0) {
         return
       }
       dragState.appliedX += stepX
       dragState.appliedY += stepY
-      onMoveLayers?.(dragState.layerIds, { x: stepX, y: stepY }, snapToGrid)
+      onMoveLayers?.(dragState.layerIds, { x: stepX, y: stepY }, false)
     }
 
     const handleUp = () => {
+      if (dragStateRef.current?.mode === 'layers') onSnapLinesChange?.(null)
       dragStateRef.current = null
       setDragMode('none')
     }
@@ -305,7 +340,7 @@ export function SceneRenderer({
       window.removeEventListener('mousemove', handleMove)
       window.removeEventListener('mouseup', handleUp)
     }
-  }, [onMoveLayers, onPanBy, snapToGrid])
+  }, [onMoveLayers, onPanBy, onSnapLinesChange, snapToGrid])
 
   return (
     <div
@@ -361,6 +396,8 @@ export function SceneRenderer({
             pendingY: 0,
             appliedX: 0,
             appliedY: 0,
+            startLayers: [],
+            snapTargets: null,
           }
           setDragMode('pan')
           return
@@ -408,6 +445,8 @@ export function SceneRenderer({
                   pendingY: 0,
                   appliedX: 0,
                   appliedY: 0,
+                  startLayers: [],
+                  snapTargets: null,
                 }
                 setDragMode('pan')
                 return
@@ -424,6 +463,8 @@ export function SceneRenderer({
               }
 
               const dragLayerIds = selectedIdSet.has(layer.id) ? [...selectedIdSet] : [layer.id]
+              const movingIds = new Set(dragLayerIds)
+              const startLayers = scene.layers.filter((entry) => movingIds.has(entry.id) && !entry.locked)
               event.preventDefault()
               dragStateRef.current = {
                 mode: 'layers',
@@ -434,6 +475,14 @@ export function SceneRenderer({
                 pendingY: 0,
                 appliedX: 0,
                 appliedY: 0,
+                startLayers,
+                snapTargets: smartSnap
+                  ? collectSnapTargets(
+                      scene,
+                      scene.layers.filter((entry) => !movingIds.has(entry.id)),
+                      snapGuides ?? { x: [], y: [] },
+                    )
+                  : null,
               }
               setDragMode('layers')
             }}

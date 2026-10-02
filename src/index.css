@@ -4124,3 +4124,19 @@ input[type='range'] {
 span.scene-renderer__text:not(.scene-renderer__text-box) {
   display: block;
 }
+
+/* Smart-snap indicator: shown only while a drag is snapped to a line. */
+.snap-line {
+  position: absolute;
+  background: var(--red);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.snap-line--v {
+  width: 1px;
+}
+
+.snap-line--h {
+  height: 1px;
+}
