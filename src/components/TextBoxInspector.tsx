@@ -1,5 +1,6 @@
 import type { TextBoxStyle } from '../types/scene'
 import { NumberField } from './NumberField'
+import { InspectorSection } from './InspectorSection'
 
 /** New boxes default to the brand's near-black (#111111) with comfortable padding. */
 const DEFAULT_TEXT_BOX: TextBoxStyle = {
@@ -18,8 +19,7 @@ interface TextBoxInspectorProps {
 
 export function TextBoxInspector({ box, onChange }: TextBoxInspectorProps) {
   return (
-    <div className="inspector-section">
-      <div className="inspector-section__label">Text Box</div>
+    <InspectorSection id="text-box" title="Text Box">
       <label className="inspector-toggle">
         <input type="checkbox" checked={Boolean(box)} onChange={(event) => onChange(event.target.checked ? { ...DEFAULT_TEXT_BOX } : null)} />
         Box grows and shrinks with the text
@@ -58,6 +58,6 @@ export function TextBoxInspector({ box, onChange }: TextBoxInspectorProps) {
           </div>
         </>
       ) : null}
-    </div>
+    </InspectorSection>
   )
 }

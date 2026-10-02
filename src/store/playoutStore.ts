@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { anchorForPreset, boxPositionForAnchorPosition, withAnchor } from '../lib/layerAnchor'
+import { alignByAnchor, anchorForPreset, boxPositionForAnchorPosition, distributeByAnchor, withAnchor } from '../lib/layerAnchor'
 import type { AnchorPresetId } from '../lib/layerAnchor'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
 import type {
@@ -84,7 +84,7 @@ type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], {
 type TextStylePatch = Partial<
   Pick<
     Extract<SceneDefinition['layers'][number], { kind: 'text' }>,
-    'text' | 'fontSize' | 'color' | 'opacity' | 'fontFamily' | 'lineHeight' | 'align'
+    'text' | 'fontSize' | 'color' | 'opacity' | 'fontFamily' | 'lineHeight' | 'align' | 'verticalAlign'
   >
 > & {
   /** A box style to set, or null to remove the text box. */
@@ -891,108 +891,24 @@ function alignLayersByMode(
   scene: SceneDefinition,
   layerIds: string[],
   mode: LayerAlignMode,
-  snapToGrid = false,
 ): SceneDefinition {
-  const selectedLayers = getSelectedLayers(scene, layerIds)
-  if (selectedLayers.length < 2) {
+  const selectedLayers = getSelectedLayers(scene, layerIds).filter((layer) => !layer.locked)
+  const next = alignByAnchor(selectedLayers, mode, scene)
+  if (next.size === 0) {
     return scene
   }
 
-  const leftEdge = Math.min(...selectedLayers.map((layer) => layer.x))
-  const rightEdge = Math.max(...selectedLayers.map((layer) => layer.x + layer.width))
-  const topEdge = Math.min(...selectedLayers.map((layer) => layer.y))
-  const bottomEdge = Math.max(...selectedLayers.map((layer) => layer.y + layer.height))
-  const horizontalCenter = (leftEdge + rightEdge) / 2
-  const verticalCenter = (topEdge + bottomEdge) / 2
-  const selectedIdSet = new Set(layerIds)
-  const snap = (value: number) => (snapToGrid ? Math.round(value / 10) * 10 : value)
-
-  return {
-    ...scene,
-    layers: scene.layers.map((layer) => {
-      if (!selectedIdSet.has(layer.id) || layer.locked) {
-        return layer
-      }
-
-      const clampX = (nextX: number) => Math.min(Math.max(0, nextX), Math.max(0, scene.width - layer.width))
-      const clampY = (nextY: number) => Math.min(Math.max(0, nextY), Math.max(0, scene.height - layer.height))
-      const normalizedX = (nextX: number) => Math.round(clampX(snap(nextX)))
-      const normalizedY = (nextY: number) => Math.round(clampY(snap(nextY)))
-
-      switch (mode) {
-        case 'left':
-          return { ...layer, x: normalizedX(leftEdge) }
-        case 'hCenter':
-          return { ...layer, x: normalizedX(horizontalCenter - layer.width / 2) }
-        case 'right':
-          return { ...layer, x: normalizedX(rightEdge - layer.width) }
-        case 'top':
-          return { ...layer, y: normalizedY(topEdge) }
-        case 'vMiddle':
-          return { ...layer, y: normalizedY(verticalCenter - layer.height / 2) }
-        case 'bottom':
-          return { ...layer, y: normalizedY(bottomEdge - layer.height) }
-        default:
-          return layer
-      }
-    }),
-  }
+  return { ...scene, layers: scene.layers.map((layer) => (next.has(layer.id) ? { ...layer, ...next.get(layer.id) } : layer)) }
 }
 
-function distributeLayers(
-  scene: SceneDefinition,
-  layerIds: string[],
-  axis: LayerDistributeAxis,
-  snapToGrid = false,
-): SceneDefinition {
-  const selectedLayers = getSelectedLayers(scene, layerIds)
-  if (selectedLayers.length < 3) {
+function distributeLayers(scene: SceneDefinition, layerIds: string[], axis: LayerDistributeAxis): SceneDefinition {
+  const selectedLayers = getSelectedLayers(scene, layerIds).filter((layer) => !layer.locked)
+  const next = distributeByAnchor(selectedLayers, axis)
+  if (next.size === 0) {
     return scene
   }
 
-  const sortedLayers = [...selectedLayers].sort((a, b) => (axis === 'horizontal' ? a.x - b.x : a.y - b.y))
-  const firstLayer = sortedLayers[0]
-  const lastLayer = sortedLayers[sortedLayers.length - 1]
-
-  if (!firstLayer || !lastLayer) {
-    return scene
-  }
-
-  const start = axis === 'horizontal' ? firstLayer.x : firstLayer.y
-  const end = axis === 'horizontal' ? lastLayer.x : lastLayer.y
-  const step = (end - start) / (sortedLayers.length - 1)
-  const nextById = new Map<string, { x?: number; y?: number }>()
-  const snap = (value: number) => (snapToGrid ? Math.round(value / 10) * 10 : value)
-
-  sortedLayers.forEach((layer, index) => {
-    const nextValue = snap(start + step * index)
-    if (axis === 'horizontal') {
-      nextById.set(layer.id, { x: nextValue })
-      return
-    }
-
-    nextById.set(layer.id, { y: nextValue })
-  })
-
-  return {
-    ...scene,
-    layers: scene.layers.map((layer) => {
-      const entry = nextById.get(layer.id)
-      if (!entry || layer.locked) {
-        return layer
-      }
-
-      return {
-        ...layer,
-        x: Number.isFinite(entry.x)
-          ? Math.min(Math.max(0, Math.round(entry.x ?? layer.x)), Math.max(0, scene.width - layer.width))
-          : layer.x,
-        y: Number.isFinite(entry.y)
-          ? Math.min(Math.max(0, Math.round(entry.y ?? layer.y)), Math.max(0, scene.height - layer.height))
-          : layer.y,
-      }
-    }),
-  }
+  return { ...scene, layers: scene.layers.map((layer) => (next.has(layer.id) ? { ...layer, ...next.get(layer.id) } : layer)) }
 }
 
 function parseClockToSeconds(clock: string): number {
@@ -1542,19 +1458,19 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       commitPreviewScene((scene) => moveLayersByDelta(scene, layerIds, delta, snapToGrid))
     },
-    alignPreviewLayers: (layerIds, mode, snapToGrid = false) => {
-      if (layerIds.length < 2) {
+    alignPreviewLayers: (layerIds, mode) => {
+      if (layerIds.length === 0) {
         return
       }
 
-      commitPreviewScene((scene) => alignLayersByMode(scene, layerIds, mode, snapToGrid))
+      commitPreviewScene((scene) => alignLayersByMode(scene, layerIds, mode))
     },
-    distributePreviewLayers: (layerIds, axis, snapToGrid = false) => {
+    distributePreviewLayers: (layerIds, axis) => {
       if (layerIds.length < 3) {
         return
       }
 
-      commitPreviewScene((scene) => distributeLayers(scene, layerIds, axis, snapToGrid))
+      commitPreviewScene((scene) => distributeLayers(scene, layerIds, axis))
     },
     updatePreviewLayerTransform: (layerId, patch) => {
       commitPreviewScene((scene) => ({
@@ -1610,6 +1526,10 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               ? Math.min(Math.max(patch.lineHeight ?? 1, 0.5), 4)
               : layer.lineHeight,
             align: patch.align === 'left' || patch.align === 'center' || patch.align === 'right' ? patch.align : layer.align,
+            verticalAlign:
+              patch.verticalAlign === 'top' || patch.verticalAlign === 'middle' || patch.verticalAlign === 'bottom'
+                ? patch.verticalAlign
+                : layer.verticalAlign,
             box:
               patch.box === null
                 ? undefined

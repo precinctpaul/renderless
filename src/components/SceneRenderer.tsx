@@ -20,8 +20,8 @@ interface SceneRendererProps {
   snapToGrid?: boolean
   stageOffsetPx?: { x: number; y: number }
   stageZoomMultiplier?: number
-  /** Screen space reserved at the top/left (e.g. for rulers); the stage fits in what remains. */
-  fitInsetPx?: { top: number; left: number }
+  /** Screen space kept clear around the stage (margins, rulers); the stage fits in what remains. */
+  fitInsetPx?: { top: number; left: number; right?: number; bottom?: number }
   onSelectLayer?: (
     layerId: string,
     modifiers?: {
@@ -53,9 +53,12 @@ interface DragState {
   layerIds: string[]
   lastClientX: number
   lastClientY: number
-  /** Scene-unit movement not yet applied (sub-pixel or below the snap step). */
+  /** Total pointer movement since the drag started, in scene units. */
   pendingX: number
   pendingY: number
+  /** Movement already applied to the layers, in scene units. */
+  appliedX: number
+  appliedY: number
 }
 
 const DRAG_SNAP_STEP = 10
@@ -118,15 +121,24 @@ function layerStyle(layer: SceneLayer): CSSProperties {
     whiteSpace: 'pre-wrap',
   }
 
+  const vertical = layer.verticalAlign ?? (layer.box ? 'middle' : 'top')
+  const verticalFlex = vertical === 'top' ? 'flex-start' : vertical === 'bottom' ? 'flex-end' : 'center'
+
   if (!layer.box) {
-    return textStyle
+    // A column flex frame places the text block top/middle/bottom; text-align still applies.
+    return {
+      ...textStyle,
+      display: layer.visible ? 'flex' : 'none',
+      flexDirection: 'column',
+      justifyContent: verticalFlex,
+    }
   }
 
   // Boxed text: the frame only anchors; the box hugs the text and may extend past the frame.
   return {
     ...textStyle,
     display: layer.visible ? 'flex' : 'none',
-    alignItems: 'center',
+    alignItems: verticalFlex,
     justifyContent: layer.align === 'left' ? 'flex-start' : layer.align === 'right' ? 'flex-end' : 'center',
     overflow: 'visible',
   }
@@ -185,8 +197,8 @@ export function SceneRenderer({
     const sceneHeight = Math.max(1, scene.height)
     const insetLeft = fitInsetPx?.left ?? 0
     const insetTop = fitInsetPx?.top ?? 0
-    const availableWidth = Math.max(1, containerSize.width - insetLeft)
-    const availableHeight = Math.max(1, containerSize.height - insetTop)
+    const availableWidth = Math.max(1, containerSize.width - insetLeft - (fitInsetPx?.right ?? 0))
+    const availableHeight = Math.max(1, containerSize.height - insetTop - (fitInsetPx?.bottom ?? 0))
     const widthScale = availableWidth / sceneWidth
     const heightScale = availableHeight / sceneHeight
     const fitScale = Math.min(widthScale, heightScale)
@@ -207,7 +219,7 @@ export function SceneRenderer({
       containerWidth: containerSize.width,
       containerHeight: containerSize.height,
     }
-  }, [containerSize.height, containerSize.width, fitInsetPx?.left, fitInsetPx?.top, scene.height, scene.width, stageOffsetPx?.x, stageOffsetPx?.y, stageZoomMultiplier])
+  }, [containerSize.height, containerSize.width, fitInsetPx?.bottom, fitInsetPx?.left, fitInsetPx?.right, fitInsetPx?.top, scene.height, scene.width, stageOffsetPx?.x, stageOffsetPx?.y, stageZoomMultiplier])
 
   const scale = stageGeometry.scale
   const actionSafeVisible = showActionSafe ?? showSafeZone
@@ -250,13 +262,18 @@ export function SceneRenderer({
       const sceneScale = scaleRef.current || 1
       dragState.pendingX += deltaClientX / sceneScale
       dragState.pendingY += deltaClientY / sceneScale
-      const stepX = takeDragStep(dragState.pendingX, snapToGrid)
-      const stepY = takeDragStep(dragState.pendingY, snapToGrid)
+      // Holding Shift locks the move to whichever axis has moved further; release for free move.
+      const lockToX = event.shiftKey && Math.abs(dragState.pendingX) >= Math.abs(dragState.pendingY)
+      const lockToY = event.shiftKey && !lockToX
+      const targetX = lockToY ? 0 : dragState.pendingX
+      const targetY = lockToX ? 0 : dragState.pendingY
+      const stepX = takeDragStep(targetX - dragState.appliedX, snapToGrid)
+      const stepY = takeDragStep(targetY - dragState.appliedY, snapToGrid)
       if (stepX === 0 && stepY === 0) {
         return
       }
-      dragState.pendingX -= stepX
-      dragState.pendingY -= stepY
+      dragState.appliedX += stepX
+      dragState.appliedY += stepY
       onMoveLayers?.(dragState.layerIds, { x: stepX, y: stepY }, snapToGrid)
     }
 
@@ -325,6 +342,8 @@ export function SceneRenderer({
             lastClientY: event.clientY,
             pendingX: 0,
             pendingY: 0,
+            appliedX: 0,
+            appliedY: 0,
           }
           setDragMode('pan')
           return
@@ -370,6 +389,8 @@ export function SceneRenderer({
                   lastClientY: event.clientY,
                   pendingX: 0,
                   pendingY: 0,
+                  appliedX: 0,
+                  appliedY: 0,
                 }
                 setDragMode('pan')
                 return
@@ -394,6 +415,8 @@ export function SceneRenderer({
                 lastClientY: event.clientY,
                 pendingX: 0,
                 pendingY: 0,
+                appliedX: 0,
+                appliedY: 0,
               }
               setDragMode('layers')
             }}

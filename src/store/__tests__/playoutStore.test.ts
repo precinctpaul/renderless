@@ -190,25 +190,28 @@ describe('Playout reliability and QA regression suite', () => {
     expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')).toEqual({ x: 170, y: 120 })
   })
 
-  test('snap-enabled align and distribute actions round to the 10px grid', async () => {
+  test('align and distribute work from anchor points, exactly', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
     usePlayoutStore.getState().cuePreview('template-scorebug')
     usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 163, y: 117 })
     usePlayoutStore.getState().updatePreviewLayerTransform('text-home-mark', { x: 247, y: 311 })
     usePlayoutStore.getState().updatePreviewLayerTransform('shape-away-block', { x: 509, y: 523 })
+    // Center the away block's anchor: aligning left now lines up its center with the others' left edges.
+    usePlayoutStore.getState().setPreviewLayersAnchor(['shape-away-block'], { preset: 'cc' })
+    const awayBlock = usePlayoutStore.getState().previewScene.layers.find((layer) => layer.id === 'shape-away-block')
+    const halfWidth = (awayBlock?.width ?? 0) / 2
 
     const selection = ['shape-home-block', 'text-home-mark', 'shape-away-block']
-    usePlayoutStore.getState().alignPreviewLayers(selection, 'left', true)
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x).toBe(160)
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'text-home-mark').x).toBe(160)
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-away-block').x).toBe(160)
+    usePlayoutStore.getState().alignPreviewLayers(selection, 'left')
+    const aligned = usePlayoutStore.getState().previewScene
+    expect(getLayerPosition(aligned, 'shape-home-block').x).toBe(163)
+    expect(getLayerPosition(aligned, 'text-home-mark').x).toBe(163)
+    expect(getLayerPosition(aligned, 'shape-away-block').x).toBe(163 - halfWidth)
 
-    usePlayoutStore.getState().distributePreviewLayers(selection, 'vertical', true)
-    const distributed = usePlayoutStore.getState().previewScene
-    expect(getLayerPosition(distributed, 'shape-home-block').y % 10).toBe(0)
-    expect(getLayerPosition(distributed, 'text-home-mark').y % 10).toBe(0)
-    expect(getLayerPosition(distributed, 'shape-away-block').y % 10).toBe(0)
+    // One layer aligns its anchor to the canvas: a centered anchor lands on the right edge.
+    usePlayoutStore.getState().alignPreviewLayers(['shape-away-block'], 'right')
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-away-block').x).toBe(1920 - halfWidth)
   })
 
   test('layer movement clamps to stage bounds', async () => {

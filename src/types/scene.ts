@@ -95,6 +95,8 @@ export interface TextLayer extends BaseLayer {
   fontFamily: string
   fontWeight: number
   align?: 'left' | 'center' | 'right'
+  /** Where the text sits vertically in its frame. Default: top (plain text), middle (boxed text). */
+  verticalAlign?: 'top' | 'middle' | 'bottom'
   /** Line spacing as a multiple of the font size (default 1). */
   lineHeight?: number
   box?: TextBoxStyle

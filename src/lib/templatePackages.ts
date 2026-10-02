@@ -295,6 +295,10 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
     const fontSize = asFiniteNumber(record.fontSize)
     const fontFamily = asNonEmptyString(record.fontFamily)
     const fontWeight = asFiniteNumber(record.fontWeight)
+    const verticalAlign =
+      record.verticalAlign === 'top' || record.verticalAlign === 'middle' || record.verticalAlign === 'bottom'
+        ? record.verticalAlign
+        : undefined
     const alignRaw = asNonEmptyString(record.align)
     const align =
       alignRaw === 'left' || alignRaw === 'center' || alignRaw === 'right'
@@ -315,6 +319,7 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       fontFamily,
       fontWeight: Math.round(Math.max(100, fontWeight)),
       align,
+      verticalAlign,
       lineHeight: parseLineHeight(record.lineHeight),
       box: parseTextBox(record.box),
       binding,

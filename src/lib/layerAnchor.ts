@@ -79,3 +79,47 @@ export function anchorPresetOf(layer: SceneLayer): AnchorPresetId | null {
   )
   return match?.id ?? null
 }
+
+export type AnchorAlignMode = 'left' | 'hCenter' | 'right' | 'top' | 'vMiddle' | 'bottom'
+
+/**
+ * Align by anchor point (After Effects style). One layer aligns its anchor to the canvas
+ * edge/center; several layers align their anchors to each other's extremes.
+ * Returns the new box positions by layer id.
+ */
+export function alignByAnchor(
+  layers: SceneLayer[],
+  mode: AnchorAlignMode,
+  canvas: { width: number; height: number },
+): Map<string, { x: number; y: number }> {
+  const result = new Map<string, { x: number; y: number }>()
+  if (layers.length === 0) return result
+  const anchors = layers.map((layer) => anchorPosition(layer))
+  const single = layers.length === 1
+  const minX = single ? 0 : Math.min(...anchors.map((a) => a.x))
+  const maxX = single ? canvas.width : Math.max(...anchors.map((a) => a.x))
+  const minY = single ? 0 : Math.min(...anchors.map((a) => a.y))
+  const maxY = single ? canvas.height : Math.max(...anchors.map((a) => a.y))
+  const target: { x?: number; y?: number } =
+    mode === 'left' ? { x: minX }
+    : mode === 'hCenter' ? { x: (minX + maxX) / 2 }
+    : mode === 'right' ? { x: maxX }
+    : mode === 'top' ? { y: minY }
+    : mode === 'vMiddle' ? { y: (minY + maxY) / 2 }
+    : { y: maxY }
+  layers.forEach((layer) => result.set(layer.id, boxPositionForAnchorPosition(layer, target)))
+  return result
+}
+
+/** Spaces anchor points evenly between the first and last along an axis. */
+export function distributeByAnchor(layers: SceneLayer[], axis: 'horizontal' | 'vertical'): Map<string, { x: number; y: number }> {
+  const result = new Map<string, { x: number; y: number }>()
+  if (layers.length < 3) return result
+  const key = axis === 'horizontal' ? 'x' : 'y'
+  const sorted = [...layers].sort((a, b) => anchorPosition(a)[key] - anchorPosition(b)[key])
+  const start = anchorPosition(sorted[0])[key]
+  const end = anchorPosition(sorted[sorted.length - 1])[key]
+  const step = (end - start) / (sorted.length - 1)
+  sorted.forEach((layer, index) => result.set(layer.id, boxPositionForAnchorPosition(layer, { [key]: start + step * index })))
+  return result
+}

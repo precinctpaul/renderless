@@ -142,7 +142,7 @@ describe('Milestone 13 operator click-path regressions', () => {
         ?.x,
     ).toBe(123)
 
-    await user.click(screen.getByRole('button', { name: /Left/i }))
+    await user.click(screen.getByRole('button', { name: /^Left$/ }))
     expect(
       usePlayoutStore
         .getState()

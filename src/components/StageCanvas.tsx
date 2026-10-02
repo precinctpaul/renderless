@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { SceneRenderer } from './SceneRenderer'
 import type { StageGeometry } from './SceneRenderer'
+import { UserGuides } from './StageGuides'
+import { useStoredGuides } from '../hooks/useStoredGuides'
+import type { StageGuide } from '../hooks/useStoredGuides'
 import type { SceneDefinition, StoryState } from '../types/scene'
 
 interface StageCanvasProps {
@@ -24,6 +27,10 @@ interface StageCanvasProps {
   ) => void
   onMoveLayers?: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
   onAssetDrop?: (entryId: string, position: { x: number; y: number }) => void
+  /** Key under which this template's user guides are remembered. */
+  guideStorageKey?: string
+  /** Called when a guide is pulled from a ruler while guides are hidden. */
+  onShowGuides?: () => void
 }
 
 interface RulerTick {
@@ -33,7 +40,10 @@ interface RulerTick {
 }
 
 const RULER_SIZE_PX = 18
-const RULER_INSET = { top: RULER_SIZE_PX + 6, left: RULER_SIZE_PX + 6 }
+/** Pasteboard around the artboard so its edges (and bounds line) are never clipped. */
+const STAGE_MARGIN_PX = 16
+const STAGE_INSET = { top: STAGE_MARGIN_PX, left: STAGE_MARGIN_PX, right: STAGE_MARGIN_PX, bottom: STAGE_MARGIN_PX }
+const RULER_INSET = { ...STAGE_INSET, top: RULER_SIZE_PX + STAGE_MARGIN_PX, left: RULER_SIZE_PX + STAGE_MARGIN_PX }
 const RULER_STEPS = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000]
 const GRID_STEPS = [10, 20, 50, 100, 200, 500, 1000]
 const RULER_LABEL_MIN_PX = 60
@@ -67,12 +77,18 @@ function StageOverlay({
   showRulers,
   showGuides,
   showGrid,
+  guides,
+  onGuidesChange,
+  snapStep,
 }: {
   geometry: StageGeometry
   scene: SceneDefinition
   showRulers: boolean
   showGuides: boolean
   showGrid: boolean
+  guides: StageGuide[]
+  onGuidesChange: (next: StageGuide[]) => void
+  snapStep: number | null
 }) {
   const { scale, stageLeftPx, stageTopPx, stageWidthPx, stageHeightPx, containerWidth, containerHeight } = geometry
   const stageRect = { left: stageLeftPx, top: stageTopPx, width: stageWidthPx, height: stageHeightPx }
@@ -133,6 +149,18 @@ function StageOverlay({
           </div>
         </>
       ) : null}
+
+      {showGuides || showRulers ? (
+        <UserGuides
+          geometry={geometry}
+          guides={guides}
+          hidden={!showGuides}
+          onChange={onGuidesChange}
+          rulerSizePx={RULER_SIZE_PX}
+          snapStep={snapStep}
+          rulersVisible={showRulers}
+        />
+      ) : null}
     </>
   )
 }
@@ -151,8 +179,15 @@ export function StageCanvas({
   onSelectLayer,
   onMoveLayers,
   onAssetDrop,
+  guideStorageKey = 'default',
+  onShowGuides,
 }: StageCanvasProps) {
   const canvasRef = useRef<HTMLDivElement | null>(null)
+  const [guides, setGuides] = useStoredGuides(guideStorageKey)
+  const handleGuidesChange = (next: StageGuide[]) => {
+    if (!showGuides && next.length > guides.length) onShowGuides?.()
+    setGuides(next)
+  }
   const [stageOffset, setStageOffset] = useState({ x: 0, y: 0 })
   const [zoomMultiplier, setZoomMultiplier] = useState(1)
 
@@ -208,9 +243,18 @@ export function StageCanvas({
         interactionMode={interactionMode}
         stageOffsetPx={stageOffset}
         stageZoomMultiplier={zoomMultiplier}
-        fitInsetPx={showRulers ? RULER_INSET : undefined}
+        fitInsetPx={showRulers ? RULER_INSET : STAGE_INSET}
         renderOverlay={(geometry) => (
-          <StageOverlay geometry={geometry} scene={scene} showRulers={showRulers} showGuides={showGuides} showGrid={showGrid} />
+          <StageOverlay
+            geometry={geometry}
+            scene={scene}
+            showRulers={showRulers}
+            showGuides={showGuides}
+            showGrid={showGrid}
+            guides={guides}
+            onGuidesChange={handleGuidesChange}
+            snapStep={snapToGrid ? 10 : null}
+          />
         )}
       />
     </div>

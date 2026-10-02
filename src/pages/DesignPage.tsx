@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlignCenter,
+  AlignLeft,
+  AlignRight,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
+  AlignVerticalJustifyStart,
   AlignHorizontalDistributeCenter,
   AlignJustify,
   AlignVerticalDistributeCenter,
+  ChevronDown,
+  ChevronUp,
+  Hand,
+  ImageDown,
+  MousePointer2,
   Copy,
   Eye,
   EyeOff,
@@ -18,6 +28,8 @@ import { StageCanvas } from '../components/StageCanvas'
 import { TextBoxInspector } from '../components/TextBoxInspector'
 import { NumberField } from '../components/NumberField'
 import { AnchorPicker } from '../components/AnchorPicker'
+import { InspectorSection } from '../components/InspectorSection'
+import { downloadDataUrl, renderScenePng } from '../lib/exportScenePng'
 import { anchorPosition, anchorPresetOf, type AnchorPresetId } from '../lib/layerAnchor'
 import { LAYER_BLEND_MODES, type DataBindingKey, type LayerBlendMode, type SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
@@ -160,6 +172,9 @@ export function DesignPage() {
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null)
   const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null)
   const [dragTargetLayerId, setDragTargetLayerId] = useState<string | null>(null)
+  const [dropPosition, setDropPosition] = useState<'above' | 'below'>('above')
+  const [justMovedLayerId, setJustMovedLayerId] = useState<string | null>(null)
+  const [isExportingPng, setIsExportingPng] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
   const [versionToRestore, setVersionToRestore] = useState('')
   const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select')
@@ -611,24 +626,11 @@ export function DesignPage() {
     setTransientStatus(`${item} layer import is not wired yet.`)
   }
 
+  // Aligns anchor points: one layer to the canvas, several to each other.
   const handleAlign = (mode: 'left' | 'hCenter' | 'right' | 'top' | 'vMiddle' | 'bottom') => {
     if (selectedLayers.length === 0) return setTransientStatus('Select at least one layer.')
-    if (selectedLayers.length >= 2) {
-      alignPreviewLayers(activeSelectedLayerIds, mode, snapToGrid)
-      setTransientStatus(`Aligned ${selectedLayers.length} layer(s).`, 1200)
-      return
-    }
-
-    const layer = selectedLayers[0]
-    if (!layer) return
-
-    const snap = (value: number) => (snapToGrid ? Math.round(value / GRID_SNAP_STEP) * GRID_SNAP_STEP : Math.round(value))
-    if (mode === 'left') return updatePreviewLayerTransform(layer.id, { x: 0 })
-    if (mode === 'hCenter') return updatePreviewLayerTransform(layer.id, { x: snap((scene.width - layer.width) / 2) })
-    if (mode === 'right') return updatePreviewLayerTransform(layer.id, { x: snap(scene.width - layer.width) })
-    if (mode === 'top') return updatePreviewLayerTransform(layer.id, { y: 0 })
-    if (mode === 'vMiddle') return updatePreviewLayerTransform(layer.id, { y: snap((scene.height - layer.height) / 2) })
-    return updatePreviewLayerTransform(layer.id, { y: snap(scene.height - layer.height) })
+    alignPreviewLayers(activeSelectedLayerIds, mode)
+    setTransientStatus(selectedLayers.length === 1 ? 'Aligned anchor to canvas.' : `Aligned ${selectedLayers.length} anchors.`, 1200)
   }
 
   const handleDistribute = (axis: 'horizontal' | 'vertical') => {
@@ -662,6 +664,18 @@ export function DesignPage() {
     if (!createBlankTemplate(requested)) return setTransientStatus('Template name is required.')
     setTransientStatus(`Created ${requested.trim()} (1920 x 1080).`, 2200)
   }
+  const handleExportPng = async () => {
+    setIsExportingPng(true)
+    try {
+      const dataUrl = await renderScenePng(scene, story)
+      downloadDataUrl(dataUrl, `${slugify(activeTemplate?.label ?? scene.name ?? 'canvas')}-${scene.width}x${scene.height}.png`)
+      setTransientStatus(`Exported ${scene.width}×${scene.height} PNG.`, 2200)
+    } catch (error) {
+      setTransientStatus(`PNG export failed: ${error instanceof Error ? error.message : 'unknown error'}`, 4000)
+    } finally {
+      setIsExportingPng(false)
+    }
+  }
   const handleExportPackage = () => {
     const templatePackage = exportPreviewTemplatePackage()
     downloadTemplatePackageFile(templatePackage)
@@ -673,11 +687,31 @@ export function DesignPage() {
     setVersionToRestore('')
     setTransientStatus(`Restored v${versionToRestore}.`, 2200)
   }
-  const handleDropOnLayer = (targetLayerId: string) => {
+  const flashMovedLayer = (layerId: string) => {
+    setJustMovedLayerId(layerId)
+    window.setTimeout(() => setJustMovedLayerId((current) => (current === layerId ? null : current)), 700)
+  }
+  /** Drops the dragged layer just above or below the target row (list order: top = front). */
+  const handleDropOnLayer = (targetLayerId: string, position: 'above' | 'below') => {
     if (!draggingLayerId || draggingLayerId === targetLayerId) return
-    const targetListIndex = orderedLayers.findIndex((layer) => layer.id === targetLayerId)
-    if (targetListIndex < 0) return
-    reorderPreviewLayerToIndex(draggingLayerId, scene.layers.length - 1 - targetListIndex)
+    const listWithout = orderedLayers.filter((layer) => layer.id !== draggingLayerId)
+    const targetPos = listWithout.findIndex((layer) => layer.id === targetLayerId)
+    if (targetPos < 0) return
+    const newListIndex = targetPos + (position === 'below' ? 1 : 0)
+    reorderPreviewLayerToIndex(draggingLayerId, scene.layers.length - 1 - newListIndex)
+    const moved = orderedLayers.find((layer) => layer.id === draggingLayerId)
+    const target = orderedLayers.find((layer) => layer.id === targetLayerId)
+    flashMovedLayer(draggingLayerId)
+    setTransientStatus(`Moved ${moved?.name ?? 'layer'} ${position} ${target?.name ?? 'layer'}.`, 1600)
+  }
+  /** One step toward the front (up) or back (down) of the stack. */
+  const handleStepLayer = (layerId: string, direction: 'up' | 'down') => {
+    const sceneIndex = scene.layers.findIndex((layer) => layer.id === layerId)
+    if (sceneIndex < 0) return
+    const nextIndex = direction === 'up' ? sceneIndex + 1 : sceneIndex - 1
+    if (nextIndex < 0 || nextIndex >= scene.layers.length) return
+    reorderPreviewLayerToIndex(layerId, nextIndex)
+    flashMovedLayer(layerId)
   }
   const commitRenameLayer = () => {
     if (!renamingLayerId) return
@@ -757,15 +791,23 @@ export function DesignPage() {
     <section className="screen screen--design">
       <div className="design-layout">
         <aside className="panel stage-sidebar">
-          <div className="sidebar-heading"><div className="title">STAGE PRO</div><div className="subtitle">STUDIO EDITOR</div></div>
-          <div className="icon-row">
-            <button type="button" className="icon-btn" disabled={!canUndo} onClick={undoPreviewScene}><Undo2 size={15} /></button>
-            <button type="button" className="icon-btn" disabled={!canRedo} onClick={redoPreviewScene}><Redo2 size={15} /></button>
+          <div className="sidebar-head">
+            <div className="sidebar-heading"><div className="title">STAGE PRO</div><div className="subtitle">STUDIO EDITOR</div></div>
+            <div className="icon-row">
+              <button type="button" className="icon-btn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!canUndo} onClick={undoPreviewScene}><Undo2 size={15} /></button>
+              <button type="button" className="icon-btn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled={!canRedo} onClick={redoPreviewScene}><Redo2 size={15} /></button>
+            </div>
           </div>
-          <div className="creation-grid">{CREATION_ITEMS.map((item) => <button key={item} type="button" className="creation-btn" onClick={() => handleCreateLayer(item)}>{item}</button>)}</div>
-          <div className="pill-toggle">
-            <button type="button" className={`pill-toggle__item ${interactionMode === 'select' ? 'pill-toggle__item--active' : ''}`} onClick={() => setInteractionMode('select')}>SELECT</button>
-            <button type="button" className={`pill-toggle__item ${interactionMode === 'pan' ? 'pill-toggle__item--active' : ''}`} onClick={() => setInteractionMode('pan')}>PAN</button>
+          <div className="sidebar-group">
+            <div className="sidebar-group__label">Tool</div>
+            <div className="pill-toggle">
+              <button type="button" className={`pill-toggle__item ${interactionMode === 'select' ? 'pill-toggle__item--active' : ''}`} onClick={() => setInteractionMode('select')}><MousePointer2 size={13} />SELECT</button>
+              <button type="button" className={`pill-toggle__item ${interactionMode === 'pan' ? 'pill-toggle__item--active' : ''}`} onClick={() => setInteractionMode('pan')}><Hand size={13} />PAN</button>
+            </div>
+          </div>
+          <div className="sidebar-group">
+            <div className="sidebar-group__label">Add Layer</div>
+            <div className="creation-grid">{CREATION_ITEMS.map((item) => <button key={item} type="button" className="creation-btn" onClick={() => handleCreateLayer(item)}>{item}</button>)}</div>
           </div>
           <div className="sidebar-tabs sidebar-tabs--stack">
             <button type="button" className={`tab-btn ${sidebarTab === 'layers' ? 'tab-btn--active' : ''}`} onClick={() => setSidebarTab('layers')}>Layers</button>
@@ -773,9 +815,10 @@ export function DesignPage() {
           </div>
           {sidebarTab === 'layers' ? (
             <div className="layer-list">
-              {orderedLayers.map((layer) => {
+              {orderedLayers.map((layer, listIndex) => {
                 const isSelected = activeSelectedLayerIds.includes(layer.id)
-                const classes = `layer-item ${isSelected ? 'layer-item--active' : ''} ${draggingLayerId === layer.id ? 'layer-item--dragging' : ''} ${dragTargetLayerId === layer.id && draggingLayerId !== layer.id ? 'layer-item--drop-target' : ''}`
+                const isDropTarget = dragTargetLayerId === layer.id && draggingLayerId !== null && draggingLayerId !== layer.id
+                const classes = `layer-item ${isSelected ? 'layer-item--active' : ''} ${draggingLayerId === layer.id ? 'layer-item--dragging' : ''} ${isDropTarget ? `layer-item--drop-${dropPosition}` : ''} ${justMovedLayerId === layer.id ? 'layer-item--just-moved' : ''}`
                 return (
                   <div
                     key={layer.id}
@@ -793,11 +836,14 @@ export function DesignPage() {
                     }}
                     onDragOver={(event) => {
                       event.preventDefault()
+                      event.dataTransfer.dropEffect = 'move'
+                      const bounds = event.currentTarget.getBoundingClientRect()
                       setDragTargetLayerId(layer.id)
+                      setDropPosition(event.clientY < bounds.top + bounds.height / 2 ? 'above' : 'below')
                     }}
                     onDrop={(event) => {
                       event.preventDefault()
-                      handleDropOnLayer(layer.id)
+                      handleDropOnLayer(layer.id, dropPosition)
                       setDraggingLayerId(null)
                       setDragTargetLayerId(null)
                     }}
@@ -834,6 +880,32 @@ export function DesignPage() {
                       ) : <span>{layer.name}</span>}
                     </button>
                     <div className="layer-item__actions">
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--mini"
+                        title="Move up one layer"
+                        aria-label="Move layer up"
+                        disabled={Boolean(layer.locked) || listIndex === 0}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleStepLayer(layer.id, 'up')
+                        }}
+                      >
+                        <ChevronUp size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        className="icon-btn icon-btn--mini"
+                        title="Move down one layer"
+                        aria-label="Move layer down"
+                        disabled={Boolean(layer.locked) || listIndex === orderedLayers.length - 1}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleStepLayer(layer.id, 'down')
+                        }}
+                      >
+                        <ChevronDown size={12} />
+                      </button>
                       <button
                         type="button"
                         className="icon-btn icon-btn--mini"
@@ -928,6 +1000,10 @@ export function DesignPage() {
               <button type="button" className="btn btn--small btn--accent" onClick={handleSaveTemplate}>Save Template</button>
               <button type="button" className="btn btn--small btn--ghost" onClick={handleSaveAsNewTemplate}>Save As New</button>
               <button type="button" className="btn btn--small btn--ghost" onClick={handleExportPackage}>Export Package</button>
+              <button type="button" className="btn btn--small btn--ghost" disabled={isExportingPng} onClick={() => void handleExportPng()} title={`Download a ${scene.width}×${scene.height} PNG of the canvas`}>
+                <ImageDown size={14} />
+                {isExportingPng ? 'Exporting…' : 'Export PNG'}
+              </button>
             </div>
           </div>
           <div className="stage-toolbar stage-toolbar--subtle">
@@ -1019,6 +1095,8 @@ export function DesignPage() {
               showGuides={showGuides}
               showSafeZone={showSafeZones}
               snapToGrid={snapToGrid}
+              guideStorageKey={previewTemplateId ?? 'unsaved'}
+              onShowGuides={() => setShowGuides(true)}
             />
           </div>
         </section>
@@ -1065,8 +1143,7 @@ export function DesignPage() {
                 </div>
               </div>
               {selectedLayers.length === 1 && primarySelectedLayer?.kind === 'text' ? (
-                <div className="inspector-section">
-                  <div className="inspector-section__label">Text Style</div>
+                <InspectorSection id="text-style" title="Text Style">
                   <label>
                     Text
                     <textarea
@@ -1115,21 +1192,45 @@ export function DesignPage() {
                       onCommit={(value) => updatePreviewTextStyle(primarySelectedLayer.id, { lineHeight: value })}
                     />
                   </label>
-                  <label>
+                  <div className="field-label">
                     Align
-                    <select
-                      className="mono"
-                      value={primarySelectedLayer.align ?? 'left'}
-                      onChange={(event) =>
-                        updatePreviewTextStyle(primarySelectedLayer.id, { align: event.target.value as 'left' | 'center' | 'right' })
-                      }
-                    >
-                      <option value="left">Left</option>
-                      <option value="center">Center</option>
-                      <option value="right">Right</option>
-                    </select>
-                  </label>
-                </div>
+                    <div className="align-groups">
+                      <div className="segmented" role="group" aria-label="Horizontal text alignment">
+                        {([['left', AlignLeft, 'Align left'], ['center', AlignCenter, 'Align center'], ['right', AlignRight, 'Align right']] as const).map(([value, Icon, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            title={label}
+                            aria-label={label}
+                            aria-pressed={(primarySelectedLayer.align ?? 'left') === value}
+                            className={`segmented__btn ${(primarySelectedLayer.align ?? 'left') === value ? 'segmented__btn--active' : ''}`.trim()}
+                            onClick={() => updatePreviewTextStyle(primarySelectedLayer.id, { align: value })}
+                          >
+                            <Icon size={14} />
+                          </button>
+                        ))}
+                      </div>
+                      <div className="segmented" role="group" aria-label="Vertical text alignment">
+                        {([['top', AlignVerticalJustifyStart, 'Align top'], ['middle', AlignVerticalJustifyCenter, 'Align middle'], ['bottom', AlignVerticalJustifyEnd, 'Align bottom']] as const).map(([value, Icon, label]) => {
+                          const current = primarySelectedLayer.verticalAlign ?? (primarySelectedLayer.box ? 'middle' : 'top')
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              title={label}
+                              aria-label={label}
+                              aria-pressed={current === value}
+                              className={`segmented__btn ${current === value ? 'segmented__btn--active' : ''}`.trim()}
+                              onClick={() => updatePreviewTextStyle(primarySelectedLayer.id, { verticalAlign: value })}
+                            >
+                              <Icon size={14} />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </InspectorSection>
               ) : null}
               {primarySelectedLayer?.kind === 'text' ? (
                 <TextBoxInspector
@@ -1137,8 +1238,7 @@ export function DesignPage() {
                   onChange={(box) => updatePreviewTextStyle(primarySelectedLayer.id, { box })}
                 />
               ) : null}
-              <div className="inspector-section">
-                <div className="inspector-section__label">Transform</div>
+              <InspectorSection id="transform" title="Transform">
                 <div className="anchor-row">
                   <AnchorPicker
                     value={mixedAnchorPreset(selectedLayers)}
@@ -1174,9 +1274,8 @@ export function DesignPage() {
                     </select>
                   </label>
                 ) : null}
-              </div>
-              <div className="inspector-section">
-                <div className="inspector-section__label">Binding & Style</div>
+              </InspectorSection>
+              <InspectorSection id="binding-style" title="Binding & Style">
                 {selectedLayers.length > 1 ? (
                   <div className="inspector-empty">Layer-specific binding and style editing is available for single-layer selection only.</div>
                 ) : primarySelectedLayer && primarySelectedLayer.kind === 'shape' ? (
@@ -1307,7 +1406,7 @@ export function DesignPage() {
                     ) : null}
                   </>
                 ) : null}
-              </div>
+              </InspectorSection>
             </>
           ) : <div className="inspector-empty">Select one or more layers to inspect and edit virtual pixel values.</div>}
         </aside>
