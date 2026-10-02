@@ -4094,3 +4094,23 @@ input[type='range'] {
 .layer-item--active .layer-item__step:hover:not(:disabled) {
   background: rgba(17, 17, 17, 0.35);
 }
+
+/* Grip matches the step arrows: no box, same colour and hover. */
+.layer-item .layer-item__handle {
+  background: transparent;
+  border: none;
+  color: #999999;
+}
+
+.layer-item .layer-item__handle:hover:not(.layer-item__handle--disabled) {
+  background: var(--bg-button);
+  color: var(--milk);
+}
+
+.layer-item--active .layer-item__handle {
+  color: var(--milk);
+}
+
+.layer-item--active .layer-item__handle:hover:not(.layer-item__handle--disabled) {
+  background: rgba(17, 17, 17, 0.35);
+}
