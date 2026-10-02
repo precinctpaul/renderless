@@ -1,10 +1,11 @@
 import { SceneRenderer } from './SceneRenderer'
 import type { StoryState, TemplateDefinition, TemplateVersionReason } from '../types/scene'
 
-const REASON_LABEL: Record<TemplateVersionReason, string> = {
+const REASON_LABEL: Record<TemplateVersionReason | 'updated', string> = {
   save: 'Saved',
   autosave: 'Autosaved',
   restore: 'Restored',
+  updated: 'Updated',
 }
 
 function formatWhen(timestamp: number): string {
@@ -27,7 +28,8 @@ export function VersionHistoryDialog({ template, story, onRestore, onClose }: Ve
     scene: template.scene,
     updatedAt: template.updatedAt ?? 0,
     updatedBy: template.updatedBy,
-    reason: template.versionReason ?? 'save',
+    // A teammate's change arrives without how it was made: say "Updated" rather than guess.
+    reason: (template.versionReason ?? 'updated') as TemplateVersionReason | 'updated',
   }
 
   return (
