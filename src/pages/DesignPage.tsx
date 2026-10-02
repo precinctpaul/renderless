@@ -158,6 +158,7 @@ export function DesignPage() {
   const canUndo = usePlayoutStore((state) => state.canUndo)
   const canRedo = usePlayoutStore((state) => state.canRedo)
   const savePreviewTemplate = usePlayoutStore((state) => state.savePreviewTemplate)
+  const createBlankTemplate = usePlayoutStore((state) => state.createBlankTemplate)
   const exportPreviewTemplatePackage = usePlayoutStore((state) => state.exportPreviewTemplatePackage)
   const restoreTemplateVersion = usePlayoutStore((state) => state.restoreTemplateVersion)
   const bindingFields = usePlayoutStore((state) => state.bindingFields)
@@ -648,6 +649,20 @@ export function DesignPage() {
     if (!savedId) return setTransientStatus('Template name is required.')
     setTransientStatus(`Saved ${requested.trim()}.`, 2200)
   }
+  const handleSaveAsNewTemplate = () => {
+    const requested = window.prompt('Save as a new template', `${activeTemplate?.label ?? scene.name} copy`)
+    if (!requested) return
+    const savedId = savePreviewTemplate(requested, { asNew: true })
+    if (!savedId) return setTransientStatus('Template name is required.')
+    setTransientStatus(`Saved new template ${requested.trim()}.`, 2200)
+  }
+  const handleNewTemplate = () => {
+    if (canUndo && !window.confirm('Start a new blank template? Unsaved changes to the current design will be lost.')) return
+    const requested = window.prompt('New template name', 'Untitled Template')
+    if (!requested) return
+    if (!createBlankTemplate(requested)) return setTransientStatus('Template name is required.')
+    setTransientStatus(`Created ${requested.trim()} (1920 x 1080).`, 2200)
+  }
   const handleExportPackage = () => {
     const templatePackage = exportPreviewTemplatePackage()
     downloadTemplatePackageFile(templatePackage)
@@ -906,7 +921,9 @@ export function DesignPage() {
             <span className="mono">CANVAS {scene.width} x {scene.height}</span>
             <div className="stage-toolbar__actions">
               <span className="mono stage-toolbar__template-name">{activeTemplate?.label ?? scene.name} | v{activeTemplate?.version ?? 1}</span>
+              <button type="button" className="btn btn--small btn--ghost" onClick={handleNewTemplate}>New Template</button>
               <button type="button" className="btn btn--small btn--accent" onClick={handleSaveTemplate}>Save Template</button>
+              <button type="button" className="btn btn--small btn--ghost" onClick={handleSaveAsNewTemplate}>Save As New</button>
               <button type="button" className="btn btn--small btn--ghost" onClick={handleExportPackage}>Export Package</button>
             </div>
           </div>

@@ -425,4 +425,39 @@ describe('Playout reliability and QA regression suite', () => {
     expect(importResult.ok).toBe(false)
     expect(importResult.error).toContain('Unsupported package contract')
   })
+
+  test('New Template creates an empty 1920x1080 custom template and loads it into preview', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const before = usePlayoutStore.getState().templates.length
+
+    expect(usePlayoutStore.getState().createBlankTemplate('   ')).toBeNull()
+    const templateId = usePlayoutStore.getState().createBlankTemplate('Thumbnail Left')
+
+    const state = usePlayoutStore.getState()
+    const created = state.templates.find((template) => template.id === templateId)
+    expect(state.templates).toHaveLength(before + 1)
+    expect(created?.builtIn).toBe(false)
+    expect(created?.label).toBe('Thumbnail Left')
+    expect(state.previewTemplateId).toBe(templateId)
+    expect(state.previewScene.layers).toHaveLength(0)
+    expect([state.previewScene.width, state.previewScene.height]).toEqual([1920, 1080])
+    expect(window.localStorage.getItem(TEMPLATE_STORAGE_KEY)).toContain('Thumbnail Left')
+  })
+
+  test('Save As New forks a custom template instead of overwriting it', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const originalId = usePlayoutStore.getState().createBlankTemplate('Original')!
+    usePlayoutStore.getState().createPreviewLayer('text')
+    usePlayoutStore.getState().savePreviewTemplate('Original')
+    expect(usePlayoutStore.getState().previewTemplateId).toBe(originalId)
+
+    usePlayoutStore.getState().createPreviewLayer('shape')
+    const copyId = usePlayoutStore.getState().savePreviewTemplate('Original copy', { asNew: true })
+
+    const state = usePlayoutStore.getState()
+    expect(copyId).not.toBe(originalId)
+    expect(state.previewTemplateId).toBe(copyId)
+    expect(state.templates.find((template) => template.id === originalId)?.scene.layers).toHaveLength(1)
+    expect(state.templates.find((template) => template.id === copyId)?.scene.layers).toHaveLength(2)
+  })
 })

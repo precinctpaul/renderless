@@ -190,7 +190,8 @@ interface PlayoutStore {
   createPreviewLayer: (kind: 'text' | 'shape') => string | null
   undoPreviewScene: () => void
   redoPreviewScene: () => void
-  savePreviewTemplate: (name: string) => string | null
+  savePreviewTemplate: (name: string, options?: { asNew?: boolean }) => string | null
+  createBlankTemplate: (name: string) => string | null
   exportTemplatePackage: (templateId: string) => TemplatePackage | null
   exportPreviewTemplatePackage: () => TemplatePackage
   importTemplatePackage: (rawPackage: unknown) => { ok: boolean; templateId?: string; error?: string; migrationTrail?: string[] }
@@ -1763,7 +1764,49 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
     },
-    savePreviewTemplate: (name) => {
+    createBlankTemplate: (name) => {
+      const trimmedName = name.trim()
+      if (!trimmedName) {
+        return null
+      }
+
+      const now = Date.now()
+      const blankScene: SceneDefinition = {
+        id: createSceneId(),
+        name: trimmedName,
+        width: 1920,
+        height: 1080,
+        background: 'transparent',
+        layers: [],
+      }
+      const template: TemplateDefinition = {
+        id: createTemplateId(),
+        label: trimmedName,
+        scene: blankScene,
+        bindings: [],
+        bindingHints: [],
+        favorite: false,
+        builtIn: false,
+        version: 1,
+        versions: [],
+        updatedAt: now,
+      }
+
+      set((currentState) => ({
+        templates: [...currentState.templates, template],
+        previewTemplateId: template.id,
+        previewScene: cloneScene(blankScene),
+        undoStack: [],
+        redoStack: [],
+        canUndo: false,
+        canRedo: false,
+        updatedAt: now,
+      }))
+
+      persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
+      return template.id
+    },
+    savePreviewTemplate: (name, options) => {
       const trimmedName = name.trim()
       if (!trimmedName) {
         return null
@@ -1771,7 +1814,8 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       const state = get()
       const activeTemplate = findTemplateById(state.templates, state.previewTemplateId)
-      const shouldOverwrite = Boolean(activeTemplate && !activeTemplate.builtIn)
+      // "Save As New" always forks; plain Save overwrites custom templates and forks built-ins.
+      const shouldOverwrite = !options?.asNew && Boolean(activeTemplate && !activeTemplate.builtIn)
       const templateId = shouldOverwrite && activeTemplate ? activeTemplate.id : createTemplateId()
       const sceneId = shouldOverwrite && activeTemplate ? activeTemplate.scene.id : createSceneId()
       const now = Date.now()
@@ -1800,7 +1844,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         scene: savedScene,
         bindings: extractBindingKeys(savedScene),
         bindingHints: (activeTemplate?.bindingHints ?? []).map((hint) => ({ ...hint })),
-        favorite: activeTemplate?.favorite ?? false,
+        favorite: shouldOverwrite ? (activeTemplate?.favorite ?? false) : false,
         builtIn: false,
         version: nextVersion,
         versions: clampVersionHistory(snapshotOfPriorVersion ? [...previousVersions, snapshotOfPriorVersion] : previousVersions),
