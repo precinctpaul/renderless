@@ -64,24 +64,25 @@ interface LottieDoc {
 const BINDING_TOKEN_REGEX = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g
 const LAYER_BINDING_REGEX = /\[(?:bind|binding)\s*:\s*([^\]]+)\]/i
 
+// Layer names a designer is likely to use, mapped to the standard fields.
 const BINDING_ALIAS_MAP: Record<string, DataBindingKey> = {
-  home: 'homeScore',
-  home_score: 'homeScore',
-  homescore: 'homeScore',
-  away: 'awayScore',
-  away_score: 'awayScore',
-  awayscore: 'awayScore',
-  clock: 'clock',
-  game_clock: 'clock',
-  period: 'period',
-  quarter: 'period',
-  qtr: 'period',
-  shot_clock: 'shotClock',
-  shotclock: 'shotClock',
-  home_fouls: 'homeFouls',
-  away_fouls: 'awayFouls',
+  name: 'name',
+  full_name: 'name',
+  speaker: 'name',
+  speaker_name: 'name',
+  title: 'title',
+  job_title: 'title',
+  role: 'title',
+  position: 'title',
+  quote: 'quote',
+  quote_text: 'quote',
+  author: 'quote_author',
+  quote_author: 'quote_author',
+  attribution: 'quote_author',
   headline: 'headline',
-  title: 'headline',
+  subhead: 'subhead',
+  subheadline: 'subhead',
+  subtitle: 'subhead',
 }
 
 function createImportId(prefix: string): string {
@@ -244,17 +245,7 @@ function sanitizeTextForBinding(text: string, bindingKey: string, fallbackLabel:
     return stripped
   }
 
-  const normalized = bindingKey.toLowerCase()
-  if (normalized.includes('clock')) {
-    return '12:00'
-  }
-  if (normalized.includes('headline') || normalized.includes('story')) {
-    return fallbackLabel || 'Headline'
-  }
-  if (normalized.includes('name')) {
-    return fallbackLabel || 'Player'
-  }
-  return '0'
+  return fallbackLabel || bindingKey
 }
 
 function normalizeBindingHint(hint: TemplateBindingHint): TemplateBindingHint {

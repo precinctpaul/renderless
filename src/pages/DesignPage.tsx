@@ -29,12 +29,13 @@ import { TextBoxInspector } from '../components/TextBoxInspector'
 import { NumberField } from '../components/NumberField'
 import { AnchorPicker } from '../components/AnchorPicker'
 import { InspectorSection } from '../components/InspectorSection'
+import { CanvasSizeSelect, NewTemplateDialog } from '../components/CanvasSizeControls'
 import { downloadDataUrl, renderScenePng } from '../lib/exportScenePng'
 import { anchorPosition, anchorPresetOf, resolveAnchor, type AnchorPresetId } from '../lib/layerAnchor'
 import { LAYER_BLEND_MODES, type DataBindingKey, type LayerBlendMode, type SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 import { resolveBindingValue } from '../lib/bindings'
-import { deriveBindingLevel, filterBindingFieldsForLeague, type BindingLevel } from '../lib/leagueBindings'
+import { fieldKeyFromHeader } from '../lib/dataSheet'
 import type { TemplatePackage } from '../lib/templatePackages'
 import {
   ASSET_STORAGE_KEY,
@@ -58,51 +59,15 @@ interface SelectionModifiers {
   metaKey: boolean
 }
 
-interface BindingOption {
-  key: string
-  label: string
-  level: BindingLevel
-  metricLabel: string
-  teamSide?: 'Home' | 'Away'
-  playerSlot?: string
-  playerName?: string
-}
-
-function formatPlayerSlotLabel(slot: string): string {
-  const [team, index] = slot.split('.')
-  const teamLabel = team === 'Home' ? 'Home' : team === 'Away' ? 'Away' : team
-  return index ? `${teamLabel} #${index}` : slot
-}
-
-function inferTeamSideFromKey(bindingKey: string): 'Home' | 'Away' | undefined {
-  const segments = bindingKey.split('.')
-  if (segments.includes('Home')) {
-    return 'Home'
-  }
-  if (segments.includes('Away')) {
-    return 'Away'
-  }
-  return undefined
-}
-
-function inferMetricLabel(option: BindingOption): string {
-  if (option.level === 'Player' && option.playerName) {
-    return `${option.metricLabel} (${option.playerName})`
-  }
-
-  if (option.teamSide) {
-    return `${option.teamSide} ${option.metricLabel}`
-  }
-
-  return option.label
-}
-
 const asPercent = (opacity: number) => Math.round(opacity * 100)
 const fromPercent = (percent: number) => Math.min(Math.max(percent, 0), 100) / 100
 const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'template-package'
 const GRID_SNAP_STEP = 10
-const BINDING_LEVEL_OPTIONS: BindingLevel[] = ['Game', 'Team', 'Player', 'Analytics', 'Graphics', 'Stories', 'RecentEvents', 'Context', 'Core']
+// Brand faces first (same stacks the built-in templates use), then general-purpose fonts.
 const DEFAULT_FONT_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: 'Druk Wide', value: '"Druk Wide", "Archivo Expanded", "Arial Black", sans-serif' },
+  { label: 'Druk', value: '"Druk", Oswald, "Arial Narrow", sans-serif' },
+  { label: 'Recoleta', value: '"Recoleta", Georgia, serif' },
   { label: 'Inter', value: 'Inter, sans-serif' },
   { label: 'Roboto', value: 'Roboto, sans-serif' },
   { label: 'JetBrains Mono', value: 'JetBrains Mono, monospace' },
@@ -163,10 +128,11 @@ export function DesignPage() {
   const canRedo = usePlayoutStore((state) => state.canRedo)
   const savePreviewTemplate = usePlayoutStore((state) => state.savePreviewTemplate)
   const createBlankTemplate = usePlayoutStore((state) => state.createBlankTemplate)
+  const setPreviewCanvasSize = usePlayoutStore((state) => state.setPreviewCanvasSize)
   const exportPreviewTemplatePackage = usePlayoutStore((state) => state.exportPreviewTemplatePackage)
   const restoreTemplateVersion = usePlayoutStore((state) => state.restoreTemplateVersion)
   const bindingFields = usePlayoutStore((state) => state.bindingFields)
-  const simulationLeague = usePlayoutStore((state) => state.simulationLeague)
+  const setFieldValue = usePlayoutStore((state) => state.setFieldValue)
 
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([])
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null)
@@ -175,6 +141,7 @@ export function DesignPage() {
   const [dropPosition, setDropPosition] = useState<'above' | 'below'>('above')
   const [justMovedLayerId, setJustMovedLayerId] = useState<string | null>(null)
   const [isExportingPng, setIsExportingPng] = useState(false)
+  const [isNewTemplateOpen, setIsNewTemplateOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
   const [versionToRestore, setVersionToRestore] = useState('')
   const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select')
@@ -191,11 +158,7 @@ export function DesignPage() {
   const [renameDraft, setRenameDraft] = useState('')
   const [isInspectorRenaming, setIsInspectorRenaming] = useState(false)
   const [inspectorRenameDraft, setInspectorRenameDraft] = useState('')
-  const [bindingLevel, setBindingLevel] = useState<BindingLevel>('Game')
-  const [bindingTeamSide, setBindingTeamSide] = useState<'All' | 'Home' | 'Away'>('All')
-  const [bindingPlayerSearch, setBindingPlayerSearch] = useState('')
-  const [bindingPlayerSlot, setBindingPlayerSlot] = useState<string>('')
-  const [bindingMetricQuery, setBindingMetricQuery] = useState('')
+  const [newFieldDraft, setNewFieldDraft] = useState('')
   const setTransientStatus = (message: string, timeoutMs = 1800) => {
     setSaveStatus(message)
     window.setTimeout(() => setSaveStatus(''), timeoutMs)
@@ -247,207 +210,15 @@ export function DesignPage() {
 
     return [{ value: primarySelectedLayer.fontFamily, label: primarySelectedLayer.fontFamily }, ...availableFontOptions]
   }, [availableFontOptions, primarySelectedLayer])
-  const leagueBindingFields = useMemo(
-    () => filterBindingFieldsForLeague(bindingFields, simulationLeague),
-    [bindingFields, simulationLeague],
-  )
-  const bindingPlayerNameSignature = useMemo(() => {
-    const entries: Array<[string, string]> = []
-
-    leagueBindingFields.forEach((field) => {
-      const match = field.key.match(/^Players\.(Home|Away)\.(\d+)\.Name$/)
-      if (!match) {
-        return
-      }
-
-      const value = story.bindings?.[field.key]
-      if (typeof value !== 'string') {
-        return
-      }
-
-      const trimmed = value.trim()
-      if (!trimmed) {
-        return
-      }
-
-      entries.push([`${match[1]}.${match[2]}`, trimmed])
+  // Field picker options, grouped (People, Quote, Spreadsheet...).
+  const fieldGroups = useMemo(() => {
+    const groups = new Map<string, typeof bindingFields>()
+    bindingFields.forEach((field) => {
+      const group = field.group ?? 'Fields'
+      groups.set(group, [...(groups.get(group) ?? []), field])
     })
-
-    entries.sort((left, right) => left[0].localeCompare(right[0]))
-    return JSON.stringify(entries)
-  }, [leagueBindingFields, story.bindings])
-  const bindingPlayerNamesBySlot = useMemo(() => {
-    const entries = JSON.parse(bindingPlayerNameSignature) as Array<[string, string]>
-    return new Map<string, string>(entries)
-  }, [bindingPlayerNameSignature])
-  const bindingOptions = useMemo<BindingOption[]>(() => {
-    return leagueBindingFields.map((field) => {
-      const level = deriveBindingLevel(field.key)
-      const teamSide = inferTeamSideFromKey(field.key)
-      const segments = field.key.split('.')
-      let playerSlot: string | undefined
-      let playerName: string | undefined
-
-      if (field.key.startsWith('Players.Home.') || field.key.startsWith('Players.Away.')) {
-        const match = field.key.match(/^Players\.(Home|Away)\.(\d+)\./)
-        if (match) {
-          playerSlot = `${match[1]}.${match[2]}`
-          playerName = bindingPlayerNamesBySlot.get(playerSlot)
-        }
-      }
-
-      return {
-        key: field.key,
-        label: field.label,
-        level,
-        metricLabel: segments.length > 1 ? (segments[segments.length - 1] ?? field.label) : field.label,
-        teamSide,
-        playerSlot,
-        playerName,
-      }
-    })
-  }, [bindingPlayerNamesBySlot, leagueBindingFields])
-  const selectedLayerBindingOption = useMemo(() => {
-    if (!primarySelectedLayer || primarySelectedLayer.kind !== 'text' || !primarySelectedLayer.binding) {
-      return null
-    }
-
-    return bindingOptions.find((option) => option.key === primarySelectedLayer.binding) ?? null
-  }, [bindingOptions, primarySelectedLayer])
-  const availableBindingLevels = useMemo(() => {
-    return BINDING_LEVEL_OPTIONS.filter((level) => bindingOptions.some((option) => option.level === level))
-  }, [bindingOptions])
-  const preferredBindingLevel = selectedLayerBindingOption?.level ?? bindingLevel
-  const activeBindingLevel = availableBindingLevels.includes(preferredBindingLevel)
-    ? preferredBindingLevel
-    : (availableBindingLevels[0] ?? 'Game')
-  const bindingTeamSideOptions = useMemo<Array<'All' | 'Home' | 'Away'>>(() => {
-    const sides = new Set<'Home' | 'Away'>()
-    bindingOptions
-      .filter((option) => option.level === activeBindingLevel)
-      .forEach((option) => {
-        if (option.teamSide) {
-          sides.add(option.teamSide)
-        }
-      })
-
-    const sorted: Array<'Home' | 'Away'> = []
-    if (sides.has('Home')) {
-      sorted.push('Home')
-    }
-    if (sides.has('Away')) {
-      sorted.push('Away')
-    }
-    if (sorted.length === 0) {
-      return ['All']
-    }
-
-    if (activeBindingLevel === 'Player') {
-      return sorted
-    }
-
-    return ['All', ...sorted]
-  }, [activeBindingLevel, bindingOptions])
-  const activeBindingTeamSide = bindingTeamSideOptions.includes(bindingTeamSide)
-    ? bindingTeamSide
-    : (
-        selectedLayerBindingOption?.teamSide && bindingTeamSideOptions.includes(selectedLayerBindingOption.teamSide)
-          ? selectedLayerBindingOption.teamSide
-          : (bindingTeamSideOptions[0] ?? 'All')
-      )
-  const bindingPlayerOptions = useMemo(() => {
-    if (activeBindingLevel !== 'Player') {
-      return []
-    }
-
-    const bySlot = new Map<string, string>()
-    bindingOptions
-      .filter((option) => option.level === 'Player')
-      .filter((option) => (activeBindingTeamSide === 'All' ? true : option.teamSide === activeBindingTeamSide))
-      .forEach((option) => {
-        if (!option.playerSlot) {
-          return
-        }
-
-        const nextLabel = option.playerName || formatPlayerSlotLabel(option.playerSlot)
-        if (!bySlot.has(option.playerSlot)) {
-          bySlot.set(option.playerSlot, nextLabel)
-        }
-      })
-
-    const search = bindingPlayerSearch.trim().toLowerCase()
-    const values = Array.from(bySlot.entries())
-      .map(([slot, label]) => ({ slot, label }))
-      .filter((entry) => {
-        if (!search) {
-          return true
-        }
-        return entry.label.toLowerCase().includes(search) || entry.slot.toLowerCase().includes(search)
-      })
-      .sort((left, right) => left.label.localeCompare(right.label))
-
-    return values
-  }, [activeBindingLevel, activeBindingTeamSide, bindingOptions, bindingPlayerSearch])
-  const activeBindingPlayerSlot =
-    activeBindingLevel === 'Player' && bindingPlayerOptions.some((option) => option.slot === bindingPlayerSlot)
-      ? bindingPlayerSlot
-      : (
-          activeBindingLevel === 'Player' &&
-          selectedLayerBindingOption?.playerSlot &&
-          bindingPlayerOptions.some((option) => option.slot === selectedLayerBindingOption.playerSlot)
-            ? selectedLayerBindingOption.playerSlot
-            : (bindingPlayerOptions[0]?.slot ?? '')
-        )
-  const filteredBindingOptions = useMemo(() => {
-    const query = bindingMetricQuery.trim().toLowerCase()
-    return bindingOptions
-      .filter((option) => option.level === activeBindingLevel)
-      .filter((option) => (activeBindingTeamSide === 'All' ? true : option.teamSide === activeBindingTeamSide))
-      .filter((option) => {
-        if (activeBindingLevel !== 'Player') {
-          return true
-        }
-        return option.playerSlot === activeBindingPlayerSlot
-      })
-      .filter((option) => {
-        if (!query) {
-          return true
-        }
-        const playerName = option.playerName?.toLowerCase() ?? ''
-        return (
-          option.label.toLowerCase().includes(query) ||
-          option.key.toLowerCase().includes(query) ||
-          option.metricLabel.toLowerCase().includes(query) ||
-          playerName.includes(query)
-        )
-      })
-      .sort((left, right) => {
-        const byMetric = left.metricLabel.localeCompare(right.metricLabel)
-        if (byMetric !== 0) {
-          return byMetric
-        }
-
-        const leftName = left.playerName ?? ''
-        const rightName = right.playerName ?? ''
-        return leftName.localeCompare(rightName)
-      })
-  }, [activeBindingLevel, activeBindingPlayerSlot, activeBindingTeamSide, bindingMetricQuery, bindingOptions])
-  const metricSelectOptions = useMemo(() => {
-    const byKey = new Map<string, BindingOption>()
-    filteredBindingOptions.forEach((option) => {
-      byKey.set(option.key, option)
-    })
-
-    if (primarySelectedLayer && primarySelectedLayer.kind === 'text' && primarySelectedLayer.binding) {
-      const current = bindingOptions.find((option) => option.key === primarySelectedLayer.binding)
-      if (current) {
-        byKey.set(current.key, current)
-      }
-    }
-
-    return [...byKey.values()].sort((left, right) => inferMetricLabel(left).localeCompare(inferMetricLabel(right)))
-  }, [bindingOptions, filteredBindingOptions, primarySelectedLayer])
-  const selectedBindingOption = selectedLayerBindingOption
+    return [...groups.entries()]
+  }, [bindingFields])
 
   useEffect(() => {
     let cancelled = false
@@ -660,10 +431,12 @@ export function DesignPage() {
   }
   const handleNewTemplate = () => {
     if (canUndo && !window.confirm('Start a new blank template? Unsaved changes to the current design will be lost.')) return
-    const requested = window.prompt('New template name', 'Untitled Template')
-    if (!requested) return
-    if (!createBlankTemplate(requested)) return setTransientStatus('Template name is required.')
-    setTransientStatus(`Created ${requested.trim()} (1920 x 1080).`, 2200)
+    setIsNewTemplateOpen(true)
+  }
+  const handleCreateTemplate = (name: string, size: { width: number; height: number }) => {
+    setIsNewTemplateOpen(false)
+    if (!createBlankTemplate(name, size)) return setTransientStatus('Template name is required.')
+    setTransientStatus(`Created ${name} (${size.width} x ${size.height}).`, 2200)
   }
   const handleExportPng = async () => {
     setIsExportingPng(true)
@@ -790,6 +563,13 @@ export function DesignPage() {
 
   return (
     <section className="screen screen--design">
+      {isNewTemplateOpen ? (
+        <NewTemplateDialog
+          defaultSize={{ width: scene.width, height: scene.height }}
+          onCreate={handleCreateTemplate}
+          onCancel={() => setIsNewTemplateOpen(false)}
+        />
+      ) : null}
       <div className="design-layout">
         <aside className="panel stage-sidebar">
           <div className="sidebar-head">
@@ -996,7 +776,14 @@ export function DesignPage() {
 
         <section className="panel stage-center">
           <div className="stage-toolbar stage-toolbar--top">
-            <span className="mono">CANVAS {scene.width} x {scene.height}</span>
+            <CanvasSizeSelect
+              width={scene.width}
+              height={scene.height}
+              onChange={(size) => {
+                setPreviewCanvasSize(size)
+                setTransientStatus(`Canvas set to ${size.width} x ${size.height}. Undo to revert.`, 2200)
+              }}
+            />
             <div className="stage-toolbar__actions">
               <span className="mono stage-toolbar__template-name">{activeTemplate?.label ?? scene.name} | v{activeTemplate?.version ?? 1}</span>
               <button type="button" className="btn btn--small btn--ghost" onClick={handleNewTemplate}>New Template</button>
@@ -1310,82 +1097,9 @@ export function DesignPage() {
                 ) : primarySelectedLayer ? (
                   <>
                     <div className="binding-panel">
-                      <div className="inspector-section__label">Data Binding</div>
+                      <div className="inspector-section__label">Data Field</div>
                       <label>
-                        Source
-                        <select className="mono" value="live-feed" disabled>
-                          <option value="live-feed">Live Feed ({simulationLeague})</option>
-                        </select>
-                      </label>
-                      <label>
-                        Category
-                        <select
-                          className="mono"
-                          value={activeBindingLevel}
-                          onChange={(event) => setBindingLevel(event.target.value as BindingLevel)}
-                        >
-                          {availableBindingLevels.map((level) => (
-                            <option key={level} value={level}>
-                              {level}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {bindingTeamSideOptions.length > 1 ? (
-                        <label>
-                          Team Side
-                          <select
-                            className="mono"
-                            value={activeBindingTeamSide}
-                            onChange={(event) => setBindingTeamSide(event.target.value as 'All' | 'Home' | 'Away')}
-                          >
-                            {bindingTeamSideOptions.map((teamSide) => (
-                              <option key={teamSide} value={teamSide}>
-                                {teamSide === 'All' ? 'All teams' : `${teamSide} team`}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      ) : null}
-                      {activeBindingLevel === 'Player' ? (
-                        <>
-                          <label>
-                            Player Search
-                            <input
-                              value={bindingPlayerSearch}
-                              onChange={(event) => setBindingPlayerSearch(event.target.value)}
-                              placeholder="Search players in selected team..."
-                            />
-                          </label>
-                          <label>
-                            Player
-                            <select
-                              className="mono"
-                              value={activeBindingPlayerSlot}
-                              onChange={(event) => setBindingPlayerSlot(event.target.value)}
-                            >
-                              {bindingPlayerOptions.length === 0 ? (
-                                <option value="">No players in current context</option>
-                              ) : null}
-                              {bindingPlayerOptions.map((player) => (
-                                <option key={player.slot} value={player.slot}>
-                                  {player.label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </>
-                      ) : null}
-                      <label>
-                        Metric Search
-                        <input
-                          value={bindingMetricQuery}
-                          onChange={(event) => setBindingMetricQuery(event.target.value)}
-                          placeholder={`Search ${activeBindingLevel.toLowerCase()} metrics...`}
-                        />
-                      </label>
-                      <label>
-                        Metric
+                        Field
                         <select
                           className="mono"
                           value={primarySelectedLayer.binding ?? ''}
@@ -1394,31 +1108,42 @@ export function DesignPage() {
                             updatePreviewTextBinding(primarySelectedLayer.id, nextKey ? (nextKey as DataBindingKey) : null)
                           }}
                         >
-                          <option value="">Choose metric...</option>
-                          {metricSelectOptions.map((option) => (
-                            <option key={option.key} value={option.key}>
-                              {inferMetricLabel(option)}
-                            </option>
+                          <option value="">None (fixed text)</option>
+                          {primarySelectedLayer.binding && !bindingFields.some((field) => field.key === primarySelectedLayer.binding) ? (
+                            <option value={primarySelectedLayer.binding}>{primarySelectedLayer.binding}</option>
+                          ) : null}
+                          {fieldGroups.map(([group, fields]) => (
+                            <optgroup key={group} label={group}>
+                              {fields.map((field) => (
+                                <option key={field.key} value={field.key}>
+                                  {field.label}
+                                </option>
+                              ))}
+                            </optgroup>
                           ))}
                         </select>
                       </label>
-                      <div className="binding-panel__meta mono">
-                        {simulationLeague} | {activeBindingLevel}
-                        {activeBindingTeamSide !== 'All' ? ` | ${activeBindingTeamSide}` : ''} | {filteredBindingOptions.length} metrics in view
-                      </div>
+                      <form
+                        className="binding-panel__new"
+                        onSubmit={(event) => {
+                          event.preventDefault()
+                          const key = fieldKeyFromHeader(newFieldDraft)
+                          if (!newFieldDraft.trim()) return
+                          setFieldValue(key, primarySelectedLayer.text)
+                          updatePreviewTextBinding(primarySelectedLayer.id, key as DataBindingKey)
+                          setNewFieldDraft('')
+                        }}
+                      >
+                        <input value={newFieldDraft} placeholder="Or new field name..." onChange={(event) => setNewFieldDraft(event.target.value)} />
+                        <button type="submit" className="btn btn--small" disabled={!newFieldDraft.trim()}>Bind</button>
+                      </form>
                     </div>
                     <div className="binding-preview mono">
                       {primarySelectedLayer.binding
-                        ? `TOKEN: ${primarySelectedLayer.binding} = ${bindingPreviewValue || 'n/a'}`
-                        : 'TOKEN: none selected'}
+                        ? `${primarySelectedLayer.binding} = ${bindingPreviewValue || '(empty, shows the layer text)'}`
+                        : 'Fixed text. Pick a field to fill it from Data or a spreadsheet.'}
                     </div>
-                    {selectedBindingOption ? (
-                      <div className="binding-preview mono">
-                        ACTIVE: {selectedBindingOption.level}
-                        {selectedBindingOption.teamSide ? ` | ${selectedBindingOption.teamSide}` : ''}
-                        {selectedBindingOption.playerName ? ` | ${selectedBindingOption.playerName}` : ''} | {selectedBindingOption.metricLabel}
-                      </div>
-                    ) : null}
+                    <div className="inspector-empty">Edit field values, or load a spreadsheet, on the Data page.</div>
                   </>
                 ) : null}
               </InspectorSection>

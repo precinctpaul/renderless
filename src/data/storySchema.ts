@@ -1,5 +1,6 @@
-import type { CoreStoryBindingKey, DataBindingKey, StoryState } from '../types/scene'
+import type { BindingPrimitive, DataBindingKey, StoryState } from '../types/scene'
 
+/** A named data field a text layer can bind to (e.g. `name`, `quote`). */
 export interface StoryFieldDef<K extends DataBindingKey = DataBindingKey> {
   key: K
   label: string
@@ -9,116 +10,47 @@ export interface StoryFieldDef<K extends DataBindingKey = DataBindingKey> {
   min?: number
   max?: number
   step?: number
-  options?: Array<{ label: string; value: StoryState[keyof StoryState] | string | number }>
+  options?: Array<{ label: string; value: string | number }>
 }
 
-export const STORY_FIELD_DEFS: StoryFieldDef<CoreStoryBindingKey>[] = [
-  {
-    key: 'homeScore',
-    label: 'Home Score',
-    group: 'Core',
-    kind: 'number',
-    quickControl: true,
-    min: 0,
-    step: 1,
-  },
-  {
-    key: 'awayScore',
-    label: 'Away Score',
-    group: 'Core',
-    kind: 'number',
-    quickControl: true,
-    min: 0,
-    step: 1,
-  },
-  {
-    key: 'clock',
-    label: 'Game Clock',
-    group: 'Core',
-    kind: 'string',
-    quickControl: true,
-  },
-  {
-    key: 'possession',
-    label: 'Possession',
-    group: 'Core',
-    kind: 'enum',
-    quickControl: true,
-    options: [
-      { label: 'HOME', value: 'home' },
-      { label: 'AWAY', value: 'away' },
-    ],
-  },
-  {
-    key: 'period',
-    label: 'Period',
-    group: 'Core',
-    kind: 'number',
-    quickControl: false,
-    min: 1,
-    max: 8,
-    step: 1,
-  },
-  {
-    key: 'shotClock',
-    label: 'Shot Clock',
-    group: 'Core',
-    kind: 'number',
-    quickControl: false,
-    min: 0,
-    max: 30,
-    step: 1,
-  },
-  {
-    key: 'homeFouls',
-    label: 'Home Fouls',
-    group: 'Core',
-    kind: 'number',
-    quickControl: false,
-    min: 0,
-    step: 1,
-  },
-  {
-    key: 'awayFouls',
-    label: 'Away Fouls',
-    group: 'Core',
-    kind: 'number',
-    quickControl: false,
-    min: 0,
-    step: 1,
-  },
-  {
-    key: 'headline',
-    label: 'Headline',
-    group: 'Core',
-    kind: 'string',
-    quickControl: false,
-  },
+/** Fields every install starts with; spreadsheets and the Data page can add more. */
+export const STORY_FIELD_DEFS: StoryFieldDef[] = [
+  { key: 'name', label: 'Name', group: 'People', kind: 'string', quickControl: true },
+  { key: 'title', label: 'Title', group: 'People', kind: 'string', quickControl: true },
+  { key: 'quote', label: 'Quote', group: 'Quote', kind: 'string', quickControl: true },
+  { key: 'quote_author', label: 'Quote Author', group: 'Quote', kind: 'string', quickControl: true },
+  { key: 'headline', label: 'Headline', group: 'Thumbnail', kind: 'string', quickControl: true },
+  { key: 'subhead', label: 'Subhead', group: 'Thumbnail', kind: 'string', quickControl: true },
 ]
 
-export const STORY_DEFAULTS: StoryState = {
-  homeScore: 875,
-  awayScore: 827,
-  clock: '11:16',
-  possession: 'home',
-  period: 4,
-  shotClock: 24,
-  homeFouls: 3,
-  awayFouls: 2,
-  headline: 'Defensive rebound',
-  bindings: {
-    homeScore: 875,
-    awayScore: 827,
-    clock: '11:16',
-    possession: 'HOME',
-    period: 'Q4',
-    shotClock: 24,
-    homeFouls: 3,
-    awayFouls: 2,
-    headline: 'Defensive rebound',
-  },
+export const DEFAULT_FIELD_VALUES: Record<string, BindingPrimitive> = {
+  name: 'Jane Doe',
+  title: 'State Senator, District 12',
+  quote: 'Democracy works when everyone has a seat at the table.',
+  quote_author: 'Jane Doe',
+  headline: 'Big News This Week',
+  subhead: 'What it means for you',
 }
 
-export const BINDABLE_FIELDS = STORY_FIELD_DEFS.filter((field) => field.key !== 'headline')
+export const STORY_DEFAULTS: StoryState = {
+  bindings: { ...DEFAULT_FIELD_VALUES },
+}
 
-export const BINDING_KEY_SET = new Set<DataBindingKey>(STORY_FIELD_DEFS.map((field) => field.key))
+/** Field catalog: the built-in fields plus any other key that currently has a value. */
+export function fieldDefsFor(values: Record<string, BindingPrimitive>, extra: StoryFieldDef[] = []): StoryFieldDef[] {
+  const byKey = new Map<string, StoryFieldDef>()
+  ;[...STORY_FIELD_DEFS, ...extra].forEach((field) => byKey.set(field.key, field))
+  Object.keys(values).forEach((key) => {
+    if (!byKey.has(key)) byKey.set(key, { key, label: labelFromKey(key), group: 'Data', kind: 'string', quickControl: false })
+  })
+  return [...byKey.values()]
+}
+
+/** `quote_author` -> `Quote Author`. */
+export function labelFromKey(key: string): string {
+  return key
+    .split(/[_\s.-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}

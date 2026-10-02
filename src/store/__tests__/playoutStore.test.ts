@@ -24,13 +24,13 @@ describe('Playout reliability and QA regression suite', () => {
   test('cue -> take -> refresh restores the exact program snapshot', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
-    usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 420 })
+    usePlayoutStore.getState().cuePreview('template-lower-third')
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-lt-bg', { x: 420 })
     usePlayoutStore.getState().take()
 
     const liveState = usePlayoutStore.getState()
-    expect(liveState.programTemplateId).toBe('template-scorebug')
-    expect(getLayerPosition(liveState.programScene, 'shape-home-block').x).toBe(420)
+    expect(liveState.programTemplateId).toBe('template-lower-third')
+    expect(getLayerPosition(liveState.programScene, 'shape-lt-bg').x).toBe(420)
 
     await new Promise((resolve) => window.setTimeout(resolve, 0))
     const serializedSnapshot = window.localStorage.getItem(SNAPSHOT_KEY)
@@ -39,15 +39,15 @@ describe('Playout reliability and QA regression suite', () => {
       programScene?: { layers?: Array<{ id: string; x: number }> }
       updatedAt?: number
     }
-    const persistedProgramLayer = parsedSnapshot.programScene?.layers?.find((layer) => layer.id === 'shape-home-block')
+    const persistedProgramLayer = parsedSnapshot.programScene?.layers?.find((layer) => layer.id === 'shape-lt-bg')
     expect(persistedProgramLayer?.x).toBe(420)
     expect(typeof parsedSnapshot.updatedAt).toBe('number')
 
     const { usePlayoutStore: refreshedStore } = await loadStoreModule()
     const refreshedState = refreshedStore.getState()
 
-    expect(refreshedState.programTemplateId).toBe('template-scorebug')
-    expect(getLayerPosition(refreshedState.programScene, 'shape-home-block').x).toBe(420)
+    expect(refreshedState.programTemplateId).toBe('template-lower-third')
+    expect(getLayerPosition(refreshedState.programScene, 'shape-lt-bg').x).toBe(420)
   })
 
   test('cold start without a snapshot keeps program clear and off air', async () => {
@@ -61,7 +61,7 @@ describe('Playout reliability and QA regression suite', () => {
 
   test('off-air snapshots never hydrate a program scene', async () => {
     const { usePlayoutStore } = await loadStoreModule()
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     usePlayoutStore.getState().take()
     await new Promise((resolve) => window.setTimeout(resolve, 0))
 
@@ -76,14 +76,14 @@ describe('Playout reliability and QA regression suite', () => {
   test('reset demo and deleting the on-air template both clear program', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     usePlayoutStore.getState().take()
     usePlayoutStore.getState().resetDemo()
     expect(usePlayoutStore.getState().onAir).toBe(false)
     expect(usePlayoutStore.getState().programTemplateId).toBe('__clear__')
     expect(usePlayoutStore.getState().programScene.layers).toHaveLength(0)
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     usePlayoutStore.getState().savePreviewTemplate('On Air Custom')
     const customTemplateId = usePlayoutStore.getState().previewTemplateId
     usePlayoutStore.getState().take()
@@ -99,11 +99,11 @@ describe('Playout reliability and QA regression suite', () => {
     vi.useFakeTimers()
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     usePlayoutStore.getState().clearProgram()
     usePlayoutStore.getState().setTransition('fade')
     usePlayoutStore.getState().setTransitionDuration(300)
-    usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 512 })
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-lt-bg', { x: 512 })
 
     usePlayoutStore.getState().take()
 
@@ -111,20 +111,20 @@ describe('Playout reliability and QA regression suite', () => {
     expect(usePlayoutStore.getState().onAir).toBe(false)
 
     vi.advanceTimersByTime(299)
-    expect(usePlayoutStore.getState().programTemplateId).not.toBe('template-scorebug')
+    expect(usePlayoutStore.getState().programTemplateId).not.toBe('template-lower-third')
     expect(usePlayoutStore.getState().transitionInProgress).toBe(true)
 
     vi.advanceTimersByTime(1)
-    expect(usePlayoutStore.getState().programTemplateId).toBe('template-scorebug')
-    expect(getLayerPosition(usePlayoutStore.getState().programScene, 'shape-home-block').x).toBe(512)
+    expect(usePlayoutStore.getState().programTemplateId).toBe('template-lower-third')
+    expect(getLayerPosition(usePlayoutStore.getState().programScene, 'shape-lt-bg').x).toBe(512)
     expect(usePlayoutStore.getState().transitionInProgress).toBe(false)
     expect(usePlayoutStore.getState().onAir).toBe(true)
   })
 
   test('stale in-progress transition snapshots recover on cold start', async () => {
     const staleSnapshot = {
-      previewTemplateId: 'template-scorebug',
-      programTemplateId: 'template-scorebug',
+      previewTemplateId: 'template-lower-third',
+      programTemplateId: 'template-lower-third',
       transitionType: 'fade',
       transitionDurationMs: 300,
       transitionInProgress: true,
@@ -144,26 +144,26 @@ describe('Playout reliability and QA regression suite', () => {
   test('undo and redo revert and reapply scene edits deterministically', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
-    const originalX = getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x
-    expect(originalX).toBe(160)
+    usePlayoutStore.getState().cuePreview('template-lower-third')
+    const originalX = getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg').x
+    expect(originalX).toBe(120)
 
-    usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 300 })
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x).toBe(300)
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-lt-bg', { x: 300 })
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg').x).toBe(300)
     expect(usePlayoutStore.getState().canUndo).toBe(true)
 
     usePlayoutStore.getState().undoPreviewScene()
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x).toBe(160)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg').x).toBe(120)
     expect(usePlayoutStore.getState().canRedo).toBe(true)
 
     usePlayoutStore.getState().redoPreviewScene()
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x).toBe(300)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg').x).toBe(300)
   })
 
   test('create layer actions append text and shape layers to preview scene', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     const baselineCount = usePlayoutStore.getState().previewScene.layers.length
 
     const textLayerId = usePlayoutStore.getState().createPreviewLayer('text')
@@ -181,26 +181,26 @@ describe('Playout reliability and QA regression suite', () => {
   test('layer move delta supports precise and snap-to-grid movement', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
 
-    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-home-block'], { x: 3, y: 7 }, false)
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')).toEqual({ x: 163, y: 117 })
+    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-lt-bg'], { x: 3, y: 7 }, false)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg')).toEqual({ x: 123, y: 827 })
 
-    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-home-block'], { x: 2, y: 2 }, true)
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')).toEqual({ x: 170, y: 120 })
+    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-lt-bg'], { x: 2, y: 2 }, true)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg')).toEqual({ x: 130, y: 830 })
   })
 
   test('align works from anchor points, exactly', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
-    usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 163, y: 117 })
-    usePlayoutStore.getState().updatePreviewLayerTransform('text-home-mark', { x: 247, y: 311 })
-    usePlayoutStore.getState().updatePreviewLayerTransform('shape-away-block', { x: 509, y: 523 })
+    usePlayoutStore.getState().cuePreview('template-lower-third')
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-lt-bg', { x: 163, y: 117 })
+    usePlayoutStore.getState().updatePreviewLayerTransform('text-lt-name', { x: 247, y: 311 })
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-lt-accent', { x: 509, y: 523 })
     // A top-left anchor on one layer: its corner lines up with the others' centers.
-    usePlayoutStore.getState().setPreviewLayersAnchor(['shape-away-block'], { preset: 'tl' })
+    usePlayoutStore.getState().setPreviewLayersAnchor(['shape-lt-accent'], { preset: 'tl' })
 
-    const selection = ['shape-home-block', 'text-home-mark', 'shape-away-block']
+    const selection = ['shape-lt-bg', 'text-lt-name', 'shape-lt-accent']
     const anchorX = (id: string) => {
       const layer = usePlayoutStore.getState().previewScene.layers.find((entry) => entry.id === id)
       return layer ? layer.x + (layer.anchorX ?? layer.width / 2) : NaN
@@ -208,27 +208,28 @@ describe('Playout reliability and QA regression suite', () => {
     const leftMost = Math.min(...selection.map(anchorX))
     usePlayoutStore.getState().alignPreviewLayers(selection, 'left')
     selection.forEach((id) => expect(anchorX(id)).toBeCloseTo(leftMost, 5))
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-away-block').x).toBeCloseTo(leftMost, 5)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-accent').x).toBeCloseTo(leftMost, 5)
 
     // One layer aligns its anchor to the canvas: a centered anchor lands on the right edge.
-    usePlayoutStore.getState().alignPreviewLayers(['shape-home-block'], 'right')
-    expect(anchorX('shape-home-block')).toBe(1920)
+    usePlayoutStore.getState().alignPreviewLayers(['shape-lt-bg'], 'right')
+    expect(anchorX('shape-lt-bg')).toBe(1920)
   })
 
   test('layer movement clamps to stage bounds', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
-    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-home-block'], { x: 5000, y: 5000 }, false)
-    const clampedPosition = getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block')
-    expect(clampedPosition).toEqual({ x: 1610, y: 820 })
+    usePlayoutStore.getState().cuePreview('template-lower-third')
+    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-lt-bg'], { x: 5000, y: 5000 }, false)
+    const clampedPosition = getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg')
+    // The 1080x160 bar stops at the canvas's bottom-right corner.
+    expect(clampedPosition).toEqual({ x: 840, y: 920 })
   })
 
   test('distribute spaces anchor points evenly', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
-    const selection = ['shape-home-block', 'text-home-mark', 'shape-away-block']
+    usePlayoutStore.getState().cuePreview('template-lower-third')
+    const selection = ['shape-lt-bg', 'text-lt-name', 'shape-lt-accent']
     usePlayoutStore.getState().distributePreviewLayers(selection, 'vertical')
     const scene = usePlayoutStore.getState().previewScene
     const anchorY = (id: string) => {
@@ -243,11 +244,11 @@ describe('Playout reliability and QA regression suite', () => {
   test('template version restore rehydrates prior scene and increments current version', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     const customTemplateId = usePlayoutStore.getState().savePreviewTemplate('QA Version Template')
     expect(customTemplateId).toBeTruthy()
 
-    usePlayoutStore.getState().updatePreviewLayerTransform('shape-home-block', { x: 500 })
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-lt-bg', { x: 500 })
     usePlayoutStore.getState().savePreviewTemplate('QA Version Template')
 
     const templateAfterOverwrite = usePlayoutStore.getState().templates.find((template) => template.id === customTemplateId)
@@ -261,61 +262,75 @@ describe('Playout reliability and QA regression suite', () => {
     expect(templateAfterRestore?.version).toBe(3)
     expect(templateAfterRestore?.versions?.some((entry) => entry.version === 2)).toBe(true)
 
-    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-home-block').x).toBe(160)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg').x).toBe(120)
   })
 
   test('binding metadata is persisted on template save and in version history', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
-    usePlayoutStore.getState().updatePreviewTextBinding('text-home-score', 'period')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
+    usePlayoutStore.getState().updatePreviewTextBinding('text-lt-title', 'headline')
     const customTemplateId = usePlayoutStore.getState().savePreviewTemplate('Binding QA Template')
     expect(customTemplateId).toBeTruthy()
 
     const savedTemplate = usePlayoutStore.getState().templates.find((template) => template.id === customTemplateId)
-    expect(savedTemplate?.bindings?.includes('period')).toBe(true)
-    expect(savedTemplate?.bindings?.includes('awayScore')).toBe(true)
+    expect(savedTemplate?.bindings?.includes('headline')).toBe(true)
+    expect(savedTemplate?.bindings?.includes('name')).toBe(true)
 
-    usePlayoutStore.getState().updatePreviewTextBinding('text-home-score', 'homeFouls')
+    usePlayoutStore.getState().updatePreviewTextBinding('text-lt-title', 'subhead')
     usePlayoutStore.getState().savePreviewTemplate('Binding QA Template')
 
     const overwrittenTemplate = usePlayoutStore.getState().templates.find((template) => template.id === customTemplateId)
     expect(overwrittenTemplate?.version).toBe(2)
-    expect(overwrittenTemplate?.bindings?.includes('homeFouls')).toBe(true)
-    expect(overwrittenTemplate?.versions?.some((entry) => entry.bindings.includes('period'))).toBe(true)
+    expect(overwrittenTemplate?.bindings?.includes('subhead')).toBe(true)
+    expect(overwrittenTemplate?.versions?.some((entry) => entry.bindings.includes('headline'))).toBe(true)
   })
 
-  test('typed story overrides update non-score schema fields', async () => {
+  test('field values can be set, added and removed', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().setStoryValue('period', 2)
-    usePlayoutStore.getState().setStoryValue('shotClock', 18)
-    usePlayoutStore.getState().setStoryValue('headline', 'Fast break points')
+    usePlayoutStore.getState().setFieldValue('name', 'Alex Rivera')
+    usePlayoutStore.getState().setFieldValues({ title: 'Mayor', event_date: 'May 5' })
+    expect(usePlayoutStore.getState().story.bindings).toMatchObject({ name: 'Alex Rivera', title: 'Mayor', event_date: 'May 5' })
+    // New keys show up in the field catalog for the Design picker.
+    expect(usePlayoutStore.getState().bindingFields.some((field) => field.key === 'event_date')).toBe(true)
 
-    const { story } = usePlayoutStore.getState()
-    expect(story.period).toBe(2)
-    expect(story.shotClock).toBe(18)
-    expect(story.headline).toBe('Fast break points')
+    usePlayoutStore.getState().removeField('event_date')
+    expect(usePlayoutStore.getState().story.bindings.event_date).toBeUndefined()
+  })
+
+  test('picking a spreadsheet row fills the fields', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const { parseDataSheet } = await import('../../lib/dataSheet')
+
+    const sheet = parseDataSheet(['Name,Title', 'Jane Doe,Senator', 'John Roe,Mayor'].join('\n'), 'people.csv')
+    expect(sheet).toBeTruthy()
+    usePlayoutStore.getState().loadDataSheet(sheet!)
+    usePlayoutStore.getState().selectDataRow(1)
+
+    const state = usePlayoutStore.getState()
+    expect(state.dataRowIndex).toBe(1)
+    expect(state.story.bindings).toMatchObject({ name: 'John Roe', title: 'Mayor' })
   })
 
   test('text style updates can switch font family for immediate font ingest usage', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
-    usePlayoutStore.getState().updatePreviewTextStyle('text-home-score', {
+    usePlayoutStore.getState().cuePreview('template-lower-third')
+    usePlayoutStore.getState().updatePreviewTextStyle('text-lt-title', {
       fontFamily: 'Anton Custom, sans-serif',
     })
 
     const layer = usePlayoutStore
       .getState()
-      .previewScene.layers.find((entry) => entry.id === 'text-home-score' && entry.kind === 'text')
+      .previewScene.layers.find((entry) => entry.id === 'text-lt-title' && entry.kind === 'text')
     expect(layer && layer.kind === 'text' ? layer.fontFamily : '').toBe('Anton Custom, sans-serif')
   })
 
   test('custom templates are persisted in template package contract v2 with integrity metadata', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     usePlayoutStore.getState().savePreviewTemplate('Package QA Template')
 
     await new Promise((resolve) => window.setTimeout(resolve, 0))
@@ -340,13 +355,13 @@ describe('Playout reliability and QA regression suite', () => {
     expect(parsedTemplates[0]?.metadata?.label).toBe('Package QA Template')
     expect(parsedTemplates[0]?.metadata?.size?.width).toBe(1920)
     expect(parsedTemplates[0]?.scenegraph?.height).toBe(1080)
-    expect(parsedTemplates[0]?.bindings?.includes('homeScore')).toBe(true)
+    expect(parsedTemplates[0]?.bindings?.includes('name')).toBe(true)
   })
 
   test('v1 package payload migrates into v2 contract on import', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     const v2Package = usePlayoutStore.getState().exportPreviewTemplatePackage()
     const v1Package = {
       ...v2Package,
@@ -368,7 +383,7 @@ describe('Playout reliability and QA regression suite', () => {
       secret: 'top-secret',
     })
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
     const signedPackage = usePlayoutStore.getState().exportPreviewTemplatePackage()
     expect(signedPackage.integrity.signature?.keyId).toBe('truck-a')
 
@@ -387,8 +402,8 @@ describe('Playout reliability and QA regression suite', () => {
   test('template package import round-trips scenegraph and binding metadata', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
-    usePlayoutStore.getState().updatePreviewTextBinding('text-home-score', 'period')
+    usePlayoutStore.getState().cuePreview('template-lower-third')
+    usePlayoutStore.getState().updatePreviewTextBinding('text-lt-title', 'headline')
     const exportedPackage = usePlayoutStore.getState().exportPreviewTemplatePackage()
     const importResult = usePlayoutStore.getState().importTemplatePackage(exportedPackage)
 
@@ -399,7 +414,7 @@ describe('Playout reliability and QA regression suite', () => {
     expect(importedTemplate).toBeTruthy()
     expect(importedTemplate?.scene.width).toBe(1920)
     expect(importedTemplate?.scene.height).toBe(1080)
-    expect(importedTemplate?.bindings?.includes('period')).toBe(true)
+    expect(importedTemplate?.bindings?.includes('headline')).toBe(true)
   })
 
   test('transport settings switch between local and websocket modes', async () => {

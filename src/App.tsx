@@ -1,7 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { ControlRoomPage } from './pages/ControlRoomPage'
-import { DataEnginePage } from './pages/DataEnginePage'
+import { DataPage } from './pages/DataPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DesignPage } from './pages/DesignPage'
 import { OutputFeedPage } from './pages/OutputFeedPage'
@@ -10,7 +10,7 @@ function NotFoundPage() {
   return (
     <section className="screen screen--not-found">
       <h1>Route not found</h1>
-      <p>Use Dashboard, Design, Data Engine, Control Room, or the canonical output-feed URL.</p>
+      <p>Use Dashboard, Design, Data, Control Room, or the canonical output-feed URL.</p>
     </section>
   )
 }
@@ -24,7 +24,8 @@ function App() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/design" element={<DesignPage />} />
-        <Route path="/data-engine" element={<DataEnginePage />} />
+        <Route path="/data" element={<DataPage />} />
+        <Route path="/data-engine" element={<Navigate to="/data" replace />} />
         <Route path="/control-room" element={<ControlRoomPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>

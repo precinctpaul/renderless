@@ -34,9 +34,15 @@ export async function renderScenePng(scene: SceneDefinition, story: StoryState):
 
   try {
     root.render(<SceneRenderer scene={scene} story={story} className="scene-renderer--export" />)
-    // Let the renderer measure itself (scale 1), then wait for fonts and images.
+    // Wait until the renderer has measured itself and draws the stage at scale 1 (it starts at a
+    // placeholder size), then for fonts and images.
+    const startedAt = Date.now()
     await nextFrame()
-    await nextFrame()
+    while (Date.now() - startedAt < 3000) {
+      const stage = host.querySelector<HTMLElement>('.scene-renderer__stage')
+      if (stage && /scale\(1(\.0+)?\)/.test(stage.style.transform)) break
+      await nextFrame()
+    }
     await document.fonts?.ready
     await Promise.all([...host.querySelectorAll('img')].map((image) => image.decode().catch(() => undefined)))
     const node = host.querySelector<HTMLElement>('.scene-renderer')

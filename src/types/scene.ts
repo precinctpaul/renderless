@@ -1,34 +1,8 @@
 export type DataBindingKey = string
-export type CoreStoryBindingKey =
-  | 'homeScore'
-  | 'awayScore'
-  | 'clock'
-  | 'possession'
-  | 'period'
-  | 'shotClock'
-  | 'homeFouls'
-  | 'awayFouls'
-  | 'headline'
-
 export type BindingPrimitive = string | number | boolean | null
 
-export interface BindingHierarchyNode {
-  key: string
-  label: string
-  group: string
-  kind: 'number' | 'string' | 'enum'
-}
-
+/** Live data for templates: field values keyed by field name (e.g. `name`, `quote`). */
 export interface StoryState {
-  homeScore: number
-  awayScore: number
-  clock: string
-  possession: 'home' | 'away'
-  period: number
-  shotClock: number
-  homeFouls: number
-  awayFouls: number
-  headline: string
   bindings: Record<string, BindingPrimitive>
 }
 

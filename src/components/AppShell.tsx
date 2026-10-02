@@ -7,7 +7,7 @@ import { usePlayoutStore } from '../store/playoutStore'
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/design', label: 'Design' },
-  { to: '/data-engine', label: 'Data Engine' },
+  { to: '/data', label: 'Data' },
   { to: '/control-room', label: 'Control Room' },
   // The Output href is built at render time so it carries this browser's relay room.
   { to: '', label: 'Output', external: true },

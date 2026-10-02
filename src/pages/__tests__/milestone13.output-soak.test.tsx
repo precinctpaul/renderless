@@ -23,13 +23,13 @@ describe('Milestone 13 output-feed soak and OBS refresh stability', () => {
   test('program output survives repeated take/clear cycles with refresh remounts', () => {
     vi.useFakeTimers()
     const store = usePlayoutStore.getState()
-    store.cuePreview('template-scorebug')
+    store.cuePreview('template-quote-card')
     store.take()
 
     let view = renderRoute('/output-feed?follow=program&embed=1&debug=1')
 
     for (let cycle = 0; cycle < 30; cycle += 1) {
-      const templateId = cycle % 2 === 0 ? 'template-scorebug' : 'template-lower-third'
+      const templateId = cycle % 2 === 0 ? 'template-quote-card' : 'template-lower-third'
       usePlayoutStore.getState().cuePreview(templateId)
       usePlayoutStore.getState().take()
 
@@ -76,7 +76,7 @@ describe('Milestone 13 output-feed soak and OBS refresh stability', () => {
     vi.useFakeTimers()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    usePlayoutStore.getState().cuePreview('template-scorebug')
+    usePlayoutStore.getState().cuePreview('template-quote-card')
     usePlayoutStore.getState().take()
     const view = renderRoute('/output-feed?follow=program&embed=1&debug=1')
 
@@ -94,7 +94,7 @@ describe('Milestone 13 output-feed soak and OBS refresh stability', () => {
     })
 
     expect(window.__renderlessOutputStatus?.stale).toBe(false)
-    expect(window.__renderlessOutputStatus?.sceneName).toBe('Lower_Third_001')
+    expect(window.__renderlessOutputStatus?.sceneName).toBe('Lower Third')
 
     view.unmount()
   })

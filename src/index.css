@@ -4140,3 +4140,302 @@ span.scene-renderer__text:not(.scene-renderer__text-box) {
 .snap-line--h {
   height: 1px;
 }
+
+/* ---------- Data page: fields + spreadsheet ---------- */
+.screen--data {
+  min-height: 0;
+}
+
+.data-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.data-layout > .panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow: auto;
+}
+
+@container (max-width: 760px) {
+  .data-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .data-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.data-fields__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.data-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.data-field__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.data-field__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--milk);
+}
+
+.data-field__key {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-field textarea {
+  resize: vertical;
+}
+
+.data-fields__add,
+.binding-panel__new {
+  display: flex;
+  gap: 6px;
+}
+
+.data-fields__add input,
+.binding-panel__new input {
+  flex: 1;
+  min-width: 0;
+}
+
+.data-sheet__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.data-sheet__actions,
+.data-sheet__nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.data-sheet__position {
+  font-size: 12px;
+  color: var(--acid);
+  padding: 0 6px;
+}
+
+.data-sheet__source {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.data-sheet__table-wrap {
+  flex: 1;
+  min-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--border);
+}
+
+.data-sheet__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.data-sheet__table th,
+.data-sheet__table td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--row-sep);
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.data-sheet__table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-list);
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.6px;
+}
+
+.data-sheet__table tbody tr {
+  cursor: pointer;
+}
+
+.data-sheet__table tbody tr:hover {
+  background: var(--row-hover);
+}
+
+.data-sheet__table tbody tr.data-sheet__row--active {
+  background: var(--blue);
+  color: #ffffff;
+}
+
+.data-sheet__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.data-sheet__empty textarea {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.data-sheet__status {
+  font-size: 12px;
+  color: var(--acid);
+}
+
+/* ---------- Canvas size + New Template dialog ---------- */
+.canvas-size-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.canvas-size-select__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.canvas-size-select select {
+  max-width: 300px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(17, 17, 17, 0.72);
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+}
+
+.new-template-dialog__sizes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.new-template-dialog__size {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid transparent;
+  background: var(--bg-button);
+  color: var(--milk);
+  text-align: left;
+  cursor: pointer;
+}
+
+.new-template-dialog__size:hover {
+  background: var(--bg-button-hover);
+}
+
+.new-template-dialog__size--active {
+  border-color: var(--acid);
+}
+
+.new-template-dialog__shape {
+  grid-row: span 2;
+  justify-self: center;
+  border: 1.5px solid currentColor;
+}
+
+.new-template-dialog__size-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.new-template-dialog__size-px {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.new-template-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Control Room: step spreadsheet rows live. */
+.data-row-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+}
+
+.data-row-stepper__link {
+  margin-left: 6px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--acid);
+  text-decoration: underline;
+}
+
+.data-row-stepper__label {
+  font-size: 12px;
+  color: var(--milk);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-row-stepper__buttons {
+  display: flex;
+  gap: 4px;
+}

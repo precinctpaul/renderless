@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { DataRowStepper } from '../components/DataRowStepper'
 import { Check, Copy, Keyboard, RefreshCw, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
@@ -185,6 +186,7 @@ export function ControlRoomPage() {
               )
             })}
           </div>
+          <DataRowStepper />
         </aside>
 
         <section className="control-main">

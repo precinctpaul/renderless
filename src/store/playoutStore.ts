@@ -13,7 +13,8 @@ import type {
   TextBoxStyle,
 } from '../types/scene'
 import { extractBindingKeys, isDataBindingKey } from '../lib/bindings'
-import { STORY_FIELD_DEFS, type StoryFieldDef } from '../data/storySchema'
+import { fieldDefsFor, type StoryFieldDef } from '../data/storySchema'
+import type { DataSheet } from '../lib/dataSheet'
 import {
   buildTemplatePackage,
   migrateTemplatePackage,
@@ -22,19 +23,6 @@ import {
   type TemplatePackage,
   type TemplatePackageSigningConfig,
 } from '../lib/templatePackages'
-import {
-  buildSimulationBindingValues,
-  createSimulationTimeline,
-  simulationDelayForEvent,
-  type SimulationBindingField,
-  type SimulationBuildConfig,
-  type SimulationEvent,
-  type SimulationFrame,
-  type SimulationSnapshot,
-  type SimulationSpeed,
-  type SimulationTimeline,
-  type SupportedLeague,
-} from '../lib/simulationEngine'
 import {
   buildDefaultTransportWsUrl,
   buildHostRelayUrl,
@@ -55,12 +43,7 @@ const PACKAGE_SIGNING_STORAGE_KEY = 'renderless.templates.signing.v1'
 const INSTANCE_ID = `renderless-${Math.random().toString(36).slice(2)}`
 const CLEAR_TEMPLATE_ID = '__clear__'
 const MAX_UNDO_DEPTH = 80
-const SIMULATION_CONFIG_STORAGE_KEY = 'renderless.simulation.config.v1'
-const DEFAULT_SIMULATION_CONFIG: SimulationBuildConfig = {
-  league: 'NBA',
-  speed: 'NORMAL',
-  seed: 20260304,
-}
+const DATA_SHEET_STORAGE_KEY = 'renderless.data.sheet.v1'
 
 export type TransitionType = 'cut' | 'fade' | 'lumaWipe'
 
@@ -94,7 +77,6 @@ type LayerAlignMode = 'left' | 'hCenter' | 'right' | 'top' | 'vMiddle' | 'bottom
 type LayerDistributeAxis = 'horizontal' | 'vertical'
 export type TransportMode = 'local' | 'ws'
 export type TransportConnectionStatus = 'offline' | 'connecting' | 'online' | 'error'
-export type SimulationStatus = 'idle' | 'running' | 'paused' | 'complete'
 
 type BindingFieldOption = StoryFieldDef
 
@@ -167,27 +149,21 @@ interface PlayoutStore {
   packageSigningKeyId: string
   packageSigningSecret: string
   bindingFields: BindingFieldOption[]
-  simulationLeague: SupportedLeague
-  simulationSpeed: SimulationSpeed
-  simulationSeed: number
-  simulationStatus: SimulationStatus
-  simulationCursor: number
-  simulationTotalEvents: number
-  simulationSnapshot: SimulationSnapshot | null
-  simulationRecentEvents: SimulationEvent[]
-  simulationLastEvent: SimulationEvent | null
+  /** Spreadsheet loaded on the Data page; picking a row fills the fields. */
+  dataSheet: DataSheet | null
+  dataRowIndex: number | null
   cuePreview: (templateId: string) => void
   take: () => void
   clearProgram: () => void
   setTransition: (transitionType: TransitionType) => void
   setTransitionDuration: (durationMs: number) => void
-  setStoryValue: (key: DataBindingKey, value: StoryState[keyof StoryState] | string | number) => void
-  setStoryValues: (patch: Partial<StoryState>) => void
-  adjustScore: (team: 'home' | 'away', delta: number) => void
-  setClock: (clock: string) => void
-  resetClock: () => void
-  togglePossession: () => void
-  nudgeClock: (deltaSeconds: number) => void
+  /** Sets one data field (what bound text layers show). */
+  setFieldValue: (key: DataBindingKey, value: string | number | boolean | null) => void
+  setFieldValues: (values: Record<string, string | number | boolean | null>) => void
+  removeField: (key: DataBindingKey) => void
+  loadDataSheet: (sheet: DataSheet) => void
+  selectDataRow: (index: number | null) => void
+  clearDataSheet: () => void
   reorderPreviewLayer: (layerId: string, direction: 'forward' | 'backward') => void
   reorderPreviewLayerToIndex: (layerId: string, targetIndex: number) => void
   updatePreviewLayersTransform: (layerIds: string[], patch: SceneTransformPatch) => void
@@ -213,7 +189,9 @@ interface PlayoutStore {
   undoPreviewScene: () => void
   redoPreviewScene: () => void
   savePreviewTemplate: (name: string, options?: { asNew?: boolean }) => string | null
-  createBlankTemplate: (name: string) => string | null
+  createBlankTemplate: (name: string, size?: { width: number; height: number }) => string | null
+  /** Resizes the design canvas; layers keep their positions. Undoable. */
+  setPreviewCanvasSize: (size: { width: number; height: number }) => void
   exportTemplatePackage: (templateId: string) => TemplatePackage | null
   exportPreviewTemplatePackage: () => TemplatePackage
   importTemplatePackage: (rawPackage: unknown) => { ok: boolean; templateId?: string; error?: string; migrationTrail?: string[] }
@@ -223,24 +201,59 @@ interface PlayoutStore {
   setTransportStatus: (status: TransportConnectionStatus, error?: string | null) => void
   rotateTransportRoom: () => string
   setPackageSigningConfig: (patch: Partial<PackageSigningState>) => void
-  setSimulationLeague: (league: SupportedLeague) => void
-  setSimulationSpeed: (speed: SimulationSpeed) => void
-  setSimulationSeed: (seed: number) => void
-  startSimulation: () => void
-  pauseSimulation: () => void
-  resumeSimulation: () => void
-  stopSimulation: () => void
   restoreTemplateVersion: (templateId: string, version: number) => boolean
   deleteTemplate: (templateId: string) => void
   resetDemo: () => void
 }
 
 function cloneStory(story: StoryState): StoryState {
-  const merged = {
-    ...DEFAULT_STORY_STATE,
-    ...story,
+  return { bindings: { ...(story.bindings ?? {}) } }
+}
+
+// Values left over from the old sports demo are dropped when an old snapshot loads.
+const LEGACY_FIELD_KEYS = new Set(['homeScore', 'awayScore', 'clock', 'possession', 'period', 'shotClock', 'homeFouls', 'awayFouls'])
+const LEGACY_FIELD_PREFIX = /^(Game|Teams|Players|Context|Analytics|Graphics|Stories|RecentEvents)\./
+
+function withoutLegacyFields(values: Record<string, string | number | boolean | null>) {
+  return Object.fromEntries(Object.entries(values).filter(([key]) => !LEGACY_FIELD_KEYS.has(key) && !LEGACY_FIELD_PREFIX.test(key)))
+}
+
+function readDataSheet(): DataSheet | null {
+  if (typeof window === 'undefined') {
+    return null
   }
-  return withCoreBindingMap(merged)
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DATA_SHEET_STORAGE_KEY) ?? 'null') as DataSheet | null
+    return parsed && Array.isArray(parsed.columns) && Array.isArray(parsed.rows) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function persistDataSheet(sheet: DataSheet | null) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    if (sheet) window.localStorage.setItem(DATA_SHEET_STORAGE_KEY, JSON.stringify(sheet))
+    else window.localStorage.removeItem(DATA_SHEET_STORAGE_KEY)
+  } catch {
+    // Large sheets may not fit in storage; they still work for this session.
+  }
+}
+
+/** Field catalog for pickers: built-in fields, spreadsheet columns, and any key with a value. */
+function buildFieldCatalog(values: Record<string, string | number | boolean | null>, sheet: DataSheet | null): StoryFieldDef[] {
+  const sheetFields: StoryFieldDef[] = (sheet?.columns ?? []).map((column) => ({
+    key: column.key,
+    label: column.label,
+    group: 'Spreadsheet',
+    kind: 'string',
+    quickControl: false,
+  }))
+  return fieldDefsFor(values, sheetFields)
 }
 
 function readTransportConfig(): TransportConfigState {
@@ -345,50 +358,6 @@ function persistPackageSigningState(state: PackageSigningState) {
   }
 }
 
-function readSimulationConfig(): SimulationBuildConfig {
-  if (typeof window === 'undefined') {
-    return DEFAULT_SIMULATION_CONFIG
-  }
-
-  try {
-    const raw = window.localStorage.getItem(SIMULATION_CONFIG_STORAGE_KEY)
-    if (!raw) {
-      return DEFAULT_SIMULATION_CONFIG
-    }
-
-    const parsed = JSON.parse(raw) as Partial<SimulationBuildConfig>
-    const league: SupportedLeague =
-      parsed.league === 'MLB' || parsed.league === 'NBA' || parsed.league === 'NFL' || parsed.league === 'NHL' || parsed.league === 'MLS'
-        ? parsed.league
-        : DEFAULT_SIMULATION_CONFIG.league
-    const speed: SimulationSpeed =
-      parsed.speed === 'SLOW' || parsed.speed === 'NORMAL' || parsed.speed === 'FAST'
-        ? parsed.speed
-        : DEFAULT_SIMULATION_CONFIG.speed
-    const seed = Number.isFinite(Number(parsed.seed)) ? Math.max(1, Math.floor(Number(parsed.seed))) : DEFAULT_SIMULATION_CONFIG.seed
-
-    return {
-      league,
-      speed,
-      seed,
-    }
-  } catch {
-    return DEFAULT_SIMULATION_CONFIG
-  }
-}
-
-function persistSimulationConfig(config: SimulationBuildConfig) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  try {
-    window.localStorage.setItem(SIMULATION_CONFIG_STORAGE_KEY, JSON.stringify(config))
-  } catch {
-    // Ignore storage failures and keep in-memory config.
-  }
-}
-
 function primitiveFromUnknown(value: unknown): string | number | boolean | null {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     return value
@@ -413,68 +382,6 @@ function normalizeBindingMap(rawBindingMap: unknown): Record<string, string | nu
     },
     {},
   )
-}
-
-function withCoreBindingMap(story: StoryState, extras?: Record<string, string | number | boolean | null>): StoryState {
-  const nextBindings = {
-    ...(story.bindings ?? {}),
-    ...(extras ?? {}),
-    homeScore: story.homeScore,
-    awayScore: story.awayScore,
-    clock: story.clock,
-    possession: story.possession === 'home' ? 'HOME' : 'AWAY',
-    period: `Q${story.period}`,
-    shotClock: story.shotClock,
-    homeFouls: story.homeFouls,
-    awayFouls: story.awayFouls,
-    headline: story.headline,
-  }
-
-  return {
-    ...story,
-    bindings: nextBindings,
-  }
-}
-
-function mergeBindingFields(baseFields: StoryFieldDef[], simulationFields: SimulationBindingField[]): StoryFieldDef[] {
-  const byKey = new Map<string, StoryFieldDef>()
-  baseFields.forEach((field) => {
-    byKey.set(field.key, field)
-  })
-
-  simulationFields.forEach((field) => {
-    if (byKey.has(field.key)) {
-      return
-    }
-
-    byKey.set(field.key, {
-      key: field.key,
-      label: field.label,
-      group: field.group,
-      kind: field.kind,
-      quickControl: false,
-    })
-  })
-
-  return [...byKey.values()].sort((left, right) => left.label.localeCompare(right.label))
-}
-
-function storyFromSimulationSnapshot(snapshot: SimulationSnapshot, existing: StoryState): StoryState {
-  const nextStory: StoryState = {
-    ...existing,
-    homeScore: snapshot.game.score.home,
-    awayScore: snapshot.game.score.away,
-    clock: snapshot.game.clock.display,
-    possession: snapshot.game.possession,
-    period: snapshot.game.period,
-    shotClock: snapshot.context.nba.shotClock,
-    homeFouls: snapshot.context.nba.homeFouls,
-    awayFouls: snapshot.context.nba.awayFouls,
-    headline: snapshot.story.headline,
-    bindings: existing.bindings,
-  }
-
-  return withCoreBindingMap(nextStory, buildSimulationBindingValues(snapshot))
 }
 
 function getSigningConfigFromState(state: Pick<PlayoutStore, 'packageSigningEnabled' | 'packageSigningKeyId' | 'packageSigningSecret'>): TemplatePackageSigningConfig | null {
@@ -911,24 +818,6 @@ function distributeLayers(scene: SceneDefinition, layerIds: string[], axis: Laye
   return { ...scene, layers: scene.layers.map((layer) => (next.has(layer.id) ? { ...layer, ...next.get(layer.id) } : layer)) }
 }
 
-function parseClockToSeconds(clock: string): number {
-  const [minutesRaw, secondsRaw] = clock.split(':')
-  const minutes = Number(minutesRaw)
-  const seconds = Number(secondsRaw)
-  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) {
-    return 0
-  }
-
-  return Math.max(0, minutes * 60 + seconds)
-}
-
-function secondsToClock(totalSeconds: number): string {
-  const clamped = Math.max(0, Math.floor(totalSeconds))
-  const minutes = Math.floor(clamped / 60)
-  const seconds = clamped % 60
-  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-}
-
 function scenesEqual(a: SceneDefinition, b: SceneDefinition): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
@@ -977,30 +866,10 @@ function normalizeSnapshot(
     ? Math.min(Math.max(Math.round(durationRaw), 0), 1500)
     : 300
 
-  const storyRaw = rawSnapshot?.story
-  const story = withCoreBindingMap({
-    homeScore: Number.isFinite(Number(storyRaw?.homeScore)) ? Math.max(0, Number(storyRaw?.homeScore)) : DEFAULT_STORY_STATE.homeScore,
-    awayScore: Number.isFinite(Number(storyRaw?.awayScore)) ? Math.max(0, Number(storyRaw?.awayScore)) : DEFAULT_STORY_STATE.awayScore,
-    clock: typeof storyRaw?.clock === 'string' && storyRaw.clock.length > 0 ? storyRaw.clock : DEFAULT_STORY_STATE.clock,
-    possession: storyRaw?.possession === 'away' ? 'away' : 'home',
-    period: Number.isFinite(Number(storyRaw?.period))
-      ? Math.max(1, Math.floor(Number(storyRaw?.period)))
-      : DEFAULT_STORY_STATE.period,
-    shotClock: Number.isFinite(Number(storyRaw?.shotClock))
-      ? Math.max(0, Math.floor(Number(storyRaw?.shotClock)))
-      : DEFAULT_STORY_STATE.shotClock,
-    homeFouls: Number.isFinite(Number(storyRaw?.homeFouls))
-      ? Math.max(0, Math.floor(Number(storyRaw?.homeFouls)))
-      : DEFAULT_STORY_STATE.homeFouls,
-    awayFouls: Number.isFinite(Number(storyRaw?.awayFouls))
-      ? Math.max(0, Math.floor(Number(storyRaw?.awayFouls)))
-      : DEFAULT_STORY_STATE.awayFouls,
-    headline:
-      typeof storyRaw?.headline === 'string' && storyRaw.headline.trim().length > 0
-        ? storyRaw.headline
-        : DEFAULT_STORY_STATE.headline,
-    bindings: normalizeBindingMap((storyRaw as { bindings?: unknown })?.bindings),
-  })
+  const storyRaw = rawSnapshot?.story as { bindings?: unknown } | undefined
+  const story: StoryState = storyRaw
+    ? { bindings: withoutLegacyFields(normalizeBindingMap(storyRaw.bindings)) }
+    : cloneStory(DEFAULT_STORY_STATE)
 
   const updatedAtRaw = Number(rawSnapshot?.updatedAt)
   const updatedAt = Number.isFinite(updatedAtRaw) && updatedAtRaw > 0 ? updatedAtRaw : Date.now()
@@ -1088,9 +957,7 @@ function readStoredSnapshot(): Partial<PersistedPlayoutSnapshot> | null {
 
 const initialTransportConfig = readTransportConfig()
 const initialPackageSigningState = readPackageSigningState()
-const initialSimulationConfig = readSimulationConfig()
-const initialSimulationTimeline = createSimulationTimeline(initialSimulationConfig)
-const initialBindingFields = mergeBindingFields(STORY_FIELD_DEFS, initialSimulationTimeline.bindingFields)
+const initialDataSheet = readDataSheet()
 const initialTemplates = buildTemplateCatalog()
 const defaultTemplateId = initialTemplates[0]?.id ?? ''
 const hydratedSnapshot = normalizeSnapshot(readStoredSnapshot(), initialTemplates, defaultTemplateId)
@@ -1105,56 +972,6 @@ let reconcileTransportNow: (() => void) | null = null
 
 export const usePlayoutStore = create<PlayoutStore>((set, get) => {
   let pendingTakeHandle: ReturnType<typeof setTimeout> | null = null
-  let simulationPlaybackHandle: ReturnType<typeof setTimeout> | null = null
-  let activeSimulationTimeline: SimulationTimeline | null = initialSimulationTimeline
-
-  const clearSimulationPlaybackHandle = () => {
-    if (simulationPlaybackHandle) {
-      clearTimeout(simulationPlaybackHandle)
-      simulationPlaybackHandle = null
-    }
-  }
-
-  const applySimulationFrame = (frame: SimulationFrame, nextCursor: number, timeline: SimulationTimeline) => {
-    set((state) => ({
-      story: storyFromSimulationSnapshot(frame.snapshot, state.story),
-      bindingFields: mergeBindingFields(STORY_FIELD_DEFS, timeline.bindingFields),
-      simulationSnapshot: frame.snapshot,
-      simulationRecentEvents: frame.snapshot.recentEvents,
-      simulationLastEvent: frame.event,
-      simulationCursor: nextCursor,
-      simulationTotalEvents: timeline.frames.length,
-      updatedAt: Date.now(),
-    }))
-  }
-
-  const scheduleSimulationPlayback = () => {
-    const state = get()
-    const timeline = activeSimulationTimeline
-    if (!timeline || state.simulationStatus !== 'running') {
-      return
-    }
-
-    if (state.simulationCursor >= timeline.frames.length) {
-      clearSimulationPlaybackHandle()
-      set(() => ({
-        simulationStatus: 'complete',
-      }))
-      return
-    }
-
-    const currentIndex = state.simulationCursor
-    const frame = timeline.frames[currentIndex]
-    const previousEvent = currentIndex > 0 ? timeline.frames[currentIndex - 1]?.event : undefined
-    const delay = simulationDelayForEvent(state.simulationSpeed, frame.event, previousEvent)
-
-    clearSimulationPlaybackHandle()
-    simulationPlaybackHandle = setTimeout(() => {
-      applySimulationFrame(frame, currentIndex + 1, timeline)
-      scheduleSimulationPlayback()
-    }, delay)
-  }
-
   const commitPreviewScene = (producer: (scene: SceneDefinition) => SceneDefinition) => {
     set((state) => {
       const nextScene = producer(state.previewScene)
@@ -1185,7 +1002,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     transitionDurationMs: hydratedSnapshot.transitionDurationMs,
     transitionInProgress: hydratedSnapshot.transitionInProgress,
     programTransition: hydratedSnapshot.programTransition,
-    story: withCoreBindingMap(cloneStory(hydratedSnapshot.story), buildSimulationBindingValues(initialSimulationTimeline.initialSnapshot)),
+    story: cloneStory(hydratedSnapshot.story),
     onAir: hydratedSnapshot.onAir,
     updatedAt: hydratedSnapshot.updatedAt,
     undoStack: [],
@@ -1200,16 +1017,9 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     packageSigningEnabled: initialPackageSigningState.enabled,
     packageSigningKeyId: initialPackageSigningState.keyId,
     packageSigningSecret: initialPackageSigningState.secret,
-    bindingFields: initialBindingFields,
-    simulationLeague: initialSimulationConfig.league,
-    simulationSpeed: initialSimulationConfig.speed,
-    simulationSeed: initialSimulationConfig.seed,
-    simulationStatus: 'idle',
-    simulationCursor: 0,
-    simulationTotalEvents: initialSimulationTimeline.frames.length,
-    simulationSnapshot: initialSimulationTimeline.initialSnapshot,
-    simulationRecentEvents: [],
-    simulationLastEvent: null,
+    bindingFields: buildFieldCatalog(hydratedSnapshot.story.bindings, initialDataSheet),
+    dataSheet: initialDataSheet,
+    dataRowIndex: null,
     cuePreview: (templateId) => {
       set((state) => {
         if (!findTemplateById(state.templates, templateId)) {
@@ -1306,98 +1116,50 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         updatedAt: Date.now(),
       }))
     },
-    setStoryValue: (key, value) => {
+    setFieldValue: (key, value) => {
       set((state) => {
-        const nextStory = withCoreBindingMap({
-          ...state.story,
-          [key]: value,
-        })
-
+        const bindings = { ...state.story.bindings, [key]: value }
+        return { story: { bindings }, bindingFields: buildFieldCatalog(bindings, state.dataSheet), updatedAt: Date.now() }
+      })
+    },
+    setFieldValues: (values) => {
+      set((state) => {
+        const bindings = { ...state.story.bindings, ...values }
+        return { story: { bindings }, bindingFields: buildFieldCatalog(bindings, state.dataSheet), updatedAt: Date.now() }
+      })
+    },
+    removeField: (key) => {
+      set((state) => {
+        const bindings = { ...state.story.bindings }
+        delete bindings[key]
+        return { story: { bindings }, bindingFields: buildFieldCatalog(bindings, state.dataSheet), updatedAt: Date.now() }
+      })
+    },
+    loadDataSheet: (sheet) => {
+      persistDataSheet(sheet)
+      set((state) => ({ dataSheet: sheet, dataRowIndex: null, bindingFields: buildFieldCatalog(state.story.bindings, sheet) }))
+    },
+    selectDataRow: (index) => {
+      set((state) => {
+        const row = index === null ? null : state.dataSheet?.rows[index]
+        if (index !== null && !row) {
+          return {}
+        }
+        if (!row) {
+          return { dataRowIndex: null }
+        }
+        const bindings = { ...state.story.bindings, ...row }
         return {
-          story: nextStory,
+          dataRowIndex: index,
+          story: { bindings },
+          bindingFields: buildFieldCatalog(bindings, state.dataSheet),
           updatedAt: Date.now(),
         }
       })
     },
-    setStoryValues: (patch) => {
-      set((state) => {
-        const nextStory = withCoreBindingMap({
-          ...state.story,
-          ...patch,
-        })
-
-        return {
-          story: nextStory,
-          updatedAt: Date.now(),
-        }
-      })
-    },
-    adjustScore: (team, delta) => {
-      set((state) => {
-        const key = team === 'home' ? 'homeScore' : 'awayScore'
-        const nextValue = Math.max(0, state.story[key] + delta)
-        const nextStory = withCoreBindingMap({
-          ...state.story,
-          [key]: nextValue,
-        })
-
-        return {
-          story: nextStory,
-          updatedAt: Date.now(),
-        }
-      })
-    },
-    setClock: (clock) => {
-      set((state) => {
-        const nextStory = withCoreBindingMap({
-          ...state.story,
-          clock,
-        })
-
-        return {
-          story: nextStory,
-          updatedAt: Date.now(),
-        }
-      })
-    },
-    resetClock: () => {
-      set((state) => {
-        const nextStory = withCoreBindingMap({
-          ...state.story,
-          clock: DEFAULT_STORY_STATE.clock,
-        })
-
-        return {
-          story: nextStory,
-          updatedAt: Date.now(),
-        }
-      })
-    },
-    togglePossession: () => {
-      set((state) => {
-        const nextStory = withCoreBindingMap({
-          ...state.story,
-          possession: state.story.possession === 'home' ? 'away' : 'home',
-        })
-
-        return {
-          story: nextStory,
-          updatedAt: Date.now(),
-        }
-      })
-    },
-    nudgeClock: (deltaSeconds) => {
-      set((state) => {
-        const nextSeconds = parseClockToSeconds(state.story.clock) + deltaSeconds
-        const nextStory = withCoreBindingMap({
-          ...state.story,
-          clock: secondsToClock(nextSeconds),
-        })
-        return {
-          story: nextStory,
-          updatedAt: Date.now(),
-        }
-      })
+    clearDataSheet: () => {
+      persistDataSheet(null)
+      set((state) => ({ dataSheet: null, dataRowIndex: null, bindingFields: buildFieldCatalog(state.story.bindings, null) }))
     },
     reorderPreviewLayer: (layerId, direction) => {
       commitPreviewScene((scene) => moveLayerByDelta(scene, layerId, direction === 'forward' ? 1 : -1))
@@ -1768,7 +1530,12 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
     },
-    createBlankTemplate: (name) => {
+    setPreviewCanvasSize: (size) => {
+      const width = Math.round(Math.min(Math.max(size.width, 16), 8192))
+      const height = Math.round(Math.min(Math.max(size.height, 16), 8192))
+      commitPreviewScene((scene) => ({ ...scene, width, height }))
+    },
+    createBlankTemplate: (name, size) => {
       const trimmedName = name.trim()
       if (!trimmedName) {
         return null
@@ -1778,8 +1545,8 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       const blankScene: SceneDefinition = {
         id: createSceneId(),
         name: trimmedName,
-        width: 1920,
-        height: 1080,
+        width: Math.round(size?.width ?? 1920),
+        height: Math.round(size?.height ?? 1080),
         background: 'transparent',
         layers: [],
       }
@@ -2115,156 +1882,6 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
     },
-    setSimulationLeague: (league) => {
-      clearSimulationPlaybackHandle()
-      set((state) => {
-        const nextLeague: SupportedLeague =
-          league === 'MLB' || league === 'NBA' || league === 'NFL' || league === 'NHL' || league === 'MLS'
-            ? league
-            : state.simulationLeague
-        const nextConfig: SimulationBuildConfig = {
-          league: nextLeague,
-          speed: state.simulationSpeed,
-          seed: state.simulationSeed,
-        }
-        persistSimulationConfig(nextConfig)
-        const nextTimeline = createSimulationTimeline(nextConfig)
-        activeSimulationTimeline = nextTimeline
-
-        return {
-          simulationLeague: nextLeague,
-          story: storyFromSimulationSnapshot(nextTimeline.initialSnapshot, state.story),
-          bindingFields: mergeBindingFields(STORY_FIELD_DEFS, nextTimeline.bindingFields),
-          simulationStatus: 'idle',
-          simulationCursor: 0,
-          simulationTotalEvents: nextTimeline.frames.length,
-          simulationSnapshot: nextTimeline.initialSnapshot,
-          simulationRecentEvents: [],
-          simulationLastEvent: null,
-          updatedAt: Date.now(),
-        }
-      })
-    },
-    setSimulationSpeed: (speed) => {
-      clearSimulationPlaybackHandle()
-      set((state) => {
-        const nextSpeed: SimulationSpeed =
-          speed === 'SLOW' || speed === 'NORMAL' || speed === 'FAST' ? speed : state.simulationSpeed
-        const nextConfig: SimulationBuildConfig = {
-          league: state.simulationLeague,
-          speed: nextSpeed,
-          seed: state.simulationSeed,
-        }
-        persistSimulationConfig(nextConfig)
-        const nextTimeline = createSimulationTimeline(nextConfig)
-        activeSimulationTimeline = nextTimeline
-
-        return {
-          simulationSpeed: nextSpeed,
-          story: storyFromSimulationSnapshot(nextTimeline.initialSnapshot, state.story),
-          bindingFields: mergeBindingFields(STORY_FIELD_DEFS, nextTimeline.bindingFields),
-          simulationStatus: 'idle',
-          simulationCursor: 0,
-          simulationTotalEvents: nextTimeline.frames.length,
-          simulationSnapshot: nextTimeline.initialSnapshot,
-          simulationRecentEvents: [],
-          simulationLastEvent: null,
-          updatedAt: Date.now(),
-        }
-      })
-    },
-    setSimulationSeed: (seed) => {
-      clearSimulationPlaybackHandle()
-      set((state) => {
-        const nextSeed = Number.isFinite(seed) ? Math.max(1, Math.floor(seed)) : state.simulationSeed
-        const nextConfig: SimulationBuildConfig = {
-          league: state.simulationLeague,
-          speed: state.simulationSpeed,
-          seed: nextSeed,
-        }
-        persistSimulationConfig(nextConfig)
-        const nextTimeline = createSimulationTimeline(nextConfig)
-        activeSimulationTimeline = nextTimeline
-
-        return {
-          simulationSeed: nextSeed,
-          story: storyFromSimulationSnapshot(nextTimeline.initialSnapshot, state.story),
-          bindingFields: mergeBindingFields(STORY_FIELD_DEFS, nextTimeline.bindingFields),
-          simulationStatus: 'idle',
-          simulationCursor: 0,
-          simulationTotalEvents: nextTimeline.frames.length,
-          simulationSnapshot: nextTimeline.initialSnapshot,
-          simulationRecentEvents: [],
-          simulationLastEvent: null,
-          updatedAt: Date.now(),
-        }
-      })
-    },
-    startSimulation: () => {
-      const state = get()
-      const nextConfig: SimulationBuildConfig = {
-        league: state.simulationLeague,
-        speed: state.simulationSpeed,
-        seed: state.simulationSeed,
-      }
-      const nextTimeline = createSimulationTimeline(nextConfig)
-      activeSimulationTimeline = nextTimeline
-      clearSimulationPlaybackHandle()
-
-      set((currentState) => ({
-        story: storyFromSimulationSnapshot(nextTimeline.initialSnapshot, currentState.story),
-        bindingFields: mergeBindingFields(STORY_FIELD_DEFS, nextTimeline.bindingFields),
-        simulationStatus: 'running',
-        simulationCursor: 0,
-        simulationTotalEvents: nextTimeline.frames.length,
-        simulationSnapshot: nextTimeline.initialSnapshot,
-        simulationRecentEvents: [],
-        simulationLastEvent: null,
-        updatedAt: Date.now(),
-      }))
-
-      scheduleSimulationPlayback()
-    },
-    pauseSimulation: () => {
-      clearSimulationPlaybackHandle()
-      set((state) => ({
-        simulationStatus: state.simulationStatus === 'running' ? 'paused' : state.simulationStatus,
-      }))
-    },
-    resumeSimulation: () => {
-      const state = get()
-      if (state.simulationStatus !== 'paused') {
-        return
-      }
-
-      set(() => ({
-        simulationStatus: 'running',
-      }))
-      scheduleSimulationPlayback()
-    },
-    stopSimulation: () => {
-      clearSimulationPlaybackHandle()
-      const state = get()
-      const nextConfig: SimulationBuildConfig = {
-        league: state.simulationLeague,
-        speed: state.simulationSpeed,
-        seed: state.simulationSeed,
-      }
-      const nextTimeline = createSimulationTimeline(nextConfig)
-      activeSimulationTimeline = nextTimeline
-
-      set((currentState) => ({
-        story: storyFromSimulationSnapshot(nextTimeline.initialSnapshot, currentState.story),
-        bindingFields: mergeBindingFields(STORY_FIELD_DEFS, nextTimeline.bindingFields),
-        simulationStatus: 'idle',
-        simulationCursor: 0,
-        simulationTotalEvents: nextTimeline.frames.length,
-        simulationSnapshot: nextTimeline.initialSnapshot,
-        simulationRecentEvents: [],
-        simulationLastEvent: null,
-        updatedAt: Date.now(),
-      }))
-    },
     restoreTemplateVersion: (templateId, version) => {
       const state = get()
       const template = findTemplateById(state.templates, templateId)
@@ -2373,13 +1990,6 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           clearTimeout(pendingTakeHandle)
           pendingTakeHandle = null
         }
-        clearSimulationPlaybackHandle()
-        const resetTimeline = createSimulationTimeline({
-          league: state.simulationLeague,
-          speed: state.simulationSpeed,
-          seed: state.simulationSeed,
-        })
-        activeSimulationTimeline = resetTimeline
 
         return {
           previewTemplateId: primaryTemplateId,
@@ -2390,19 +2000,14 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           transitionDurationMs: 300,
           transitionInProgress: false,
           programTransition: null,
-          story: storyFromSimulationSnapshot(resetTimeline.initialSnapshot, cloneStory(DEFAULT_STORY_STATE)),
-          bindingFields: mergeBindingFields(STORY_FIELD_DEFS, resetTimeline.bindingFields),
+          story: cloneStory(DEFAULT_STORY_STATE),
+          bindingFields: buildFieldCatalog(DEFAULT_STORY_STATE.bindings, state.dataSheet),
+          dataRowIndex: null,
           onAir: false,
           undoStack: [],
           redoStack: [],
           canUndo: false,
           canRedo: false,
-          simulationStatus: 'idle',
-          simulationCursor: 0,
-          simulationTotalEvents: resetTimeline.frames.length,
-          simulationSnapshot: resetTimeline.initialSnapshot,
-          simulationRecentEvents: [],
-          simulationLastEvent: null,
           updatedAt: Date.now(),
         }
       })
@@ -2743,13 +2348,9 @@ if (typeof window !== 'undefined') {
       }))
     }
 
-    if (event.key === SIMULATION_CONFIG_STORAGE_KEY) {
-      const simulationConfig = readSimulationConfig()
-      usePlayoutStore.setState(() => ({
-        simulationLeague: simulationConfig.league,
-        simulationSpeed: simulationConfig.speed,
-        simulationSeed: simulationConfig.seed,
-      }))
+    if (event.key === DATA_SHEET_STORAGE_KEY) {
+      const sheet = readDataSheet()
+      usePlayoutStore.setState((state) => ({ dataSheet: sheet, bindingFields: buildFieldCatalog(state.story.bindings, sheet) }))
     }
   }
 
@@ -2793,7 +2394,6 @@ if (typeof window !== 'undefined') {
     isCleaningUp = true
     retireActiveRelayRoom = null
     reconcileTransportNow = null
-    usePlayoutStore.getState().pauseSimulation()
     clearReconnect()
     unsubscribe()
     window.removeEventListener('storage', onStorage)

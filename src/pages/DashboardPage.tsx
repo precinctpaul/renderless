@@ -19,7 +19,6 @@ import { useNavigate } from 'react-router-dom'
 import { usePlayoutStore } from '../store/playoutStore'
 import type { TemplateDefinition } from '../types/scene'
 import { SceneRenderer } from '../components/SceneRenderer'
-import { filterBindingFieldsForLeague } from '../lib/leagueBindings'
 import {
   ASSET_STORAGE_KEY,
   FONT_STORAGE_KEY,
@@ -49,7 +48,7 @@ const ASSET_ROOT = 'Branded Assets'
 const FONT_ROOT = 'Fonts'
 const DEFAULT_ASSET_FOLDERS = [ASSET_ROOT, `${ASSET_ROOT}/BGs`, `${ASSET_ROOT}/Template Designs`]
 const DEFAULT_FONT_FOLDERS = [FONT_ROOT, `${FONT_ROOT}/Imported`]
-const DEFAULT_FONT_SPECIMEN = 'SCORE 99'
+const DEFAULT_FONT_SPECIMEN = 'Majority Dems'
 const SYSTEM_FONT_FAMILIES = [
   'Inter, sans-serif',
   'Roboto, sans-serif',
@@ -447,7 +446,6 @@ export function DashboardPage() {
   const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
   const story = usePlayoutStore((state) => state.story)
   const bindingFields = usePlayoutStore((state) => state.bindingFields)
-  const simulationLeague = usePlayoutStore((state) => state.simulationLeague)
 
   const initialAssetEntries = useMemo(() => normalizeEntriesForRoot(readMediaEntries('asset'), ASSET_ROOT), [])
   const initialFontEntries = useMemo(() => normalizeEntriesForRoot(readMediaEntries('font'), FONT_ROOT), [])
@@ -1312,11 +1310,10 @@ export function DashboardPage() {
       fonts: fontResults,
     }
   }, [assetEntries, fontFamilyGroups, query, searchAll, templates])
-  const leagueBindingOptions = useMemo(() => {
-    return filterBindingFieldsForLeague(bindingFields, simulationLeague)
-      .slice()
-      .sort((left, right) => left.label.localeCompare(right.label))
-  }, [bindingFields, simulationLeague])
+  const fieldOptions = useMemo(
+    () => bindingFields.slice().sort((left, right) => left.label.localeCompare(right.label)),
+    [bindingFields],
+  )
   const importHintRows = useMemo(() => {
     if (!designImportDraft) {
       return []
@@ -1991,7 +1988,7 @@ export function DashboardPage() {
                   <input
                     value={batchTagDraft}
                     onChange={(event) => setBatchTagDraft(event.target.value)}
-                    placeholder="Team Logos, Roster_2026"
+                    placeholder="Campaign Photos, Event Logos"
                   />
                 </label>
                 <button type="button" className="btn btn--ghost" onClick={applyBatchTagsToCurrentView}>
@@ -2100,7 +2097,7 @@ export function DashboardPage() {
                             onChange={(event) => setDesignImportBindingForLayer(hint.layerId, event.target.value)}
                           >
                             <option value="">No binding</option>
-                            {leagueBindingOptions.map((option) => (
+                            {fieldOptions.map((option) => (
                               <option key={option.key} value={option.key}>
                                 {option.label} ({option.key})
                               </option>

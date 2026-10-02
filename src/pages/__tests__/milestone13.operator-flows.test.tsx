@@ -42,52 +42,39 @@ describe('Milestone 13 operator click-path regressions', () => {
     expect(screen.getByText('No templates match the current query/filter.')).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: 'Built-In' }))
-    expect(screen.getAllByText('H_A_Score_001').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Quote Card 4x5').length).toBeGreaterThan(0)
 
     await user.click(screen.getByRole('button', { name: 'All Templates' }))
-    const lowerThirdCard = screen.getAllByText('Lower_Third_001')[0]?.closest('.library-card')
+    const lowerThirdCard = screen.getAllByText('Lower Third')[0]?.closest('.library-card')
     expect(lowerThirdCard).toBeTruthy()
     fireEvent.click(lowerThirdCard!)
-    expect(screen.getByText('Preview cued: Lower_Third_001')).toBeTruthy()
+    expect(screen.getByText('Preview cued: Lower Third')).toBeTruthy()
 
     const loadButton = within(lowerThirdCard as HTMLElement).getByRole('button', { name: 'Load' })
     await user.click(loadButton)
     expect(await screen.findByText('STAGE PRO')).toBeTruthy()
   })
 
-  test('data engine quick-start controls drive simulation + transport state', async () => {
+  test('data page edits fields and fills them from pasted spreadsheet rows', async () => {
     const user = userEvent.setup()
-    renderRoute('/data-engine')
+    renderRoute('/data')
 
-    expect(screen.getByRole('heading', { name: 'Data Engine' })).toBeTruthy()
+    expect(screen.getByText('Fields')).toBeTruthy()
+    const nameField = screen.getByText('Name').closest('label')?.querySelector('textarea') as HTMLTextAreaElement
+    fireEvent.change(nameField, { target: { value: 'Alex Rivera' } })
+    expect(usePlayoutStore.getState().story.bindings.name).toBe('Alex Rivera')
 
-    await user.click(screen.getByRole('button', { name: 'NFL' }))
-    expect(usePlayoutStore.getState().simulationLeague).toBe('NFL')
+    const paste = screen.getByPlaceholderText(/Paste cells from Google Sheets/) as HTMLTextAreaElement
+    fireEvent.change(paste, { target: { value: ['name\ttitle', 'Jane Doe\tSenator', 'John Roe\tMayor'].join('\n') } })
+    await user.click(screen.getByRole('button', { name: 'Use pasted rows' }))
+    expect(usePlayoutStore.getState().dataSheet?.rows).toHaveLength(2)
 
-    await user.click(screen.getByRole('button', { name: 'FAST' }))
-    expect(usePlayoutStore.getState().simulationSpeed).toBe('FAST')
+    await user.click(screen.getByText('John Roe'))
+    expect(usePlayoutStore.getState().story.bindings).toMatchObject({ name: 'John Roe', title: 'Mayor' })
 
-    const seedInput = screen.getByLabelText('Seed (deterministic)') as HTMLInputElement
-    fireEvent.change(seedInput, { target: { value: '12345' } })
-    fireEvent.blur(seedInput)
-    expect(usePlayoutStore.getState().simulationSeed).toBe(12345)
-
-    await user.click(screen.getByRole('button', { name: 'Start' }))
-    expect(usePlayoutStore.getState().simulationStatus).toBe('running')
-
-    await user.click(screen.getByRole('button', { name: 'Pause' }))
-    expect(usePlayoutStore.getState().simulationStatus).toBe('paused')
-
-    await user.click(screen.getByRole('button', { name: 'Resume' }))
-    expect(usePlayoutStore.getState().simulationStatus).toBe('running')
-
-    await user.click(screen.getByRole('button', { name: 'Stop' }))
-    expect(usePlayoutStore.getState().simulationStatus).toBe('idle')
-
-    await user.click(screen.getByRole('button', { name: 'WebSocket' }))
-    expect(usePlayoutStore.getState().transportMode).toBe('ws')
-    await user.click(screen.getByRole('button', { name: 'Local' }))
-    expect(usePlayoutStore.getState().transportMode).toBe('local')
+    await user.click(screen.getByRole('button', { name: /Prev/ }))
+    expect(usePlayoutStore.getState().story.bindings.name).toBe('Jane Doe')
+    usePlayoutStore.getState().clearDataSheet()
   })
 
   test('design authoring + control room playout actions execute end-to-end', async () => {
@@ -151,13 +138,13 @@ describe('Milestone 13 operator click-path regressions', () => {
 
     const rundownList = container.querySelector('.rundown-list')
     expect(rundownList).toBeTruthy()
-    const cueButton = within(rundownList as HTMLElement).getByRole('button', { name: 'Lower_Third_001' })
+    const cueButton = within(rundownList as HTMLElement).getByRole('button', { name: 'Lower Third' })
     await user.click(cueButton)
     const monitorsPanel = container.querySelector('.monitors-panel')
     expect(monitorsPanel).toBeTruthy()
     await user.click(within(monitorsPanel as HTMLElement).getByRole('button', { name: 'TAKE' }))
     expect(usePlayoutStore.getState().onAir).toBe(true)
-    expect(usePlayoutStore.getState().programScene.name).toBe('Lower_Third_001')
+    expect(usePlayoutStore.getState().programScene.name).toBe('Lower Third')
 
     await user.click(screen.getByRole('button', { name: 'Copy Program URL' }))
     expect(screen.getByText(/PROGRAM URL copied|Clipboard unavailable/)).toBeTruthy()
