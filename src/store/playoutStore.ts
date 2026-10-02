@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { alignByAnchor, anchorForPreset, boxPositionForAnchorPosition, distributeByAnchor, withAnchor } from '../lib/layerAnchor'
+import { alignByAnchor, anchorForPreset, boxPositionForAnchorPosition, distributeByAnchor, resolveAnchor, withAnchor } from '../lib/layerAnchor'
 import type { AnchorPresetId } from '../lib/layerAnchor'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
 import type {
@@ -1446,7 +1446,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           const next =
             'preset' in anchor
               ? anchorForPreset(layer, anchor.preset)
-              : { x: anchor.x ?? layer.anchorX ?? 0, y: anchor.y ?? layer.anchorY ?? 0 }
+              : { x: anchor.x ?? resolveAnchor(layer).x, y: anchor.y ?? resolveAnchor(layer).y }
           return withAnchor(layer, next)
         }),
       }))
@@ -1695,13 +1695,13 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               fontSize: 64,
               fontFamily: 'Inter, sans-serif',
               fontWeight: 600,
-              align: 'left',
+              // New text is centered in its box and anchored at its middle.
+              align: 'center',
+              verticalAlign: 'middle',
               opacity: 1,
               visible: true,
               locked: false,
               rotation: 0,
-              anchorX: 0,
-              anchorY: 0,
               scaleX: 100,
               scaleY: 100,
             }

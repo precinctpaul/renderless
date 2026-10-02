@@ -134,21 +134,17 @@ describe('Milestone 13 operator click-path regressions', () => {
 
     const xInput = screen.getByLabelText('X') as HTMLInputElement
     fireEvent.change(xInput, { target: { value: '123' } })
-    // Typed values apply exactly; snapping is for dragging only.
-    expect(
-      usePlayoutStore
-        .getState()
-        .previewScene.layers.find((layer) => layer.id === createdLayer?.id)
-        ?.x,
-    ).toBe(123)
+    // Typed values apply exactly (snapping is for dragging only). X is where the anchor sits,
+    // and text anchors at the middle of its box.
+    const anchorX = () => {
+      const layer = usePlayoutStore.getState().previewScene.layers.find((entry) => entry.id === createdLayer?.id)
+      return layer ? layer.x + (layer.anchorX ?? layer.width / 2) : null
+    }
+    expect(anchorX()).toBe(123)
 
+    // Align left puts a single layer's anchor on the canvas's left edge.
     await user.click(screen.getByRole('button', { name: /^Left$/ }))
-    expect(
-      usePlayoutStore
-        .getState()
-        .previewScene.layers.find((layer) => layer.id === createdLayer?.id)
-        ?.x,
-    ).toBe(0)
+    expect(anchorX()).toBe(0)
 
     await user.click(screen.getByRole('link', { name: 'Control Room' }))
     expect(await screen.findByRole('heading', { name: 'Control Room' })).toBeTruthy()

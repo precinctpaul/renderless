@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useElementSize } from '../hooks/useElementSize'
 import type { SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
 import { resolveBindingValue } from '../lib/bindings'
+import { resolveAnchor } from '../lib/layerAnchor'
 
 interface SceneRendererProps {
   scene: SceneDefinition
@@ -77,8 +78,7 @@ function resolveText(layer: TextLayer, story: StoryState): string {
 }
 
 function layerStyle(layer: SceneLayer): CSSProperties {
-  const anchorX = Number.isFinite(layer.anchorX) ? (layer.anchorX ?? 0) : 0
-  const anchorY = Number.isFinite(layer.anchorY) ? (layer.anchorY ?? 0) : 0
+  const { x: anchorX, y: anchorY } = resolveAnchor(layer)
   const scaleX = Number.isFinite(layer.scaleX) ? (layer.scaleX ?? 100) / 100 : 1
   const scaleY = Number.isFinite(layer.scaleY) ? (layer.scaleY ?? 100) / 100 : 1
   const rotation = Number.isFinite(layer.rotation) ? (layer.rotation ?? 0) : 0
@@ -116,21 +116,25 @@ function layerStyle(layer: SceneLayer): CSSProperties {
     fontSize: layer.fontSize,
     fontFamily: layer.fontFamily,
     fontWeight: layer.fontWeight,
-    textAlign: layer.align,
+    textAlign: textAlignOf(layer),
     lineHeight: layer.lineHeight ?? 1,
     whiteSpace: 'pre-wrap',
   }
 
-  const vertical = layer.verticalAlign ?? (layer.box ? 'middle' : 'top')
+  // Text sits in the middle of its box unless told otherwise.
+  const vertical = layer.verticalAlign ?? 'middle'
   const verticalFlex = vertical === 'top' ? 'flex-start' : vertical === 'bottom' ? 'flex-end' : 'center'
+  const horizontalFlex = textHorizontalFlex(layer)
 
   if (!layer.box) {
-    // A column flex frame places the text block top/middle/bottom; text-align still applies.
+    // Column flex frame: the text block is placed top/middle/bottom and left/center/right.
+    // Flex placement also centers text that is wider than its box (spills evenly both ways).
     return {
       ...textStyle,
       display: layer.visible ? 'flex' : 'none',
       flexDirection: 'column',
       justifyContent: verticalFlex,
+      alignItems: horizontalFlex,
     }
   }
 
@@ -139,9 +143,18 @@ function layerStyle(layer: SceneLayer): CSSProperties {
     ...textStyle,
     display: layer.visible ? 'flex' : 'none',
     alignItems: verticalFlex,
-    justifyContent: layer.align === 'left' ? 'flex-start' : layer.align === 'right' ? 'flex-end' : 'center',
+    justifyContent: horizontalFlex,
     overflow: 'visible',
   }
+}
+
+function textAlignOf(layer: TextLayer): 'left' | 'center' | 'right' {
+  return layer.align ?? 'center'
+}
+
+function textHorizontalFlex(layer: TextLayer): 'flex-start' | 'center' | 'flex-end' {
+  const align = textAlignOf(layer)
+  return align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center'
 }
 
 function textBoxStyle(layer: TextLayer): CSSProperties | undefined {
@@ -161,7 +174,11 @@ function textBoxStyle(layer: TextLayer): CSSProperties | undefined {
 
 function renderTextContent(layer: TextLayer, story: StoryState) {
   const text = resolveText(layer, story)
-  return layer.box ? <span className="scene-renderer__text-box" style={textBoxStyle(layer)}>{text}</span> : text
+  return layer.box ? (
+    <span className="scene-renderer__text-box scene-renderer__text" style={textBoxStyle(layer)}>{text}</span>
+  ) : (
+    <span className="scene-renderer__text">{text}</span>
+  )
 }
 
 export function SceneRenderer({
@@ -474,7 +491,7 @@ export function SceneRenderer({
             >
               <div
                 className="scene-renderer__anchor"
-                style={{ left: selectedLayer.anchorX ?? 0, top: selectedLayer.anchorY ?? 0 }}
+                style={{ left: resolveAnchor(selectedLayer).x, top: resolveAnchor(selectedLayer).y }}
               />
             </div>
           )

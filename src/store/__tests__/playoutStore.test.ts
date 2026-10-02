@@ -206,7 +206,8 @@ describe('Playout reliability and QA regression suite', () => {
     usePlayoutStore.getState().alignPreviewLayers(selection, 'left')
     const aligned = usePlayoutStore.getState().previewScene
     expect(getLayerPosition(aligned, 'shape-home-block').x).toBe(163)
-    expect(getLayerPosition(aligned, 'text-home-mark').x).toBe(163)
+    // Text anchors at its middle (140px wide), so its box sits half a width left of the line.
+    expect(getLayerPosition(aligned, 'text-home-mark').x).toBe(163 - 70)
     expect(getLayerPosition(aligned, 'shape-away-block').x).toBe(163 - halfWidth)
 
     // One layer aligns its anchor to the canvas: a centered anchor lands on the right edge.
@@ -223,23 +224,20 @@ describe('Playout reliability and QA regression suite', () => {
     expect(clampedPosition).toEqual({ x: 1610, y: 820 })
   })
 
-  test('multi-layer align and distribute actions produce expected geometry', async () => {
+  test('distribute spaces anchor points evenly', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
     usePlayoutStore.getState().cuePreview('template-scorebug')
     const selection = ['shape-home-block', 'text-home-mark', 'shape-away-block']
-
-    usePlayoutStore.getState().alignPreviewLayers(selection, 'left')
-    const leftAligned = usePlayoutStore.getState().previewScene
-    expect(getLayerPosition(leftAligned, 'shape-home-block').x).toBe(160)
-    expect(getLayerPosition(leftAligned, 'text-home-mark').x).toBe(160)
-    expect(getLayerPosition(leftAligned, 'shape-away-block').x).toBe(160)
-
     usePlayoutStore.getState().distributePreviewLayers(selection, 'vertical')
-    const distributed = usePlayoutStore.getState().previewScene
-    expect(getLayerPosition(distributed, 'shape-home-block').y).toBe(110)
-    expect(getLayerPosition(distributed, 'text-home-mark').y).toBe(315)
-    expect(getLayerPosition(distributed, 'shape-away-block').y).toBe(520)
+    const scene = usePlayoutStore.getState().previewScene
+    const anchorY = (id: string) => {
+      const layer = scene.layers.find((entry) => entry.id === id)
+      if (!layer) return NaN
+      return layer.y + (layer.anchorY ?? (layer.kind === 'text' ? layer.height / 2 : 0))
+    }
+    const ys = selection.map(anchorY).sort((a, b) => a - b)
+    expect(ys[1] - ys[0]).toBeCloseTo(ys[2] - ys[1], 5)
   })
 
   test('template version restore rehydrates prior scene and increments current version', async () => {

@@ -4114,3 +4114,13 @@ input[type='range'] {
 .layer-item--active .layer-item__handle:hover:not(.layer-item__handle--disabled) {
   background: rgba(17, 17, 17, 0.35);
 }
+
+/* Text is measured from cap height to baseline (not the font's full line box), so a capital
+   "H" sits optically centred in its box and top/bottom alignment lands on the letters. */
+.scene-renderer__text {
+  text-box: trim-both cap alphabetic;
+}
+
+span.scene-renderer__text:not(.scene-renderer__text-box) {
+  display: block;
+}

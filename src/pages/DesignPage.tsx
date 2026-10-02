@@ -30,7 +30,7 @@ import { NumberField } from '../components/NumberField'
 import { AnchorPicker } from '../components/AnchorPicker'
 import { InspectorSection } from '../components/InspectorSection'
 import { downloadDataUrl, renderScenePng } from '../lib/exportScenePng'
-import { anchorPosition, anchorPresetOf, type AnchorPresetId } from '../lib/layerAnchor'
+import { anchorPosition, anchorPresetOf, resolveAnchor, type AnchorPresetId } from '../lib/layerAnchor'
 import { LAYER_BLEND_MODES, type DataBindingKey, type LayerBlendMode, type SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 import { resolveBindingValue } from '../lib/bindings'
@@ -1204,8 +1204,8 @@ export function DesignPage() {
                             type="button"
                             title={label}
                             aria-label={label}
-                            aria-pressed={(primarySelectedLayer.align ?? 'left') === value}
-                            className={`segmented__btn ${(primarySelectedLayer.align ?? 'left') === value ? 'segmented__btn--active' : ''}`.trim()}
+                            aria-pressed={(primarySelectedLayer.align ?? 'center') === value}
+                            className={`segmented__btn ${(primarySelectedLayer.align ?? 'center') === value ? 'segmented__btn--active' : ''}`.trim()}
                             onClick={() => updatePreviewTextStyle(primarySelectedLayer.id, { align: value })}
                           >
                             <Icon size={14} />
@@ -1214,7 +1214,7 @@ export function DesignPage() {
                       </div>
                       <div className="segmented" role="group" aria-label="Vertical text alignment">
                         {([['top', AlignVerticalJustifyStart, 'Align top'], ['middle', AlignVerticalJustifyCenter, 'Align middle'], ['bottom', AlignVerticalJustifyEnd, 'Align bottom']] as const).map(([value, Icon, label]) => {
-                          const current = primarySelectedLayer.verticalAlign ?? (primarySelectedLayer.box ? 'middle' : 'top')
+                          const current = primarySelectedLayer.verticalAlign ?? 'middle'
                           return (
                             <button
                               key={value}
@@ -1253,8 +1253,8 @@ export function DesignPage() {
                   <label>Y<NumberField value={mixedValue(selectedLayers, (layer) => anchorPosition(layer).y)} placeholder="mixed" onCommit={(value) => commitPosition('y', value)} /></label>
                   <label>W<NumberField min={1} value={mixedValue(selectedLayers, (layer) => layer.width)} placeholder="mixed" onCommit={(value) => commitTransform('width', value)} /></label>
                   <label>H<NumberField min={1} value={mixedValue(selectedLayers, (layer) => layer.height)} placeholder="mixed" onCommit={(value) => commitTransform('height', value)} /></label>
-                  <label>Anchor X<NumberField value={mixedValue(selectedLayers, (layer) => layer.anchorX ?? 0)} placeholder="mixed" onCommit={(value) => commitAnchor('x', value)} /></label>
-                  <label>Anchor Y<NumberField value={mixedValue(selectedLayers, (layer) => layer.anchorY ?? 0)} placeholder="mixed" onCommit={(value) => commitAnchor('y', value)} /></label>
+                  <label>Anchor X<NumberField value={mixedValue(selectedLayers, (layer) => resolveAnchor(layer).x)} placeholder="mixed" onCommit={(value) => commitAnchor('x', value)} /></label>
+                  <label>Anchor Y<NumberField value={mixedValue(selectedLayers, (layer) => resolveAnchor(layer).y)} placeholder="mixed" onCommit={(value) => commitAnchor('y', value)} /></label>
                   <label>Scale X<NumberField value={mixedValue(selectedLayers, (layer) => layer.scaleX ?? 100)} placeholder="mixed" onCommit={(value) => commitAdvanced('scaleX', value)} /></label>
                   <label>Scale Y<NumberField value={mixedValue(selectedLayers, (layer) => layer.scaleY ?? 100)} placeholder="mixed" onCommit={(value) => commitAdvanced('scaleY', value)} /></label>
                   <label>Rotation<NumberField value={mixedValue(selectedLayers, (layer) => layer.rotation ?? 0)} placeholder="mixed" onCommit={(value) => commitAdvanced('rotation', value)} /></label>
