@@ -3084,7 +3084,7 @@ html.renderless-output-embed #root,
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: clamp(200px, 18%, 300px) minmax(0, 1fr) clamp(220px, 19%, 280px);
+  grid-template-columns: clamp(240px, 20%, 320px) minmax(0, 1fr) clamp(220px, 19%, 280px);
   grid-template-rows: minmax(0, 1fr);
   grid-template-areas: 'sidebar stage inspector';
   gap: 10px;
@@ -3662,25 +3662,6 @@ input[type='checkbox'] {
   white-space: nowrap;
 }
 
-/* Name gets the full row width; the eye/lock/duplicate/delete buttons sit underneath. */
-.layer-item {
-  grid-template-columns: 26px minmax(0, 1fr);
-  row-gap: 2px;
-}
-
-.layer-item__handle {
-  grid-row: span 2;
-}
-
-.layer-item__main {
-  min-height: 26px;
-}
-
-.layer-item__actions {
-  grid-column: 2;
-  padding-left: 4px;
-}
-
 /* Recoleta caps run wider than the old sans: keep the header on one row down to ~1200px. */
 .nav-tab {
   letter-spacing: 1px;
@@ -3797,15 +3778,6 @@ input[type='range'] {
 /* ---------- Layer rows: drop line, moved flash, compact actions ---------- */
 .layer-item {
   position: relative;
-}
-
-.layer-item .icon-btn--mini {
-  width: 22px;
-  height: 22px;
-}
-
-.layer-item__actions {
-  gap: 2px;
 }
 
 .layer-item--drop-above::before,
@@ -4031,4 +4003,94 @@ input[type='range'] {
 /* PNG export renders the bare scene: no editor backdrop behind a transparent background. */
 .scene-renderer.scene-renderer--export {
   background: transparent;
+}
+
+/* ---------- Layer row: one line. [up / grip / down] name ......... [eye lock dup delete] ---------- */
+.stage-sidebar .layer-list {
+  gap: 4px;
+}
+
+.layer-item {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  min-height: 0;
+  padding: 3px 6px 3px 4px;
+  cursor: default;
+}
+
+.layer-item__order {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+}
+
+.layer-item__handle {
+  width: 22px;
+  height: 18px;
+  cursor: grab;
+}
+
+.layer-item__handle:active {
+  cursor: grabbing;
+}
+
+.layer-item__step {
+  height: 11px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.layer-item__step:hover:not(:disabled) {
+  background: var(--bg-button);
+  color: var(--milk);
+}
+
+.layer-item__step:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+.layer-item__main {
+  align-self: stretch;
+  min-height: 0;
+  padding: 0 2px;
+  font-size: 12px;
+}
+
+.layer-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.layer-item .icon-btn--mini {
+  width: 22px;
+  height: 22px;
+}
+
+/* Hidden layers read as hidden at a glance. */
+.layer-item--hidden .layer-item__main {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--muted-dim);
+}
+
+.layer-item__step {
+  height: 12px;
+  color: #999999;
+}
+
+.layer-item--active .layer-item__step {
+  color: var(--milk);
+}
+
+.layer-item--active .layer-item__step:hover:not(:disabled) {
+  background: rgba(17, 17, 17, 0.35);
 }

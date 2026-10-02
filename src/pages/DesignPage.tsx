@@ -818,7 +818,7 @@ export function DesignPage() {
               {orderedLayers.map((layer, listIndex) => {
                 const isSelected = activeSelectedLayerIds.includes(layer.id)
                 const isDropTarget = dragTargetLayerId === layer.id && draggingLayerId !== null && draggingLayerId !== layer.id
-                const classes = `layer-item ${isSelected ? 'layer-item--active' : ''} ${draggingLayerId === layer.id ? 'layer-item--dragging' : ''} ${isDropTarget ? `layer-item--drop-${dropPosition}` : ''} ${justMovedLayerId === layer.id ? 'layer-item--just-moved' : ''}`
+                const classes = `layer-item ${isSelected ? 'layer-item--active' : ''} ${draggingLayerId === layer.id ? 'layer-item--dragging' : ''} ${isDropTarget ? `layer-item--drop-${dropPosition}` : ''} ${justMovedLayerId === layer.id ? 'layer-item--just-moved' : ''} ${layer.visible ? '' : 'layer-item--hidden'}`
                 return (
                   <div
                     key={layer.id}
@@ -852,14 +852,42 @@ export function DesignPage() {
                       setDragTargetLayerId(null)
                     }}
                   >
-                    <button
-                      type="button"
-                      className={`layer-item__handle ${layer.locked ? 'layer-item__handle--disabled' : ''}`.trim()}
-                      title={layer.locked ? 'Unlock layer to reorder' : 'Drag to reorder layer'}
-                      aria-label={layer.locked ? 'Layer locked' : 'Drag layer to reorder'}
-                    >
-                      <GripVertical size={14} />
-                    </button>
+                    <div className="layer-item__order">
+                      <button
+                        type="button"
+                        className="layer-item__step"
+                        title="Move up one layer"
+                        aria-label="Move layer up"
+                        disabled={Boolean(layer.locked) || listIndex === 0}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleStepLayer(layer.id, 'up')
+                        }}
+                      >
+                        <ChevronUp size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`layer-item__handle ${layer.locked ? 'layer-item__handle--disabled' : ''}`.trim()}
+                        title={layer.locked ? 'Unlock layer to reorder' : 'Drag to reorder layer'}
+                        aria-label={layer.locked ? 'Layer locked' : 'Drag layer to reorder'}
+                      >
+                        <GripVertical size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className="layer-item__step"
+                        title="Move down one layer"
+                        aria-label="Move layer down"
+                        disabled={Boolean(layer.locked) || listIndex === orderedLayers.length - 1}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          handleStepLayer(layer.id, 'down')
+                        }}
+                      >
+                        <ChevronDown size={11} />
+                      </button>
+                    </div>
                     <button type="button" className="layer-item__main" onClick={(event) => handleLayerSelection(layer.id, { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey })} onDoubleClick={() => { setRenamingLayerId(layer.id); setRenameDraft(layer.name) }}>
                       {renamingLayerId === layer.id ? (
                         <input
@@ -877,35 +905,9 @@ export function DesignPage() {
                             }
                           }}
                         />
-                      ) : <span>{layer.name}</span>}
+                      ) : <span title={layer.name}>{layer.name}</span>}
                     </button>
                     <div className="layer-item__actions">
-                      <button
-                        type="button"
-                        className="icon-btn icon-btn--mini"
-                        title="Move up one layer"
-                        aria-label="Move layer up"
-                        disabled={Boolean(layer.locked) || listIndex === 0}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleStepLayer(layer.id, 'up')
-                        }}
-                      >
-                        <ChevronUp size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-btn icon-btn--mini"
-                        title="Move down one layer"
-                        aria-label="Move layer down"
-                        disabled={Boolean(layer.locked) || listIndex === orderedLayers.length - 1}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleStepLayer(layer.id, 'down')
-                        }}
-                      >
-                        <ChevronDown size={12} />
-                      </button>
                       <button
                         type="button"
                         className="icon-btn icon-btn--mini"
