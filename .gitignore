@@ -23,3 +23,12 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Brand assets stay local: licensed fonts (incl. Druk trials) cannot be redistributed,
+# and internal guidelines/logos are not for a public repo. Only the index is tracked.
+brand/**
+!brand/
+!brand/README.md
+desktop.ini
+.DS_Store
+__MACOSX/
