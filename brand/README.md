@@ -9,7 +9,7 @@ any design, layout, import, or template work.
 | Folder | Contents |
 | :--- | :--- |
 | `guidelines/` | Brand guidelines, color palette, brand presentation PDF |
-| `fonts/druk-trial/` | Druk, Druk Wide, Druk Text, Druk Text Wide, Druk Condensed (**trial** files) |
+| `fonts/druk-trial/` | Druk, Druk Wide, Druk Text, Druk Text Wide, Druk Condensed (licensed; file names keep the "-Trial" suffix) |
 | `fonts/recoleta/otf/`, `fonts/recoleta/woff2/` | Recoleta and Recoleta Alt, all weights |
 | `logos/majority-dems/png/` | Finished Majority Dems logo PNGs |
 | `logos/majority-dems/source/` | Editable logo sources (.ai, .eps) |
@@ -20,10 +20,8 @@ any design, layout, import, or template work.
 Upload the font files in **Dashboard → Typography**. They are stored in that
 browser only and are never published with the site.
 
-## Licensing
+## Fonts
 
-- The Druk files are Commercial Type **trial** fonts. Trials are for evaluation and
-  internal use; published work (thumbnails, broadcast graphics) needs a paid license.
-- Because RenderLess renders text in the browser, production use may also need a
-  web/app license, not only a desktop one. Confirm with the foundry.
-- Never commit font files to this repository.
+The Druk files are licensed; the "-Trial" part of the file and font names is
+intentional (existing designs reference those names). Keep the names as they are.
+Font files are still never committed, because this repository is public.
