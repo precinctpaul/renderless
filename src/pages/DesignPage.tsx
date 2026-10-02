@@ -1,43 +1,23 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlignCenter,
-  AlignLeft,
-  AlignRight,
-  AlignVerticalJustifyCenter,
-  AlignVerticalJustifyEnd,
-  AlignVerticalJustifyStart,
   AlignHorizontalDistributeCenter,
   AlignJustify,
   AlignVerticalDistributeCenter,
-  ChevronDown,
-  ChevronUp,
   Hand,
   History,
   ImageDown,
   MousePointer2,
-  Copy,
-  Eye,
-  EyeOff,
-  GripVertical,
-  Lock,
   Redo2,
-  Trash2,
   Undo2,
-  Unlock,
 } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
-import { TextBoxInspector } from '../components/TextBoxInspector'
-import { NumberField } from '../components/NumberField'
-import { AnchorPicker } from '../components/AnchorPicker'
-import { InspectorSection } from '../components/InspectorSection'
+import { LayerInspector } from './design/LayerInspector'
+import { LayerList } from './design/LayerList'
 import { CanvasSizeSelect, NewTemplateDialog } from '../components/CanvasSizeControls'
 import { VersionHistoryDialog } from '../components/VersionHistoryDialog'
 import { downloadDataUrl, renderScenePng } from '../lib/exportScenePng'
-import { anchorPosition, anchorPresetOf, resolveAnchor, type AnchorPresetId } from '../lib/layerAnchor'
-import { LAYER_BLEND_MODES, type DataBindingKey, type LayerBlendMode, type SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
-import { resolveBindingValue } from '../lib/bindings'
-import { fieldKeyFromHeader } from '../lib/dataSheet'
 import type { TemplatePackage } from '../lib/templatePackages'
 import {
   ASSET_STORAGE_KEY,
@@ -49,7 +29,7 @@ import {
   readMediaEntries,
   readMediaEntriesAsync,
   registerFontEntries,
-  type MediaLibraryEntry
+  type MediaLibraryEntry,
 } from '../lib/mediaLibrary'
 
 type CreationItem = 'TEXT' | 'SHAPE' | 'FIGMA' | 'RIVE'
@@ -61,8 +41,6 @@ interface SelectionModifiers {
   metaKey: boolean
 }
 
-const asPercent = (opacity: number) => Math.round(opacity * 100)
-const fromPercent = (percent: number) => Math.min(Math.max(percent, 0), 100) / 100
 const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'template-package'
 const GRID_SNAP_STEP = 10
 // Brand faces first (same stacks the built-in templates use), then general-purpose fonts.
@@ -87,40 +65,14 @@ function downloadTemplatePackageFile(templatePackage: TemplatePackage) {
   window.URL.revokeObjectURL(url)
 }
 
-/** The shared value across the selection, or null when layers differ ("mixed"). */
-function mixedValue(layers: SceneLayer[], read: (layer: SceneLayer) => number): number | null {
-  if (layers.length === 0) return null
-  const first = read(layers[0])
-  return layers.every((layer) => read(layer) === first) ? first : null
-}
-
-function mixedAnchorPreset(layers: SceneLayer[]): AnchorPresetId | null {
-  if (layers.length === 0) return null
-  const first = anchorPresetOf(layers[0])
-  return layers.every((layer) => anchorPresetOf(layer) === first) ? first : null
-}
-
 export function DesignPage() {
   const scene = usePlayoutStore((state) => state.previewScene)
   const story = usePlayoutStore((state) => state.story)
   const templates = usePlayoutStore((state) => state.templates)
   const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
-  const reorderPreviewLayerToIndex = usePlayoutStore((state) => state.reorderPreviewLayerToIndex)
   const movePreviewLayersByDelta = usePlayoutStore((state) => state.movePreviewLayersByDelta)
-  const updatePreviewLayerTransform = usePlayoutStore((state) => state.updatePreviewLayerTransform)
-  const updatePreviewLayersTransform = usePlayoutStore((state) => state.updatePreviewLayersTransform)
-  const setPreviewLayersPosition = usePlayoutStore((state) => state.setPreviewLayersPosition)
-  const setPreviewLayersAnchor = usePlayoutStore((state) => state.setPreviewLayersAnchor)
-  const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
-  const updatePreviewTextStyle = usePlayoutStore((state) => state.updatePreviewTextStyle)
-  const updatePreviewLayerBlendMode = usePlayoutStore((state) => state.updatePreviewLayerBlendMode)
-  const updatePreviewTextBinding = usePlayoutStore((state) => state.updatePreviewTextBinding)
   const addPreviewImageLayerFromAsset = usePlayoutStore((state) => state.addPreviewImageLayerFromAsset)
   const duplicatePreviewLayer = usePlayoutStore((state) => state.duplicatePreviewLayer)
-  const deletePreviewLayer = usePlayoutStore((state) => state.deletePreviewLayer)
-  const togglePreviewLayerVisibility = usePlayoutStore((state) => state.togglePreviewLayerVisibility)
-  const togglePreviewLayerLock = usePlayoutStore((state) => state.togglePreviewLayerLock)
-  const renamePreviewLayer = usePlayoutStore((state) => state.renamePreviewLayer)
   const createPreviewLayer = usePlayoutStore((state) => state.createPreviewLayer)
   const alignPreviewLayers = usePlayoutStore((state) => state.alignPreviewLayers)
   const distributePreviewLayers = usePlayoutStore((state) => state.distributePreviewLayers)
@@ -134,15 +86,9 @@ export function DesignPage() {
   const exportPreviewTemplatePackage = usePlayoutStore((state) => state.exportPreviewTemplatePackage)
   const restoreTemplateVersion = usePlayoutStore((state) => state.restoreTemplateVersion)
   const autosavePreviewTemplate = usePlayoutStore((state) => state.autosavePreviewTemplate)
-  const bindingFields = usePlayoutStore((state) => state.bindingFields)
-  const setFieldValue = usePlayoutStore((state) => state.setFieldValue)
 
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([])
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null)
-  const [draggingLayerId, setDraggingLayerId] = useState<string | null>(null)
-  const [dragTargetLayerId, setDragTargetLayerId] = useState<string | null>(null)
-  const [dropPosition, setDropPosition] = useState<'above' | 'below'>('above')
-  const [justMovedLayerId, setJustMovedLayerId] = useState<string | null>(null)
   const [isExportingPng, setIsExportingPng] = useState(false)
   const [isNewTemplateOpen, setIsNewTemplateOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
@@ -158,11 +104,6 @@ export function DesignPage() {
   const [smartSnap, setSmartSnap] = useState(true)
   const [assetEntries, setAssetEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('asset'))
   const [fontEntries, setFontEntries] = useState<MediaLibraryEntry[]>(() => readMediaEntries('font'))
-  const [renamingLayerId, setRenamingLayerId] = useState<string | null>(null)
-  const [renameDraft, setRenameDraft] = useState('')
-  const [isInspectorRenaming, setIsInspectorRenaming] = useState(false)
-  const [inspectorRenameDraft, setInspectorRenameDraft] = useState('')
-  const [newFieldDraft, setNewFieldDraft] = useState('')
   const setTransientStatus = (message: string, timeoutMs = 1800) => {
     setSaveStatus(message)
     window.setTimeout(() => setSaveStatus(''), timeoutMs)
@@ -178,7 +119,6 @@ export function DesignPage() {
     () => scene.layers.filter((layer) => activeSelectedLayerIds.includes(layer.id)),
     [activeSelectedLayerIds, scene.layers],
   )
-  const primarySelectedLayer = selectedLayers[0] ?? null
   const activeTemplate = templates.find((template) => template.id === previewTemplateId) ?? null
   const availableFontOptions = useMemo(() => {
     const options = new Map<string, string>()
@@ -202,27 +142,6 @@ export function DesignPage() {
 
     return Array.from(options.entries()).map(([value, label]) => ({ value, label }))
   }, [fontEntries])
-  const inspectorFontOptions = useMemo(() => {
-    if (!primarySelectedLayer || primarySelectedLayer.kind !== 'text') {
-      return availableFontOptions
-    }
-
-    if (availableFontOptions.some((option) => option.value === primarySelectedLayer.fontFamily)) {
-      return availableFontOptions
-    }
-
-    return [{ value: primarySelectedLayer.fontFamily, label: primarySelectedLayer.fontFamily }, ...availableFontOptions]
-  }, [availableFontOptions, primarySelectedLayer])
-  // Field picker options, grouped (People, Quote, Spreadsheet...).
-  const fieldGroups = useMemo(() => {
-    const groups = new Map<string, typeof bindingFields>()
-    bindingFields.forEach((field) => {
-      const group = field.group ?? 'Fields'
-      groups.set(group, [...(groups.get(group) ?? []), field])
-    })
-    return [...groups.entries()]
-  }, [bindingFields])
-
   useEffect(() => {
     let cancelled = false
 
@@ -382,38 +301,6 @@ export function DesignPage() {
     if (!range) setSelectionAnchorId(layerId)
   }
 
-  // Typed values apply exactly; grid snapping is for dragging only.
-  const commitPosition = (field: 'x' | 'y', value: number) => {
-    if (selectedLayers.length === 0) return
-    setPreviewLayersPosition(activeSelectedLayerIds, { [field]: value })
-  }
-  const commitAnchor = (field: 'x' | 'y', value: number) => {
-    if (selectedLayers.length === 0) return
-    setPreviewLayersAnchor(activeSelectedLayerIds, { [field]: value })
-  }
-  const commitTransform = (field: 'width' | 'height', numberValue: number) => {
-    if (selectedLayers.length === 0) return
-
-    if (selectedLayers.length === 1 && primarySelectedLayer) {
-      updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: numberValue })
-      return
-    }
-
-    updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: numberValue })
-  }
-  const commitAdvanced = (field: 'rotation' | 'scaleX' | 'scaleY' | 'opacity', numberValue: number) => {
-    if (selectedLayers.length === 0) return
-
-    const normalizedValue = field === 'opacity' ? fromPercent(numberValue) : numberValue
-
-    if (selectedLayers.length === 1 && primarySelectedLayer) {
-      updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: normalizedValue })
-      return
-    }
-
-    updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: normalizedValue })
-  }
-
   const handleCreateLayer = (item: CreationItem) => {
     if (item === 'TEXT' || item === 'SHAPE') {
       const layerId = createPreviewLayer(item === 'TEXT' ? 'text' : 'shape')
@@ -495,61 +382,6 @@ export function DesignPage() {
     setIsHistoryOpen(false)
     setTransientStatus(`Restored v${version}. The previous design is kept in History.`, 2600)
   }
-  const flashMovedLayer = (layerId: string) => {
-    setJustMovedLayerId(layerId)
-    window.setTimeout(() => setJustMovedLayerId((current) => (current === layerId ? null : current)), 700)
-  }
-  /** Drops the dragged layer just above or below the target row (list order: top = front). */
-  const handleDropOnLayer = (targetLayerId: string, position: 'above' | 'below') => {
-    if (!draggingLayerId || draggingLayerId === targetLayerId) return
-    const listWithout = orderedLayers.filter((layer) => layer.id !== draggingLayerId)
-    const targetPos = listWithout.findIndex((layer) => layer.id === targetLayerId)
-    if (targetPos < 0) return
-    const newListIndex = targetPos + (position === 'below' ? 1 : 0)
-    reorderPreviewLayerToIndex(draggingLayerId, scene.layers.length - 1 - newListIndex)
-    const moved = orderedLayers.find((layer) => layer.id === draggingLayerId)
-    const target = orderedLayers.find((layer) => layer.id === targetLayerId)
-    flashMovedLayer(draggingLayerId)
-    setTransientStatus(`Moved ${moved?.name ?? 'layer'} ${position} ${target?.name ?? 'layer'}.`, 1600)
-  }
-  /** One step toward the front (up) or back (down) of the stack. */
-  const handleStepLayer = (layerId: string, direction: 'up' | 'down') => {
-    const sceneIndex = scene.layers.findIndex((layer) => layer.id === layerId)
-    if (sceneIndex < 0) return
-    const nextIndex = direction === 'up' ? sceneIndex + 1 : sceneIndex - 1
-    if (nextIndex < 0 || nextIndex >= scene.layers.length) return
-    reorderPreviewLayerToIndex(layerId, nextIndex)
-    flashMovedLayer(layerId)
-  }
-  const commitRenameLayer = () => {
-    if (!renamingLayerId) return
-
-    const nextName = renameDraft.trim()
-    if (nextName) {
-      renamePreviewLayer(renamingLayerId, nextName)
-    } else {
-      setTransientStatus('Layer name cannot be empty.')
-    }
-    setRenamingLayerId(null)
-  }
-
-  const commitInspectorRename = () => {
-    if (selectedLayers.length !== 1 || !primarySelectedLayer) {
-      setIsInspectorRenaming(false)
-      return
-    }
-
-    const nextName = inspectorRenameDraft.trim()
-    if (nextName) {
-      renamePreviewLayer(primarySelectedLayer.id, nextName)
-      setInspectorRenameDraft(nextName)
-    } else {
-      setTransientStatus('Layer name cannot be empty.')
-      setInspectorRenameDraft(primarySelectedLayer.name)
-    }
-    setIsInspectorRenaming(false)
-  }
-
   const handleDropAssetOnCanvas = (entryId: string, position: { x: number; y: number }) => {
     const entry = assetEntries.find((asset) => asset.id === entryId)
     if (!entry || !entry.dataUrl) {
@@ -590,11 +422,6 @@ export function DesignPage() {
     setSelectionAnchorId(nextLayerId)
   }
 
-  const bindingPreviewValue =
-    primarySelectedLayer && primarySelectedLayer.kind === 'text' && primarySelectedLayer.binding
-      ? resolveBindingValue(primarySelectedLayer.binding, story)
-      : ''
-
   return (
     <section className="screen screen--design">
       {isHistoryOpen && activeTemplate ? (
@@ -632,150 +459,14 @@ export function DesignPage() {
             <button type="button" className={`tab-btn ${sidebarTab === 'assets' ? 'tab-btn--active' : ''}`} onClick={() => setSidebarTab('assets')}>Assets</button>
           </div>
           {sidebarTab === 'layers' ? (
-            <div className="layer-list">
-              {orderedLayers.map((layer, listIndex) => {
-                const isSelected = activeSelectedLayerIds.includes(layer.id)
-                const isDropTarget = dragTargetLayerId === layer.id && draggingLayerId !== null && draggingLayerId !== layer.id
-                const classes = `layer-item ${isSelected ? 'layer-item--active' : ''} ${draggingLayerId === layer.id ? 'layer-item--dragging' : ''} ${isDropTarget ? `layer-item--drop-${dropPosition}` : ''} ${justMovedLayerId === layer.id ? 'layer-item--just-moved' : ''} ${layer.visible ? '' : 'layer-item--hidden'}`
-                return (
-                  <div
-                    key={layer.id}
-                    className={classes.trim()}
-                    draggable={!layer.locked}
-                    onDragStart={(event) => {
-                      if (layer.locked) {
-                        event.preventDefault()
-                        return
-                      }
-                      setDraggingLayerId(layer.id)
-                      setDragTargetLayerId(layer.id)
-                      event.dataTransfer.effectAllowed = 'move'
-                      event.dataTransfer.setData('text/plain', layer.id)
-                    }}
-                    onDragOver={(event) => {
-                      event.preventDefault()
-                      event.dataTransfer.dropEffect = 'move'
-                      const bounds = event.currentTarget.getBoundingClientRect()
-                      setDragTargetLayerId(layer.id)
-                      setDropPosition(event.clientY < bounds.top + bounds.height / 2 ? 'above' : 'below')
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault()
-                      handleDropOnLayer(layer.id, dropPosition)
-                      setDraggingLayerId(null)
-                      setDragTargetLayerId(null)
-                    }}
-                    onDragEnd={() => {
-                      setDraggingLayerId(null)
-                      setDragTargetLayerId(null)
-                    }}
-                  >
-                    <div className="layer-item__order">
-                      <button
-                        type="button"
-                        className="layer-item__step"
-                        title="Move up one layer"
-                        aria-label="Move layer up"
-                        disabled={Boolean(layer.locked) || listIndex === 0}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleStepLayer(layer.id, 'up')
-                        }}
-                      >
-                        <ChevronUp size={11} />
-                      </button>
-                      <button
-                        type="button"
-                        className={`layer-item__handle ${layer.locked ? 'layer-item__handle--disabled' : ''}`.trim()}
-                        title={layer.locked ? 'Unlock layer to reorder' : 'Drag to reorder layer'}
-                        aria-label={layer.locked ? 'Layer locked' : 'Drag layer to reorder'}
-                      >
-                        <GripVertical size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        className="layer-item__step"
-                        title="Move down one layer"
-                        aria-label="Move layer down"
-                        disabled={Boolean(layer.locked) || listIndex === orderedLayers.length - 1}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleStepLayer(layer.id, 'down')
-                        }}
-                      >
-                        <ChevronDown size={11} />
-                      </button>
-                    </div>
-                    <button type="button" className="layer-item__main" onClick={(event) => handleLayerSelection(layer.id, { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey })} onDoubleClick={() => { setRenamingLayerId(layer.id); setRenameDraft(layer.name) }}>
-                      {renamingLayerId === layer.id ? (
-                        <input
-                          className="mono"
-                          value={renameDraft}
-                          autoFocus
-                          onChange={(event) => setRenameDraft(event.target.value)}
-                          onBlur={commitRenameLayer}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') commitRenameLayer()
-                            if (event.key === 'Escape') {
-                              event.preventDefault()
-                              setRenameDraft(layer.name)
-                              setRenamingLayerId(null)
-                            }
-                          }}
-                        />
-                      ) : <span title={layer.name}>{layer.name}</span>}
-                    </button>
-                    <div className="layer-item__actions">
-                      <button
-                        type="button"
-                        className="icon-btn icon-btn--mini"
-                        title={layer.visible ? 'Hide layer' : 'Show layer'}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          togglePreviewLayerVisibility(layer.id)
-                        }}
-                      >
-                        {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-                      </button>
-                      <button
-                        type="button"
-                        className={`icon-btn icon-btn--mini ${layer.locked ? 'icon-btn--active' : ''}`.trim()}
-                        title={layer.locked ? 'Unlock layer' : 'Lock layer'}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          togglePreviewLayerLock(layer.id)
-                        }}
-                      >
-                        {layer.locked ? <Lock size={12} /> : <Unlock size={12} />}
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-btn icon-btn--mini"
-                        title="Duplicate layer"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          handleDuplicateLayer(layer.id)
-                        }}
-                      >
-                        <Copy size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        className="icon-btn icon-btn--mini"
-                        title={layer.locked ? 'Unlock layer before deleting' : 'Delete layer'}
-                        disabled={Boolean(layer.locked)}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          deletePreviewLayer(layer.id)
-                        }}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            <LayerList
+              layers={orderedLayers}
+              sceneLayers={scene.layers}
+              selectedLayerIds={activeSelectedLayerIds}
+              onSelect={handleLayerSelection}
+              onDuplicate={handleDuplicateLayer}
+              onStatus={setTransientStatus}
+            />
           ) : (
             <div className="asset-list">
               {assetEntries.length === 0 && fontEntries.length === 0 ? (
@@ -955,253 +646,12 @@ export function DesignPage() {
           </div>
         </section>
 
-        <aside className="panel inspector">
-          <div className="panel-title">LAYER INSPECTOR</div>
-          {selectedLayers.length > 0 ? (
-            <>
-              <div className="inspector-section">
-                <div className="inspector-section__label mono">SELECTED ({selectedLayers.length})</div>
-                <div className="inspector-layer-name">
-                  {selectedLayers.length > 1 ? (
-                    'Multiple Layers'
-                  ) : isInspectorRenaming ? (
-                    <input
-                      value={inspectorRenameDraft}
-                      autoFocus
-                      onChange={(event) => setInspectorRenameDraft(event.target.value)}
-                      onBlur={commitInspectorRename}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') commitInspectorRename()
-                        if (event.key === 'Escape') {
-                          setIsInspectorRenaming(false)
-                          setInspectorRenameDraft(primarySelectedLayer?.name ?? '')
-                        }
-                      }}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="inspector-rename-trigger"
-                      onDoubleClick={() => {
-                        setInspectorRenameDraft(primarySelectedLayer?.name ?? '')
-                        setIsInspectorRenaming(true)
-                      }}
-                      onClick={() => {
-                        setInspectorRenameDraft(primarySelectedLayer?.name ?? '')
-                        setIsInspectorRenaming(true)
-                      }}
-                    >
-                      {primarySelectedLayer?.name ?? ''}
-                    </button>
-                  )}
-                </div>
-              </div>
-              {selectedLayers.length === 1 && primarySelectedLayer?.kind === 'text' ? (
-                <InspectorSection id="text-style" title="Text Style">
-                  <label>
-                    Text
-                    <textarea
-                      rows={Math.min(4, Math.max(2, primarySelectedLayer.text.split('\n').length))}
-                      value={primarySelectedLayer.text}
-                      onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { text: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Font Family
-                    <select
-                      className="mono"
-                      value={primarySelectedLayer.fontFamily}
-                      onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { fontFamily: event.target.value })}
-                    >
-                      {inspectorFontOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    Color
-                    <input
-                      className="mono"
-                      value={primarySelectedLayer.color}
-                      onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { color: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Font Size
-                    <NumberField
-                      min={8}
-                      value={primarySelectedLayer.fontSize}
-                      onCommit={(value) => updatePreviewTextStyle(primarySelectedLayer.id, { fontSize: value })}
-                    />
-                  </label>
-                  <label>
-                    Line Height
-                    <NumberField
-                      min={0.5}
-                      max={4}
-                      step={0.05}
-                      value={primarySelectedLayer.lineHeight ?? 1}
-                      onCommit={(value) => updatePreviewTextStyle(primarySelectedLayer.id, { lineHeight: value })}
-                    />
-                  </label>
-                  <div className="field-label">
-                    Align
-                    <div className="align-groups">
-                      <div className="segmented" role="group" aria-label="Horizontal text alignment">
-                        {([['left', AlignLeft, 'Align left'], ['center', AlignCenter, 'Align center'], ['right', AlignRight, 'Align right']] as const).map(([value, Icon, label]) => (
-                          <button
-                            key={value}
-                            type="button"
-                            title={label}
-                            aria-label={label}
-                            aria-pressed={(primarySelectedLayer.align ?? 'center') === value}
-                            className={`segmented__btn ${(primarySelectedLayer.align ?? 'center') === value ? 'segmented__btn--active' : ''}`.trim()}
-                            onClick={() => updatePreviewTextStyle(primarySelectedLayer.id, { align: value })}
-                          >
-                            <Icon size={14} />
-                          </button>
-                        ))}
-                      </div>
-                      <div className="segmented" role="group" aria-label="Vertical text alignment">
-                        {([['top', AlignVerticalJustifyStart, 'Align top'], ['middle', AlignVerticalJustifyCenter, 'Align middle'], ['bottom', AlignVerticalJustifyEnd, 'Align bottom']] as const).map(([value, Icon, label]) => {
-                          const current = primarySelectedLayer.verticalAlign ?? 'middle'
-                          return (
-                            <button
-                              key={value}
-                              type="button"
-                              title={label}
-                              aria-label={label}
-                              aria-pressed={current === value}
-                              className={`segmented__btn ${current === value ? 'segmented__btn--active' : ''}`.trim()}
-                              onClick={() => updatePreviewTextStyle(primarySelectedLayer.id, { verticalAlign: value })}
-                            >
-                              <Icon size={14} />
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </InspectorSection>
-              ) : null}
-              {primarySelectedLayer?.kind === 'text' ? (
-                <TextBoxInspector
-                  box={primarySelectedLayer.box}
-                  onChange={(box) => updatePreviewTextStyle(primarySelectedLayer.id, { box })}
-                />
-              ) : null}
-              <InspectorSection id="transform" title="Transform">
-                <div className="anchor-row">
-                  <AnchorPicker
-                    value={mixedAnchorPreset(selectedLayers)}
-                    onChange={(preset) => setPreviewLayersAnchor(activeSelectedLayerIds, { preset })}
-                  />
-                  <div className="anchor-row__hint">Anchor point. X and Y are where the anchor sits; picking a point never moves the layer.</div>
-                </div>
-                <div className="transform-grid">
-                  <label>X<NumberField value={mixedValue(selectedLayers, (layer) => anchorPosition(layer).x)} placeholder="mixed" onCommit={(value) => commitPosition('x', value)} /></label>
-                  <label>Y<NumberField value={mixedValue(selectedLayers, (layer) => anchorPosition(layer).y)} placeholder="mixed" onCommit={(value) => commitPosition('y', value)} /></label>
-                  <label>W<NumberField min={1} value={mixedValue(selectedLayers, (layer) => layer.width)} placeholder="mixed" onCommit={(value) => commitTransform('width', value)} /></label>
-                  <label>H<NumberField min={1} value={mixedValue(selectedLayers, (layer) => layer.height)} placeholder="mixed" onCommit={(value) => commitTransform('height', value)} /></label>
-                  <label>Anchor X<NumberField value={mixedValue(selectedLayers, (layer) => resolveAnchor(layer).x)} placeholder="mixed" onCommit={(value) => commitAnchor('x', value)} /></label>
-                  <label>Anchor Y<NumberField value={mixedValue(selectedLayers, (layer) => resolveAnchor(layer).y)} placeholder="mixed" onCommit={(value) => commitAnchor('y', value)} /></label>
-                  <label>Scale X<NumberField value={mixedValue(selectedLayers, (layer) => layer.scaleX ?? 100)} placeholder="mixed" onCommit={(value) => commitAdvanced('scaleX', value)} /></label>
-                  <label>Scale Y<NumberField value={mixedValue(selectedLayers, (layer) => layer.scaleY ?? 100)} placeholder="mixed" onCommit={(value) => commitAdvanced('scaleY', value)} /></label>
-                  <label>Rotation<NumberField value={mixedValue(selectedLayers, (layer) => layer.rotation ?? 0)} placeholder="mixed" onCommit={(value) => commitAdvanced('rotation', value)} /></label>
-                  <label>Opacity<NumberField min={0} max={100} value={mixedValue(selectedLayers, (layer) => asPercent(layer.opacity))} placeholder="mixed" onCommit={(value) => commitAdvanced('opacity', value)} /></label>
-                </div>
-                {primarySelectedLayer && selectedLayers.length === 1 ? (
-                  <label>
-                    Blend
-                    <select
-                      className="mono"
-                      value={primarySelectedLayer.blendMode ?? 'normal'}
-                      onChange={(event) => updatePreviewLayerBlendMode(primarySelectedLayer.id, event.target.value as LayerBlendMode)}
-                    >
-                      {LAYER_BLEND_MODES.map((mode) => (
-                        <option key={mode} value={mode}>
-                          {mode.replace(/-/g, ' ')}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-              </InspectorSection>
-              <InspectorSection id="binding-style" title="Binding & Style">
-                {selectedLayers.length > 1 ? (
-                  <div className="inspector-empty">Layer-specific binding and style editing is available for single-layer selection only.</div>
-                ) : primarySelectedLayer && primarySelectedLayer.kind === 'shape' ? (
-                  <label>
-                    Fill
-                    <input className="mono" value={primarySelectedLayer.fill} onChange={(event) => updatePreviewShapeStyle(primarySelectedLayer.id, { fill: event.target.value })} />
-                  </label>
-                ) : primarySelectedLayer && primarySelectedLayer.kind === 'image' ? (
-                  <>
-                    <label>
-                      Source
-                      <input className="mono" value={primarySelectedLayer.src} readOnly />
-                    </label>
-                    <div className="binding-preview mono">FIT: {(primarySelectedLayer.fit ?? 'contain').toUpperCase()}</div>
-                    <div className="inspector-empty">Image layer styling currently uses default contain fit.</div>
-                  </>
-                ) : primarySelectedLayer ? (
-                  <>
-                    <div className="binding-panel">
-                      <div className="inspector-section__label">Data Field</div>
-                      <label>
-                        Field
-                        <select
-                          className="mono"
-                          value={primarySelectedLayer.binding ?? ''}
-                          onChange={(event) => {
-                            const nextKey = event.target.value.trim()
-                            updatePreviewTextBinding(primarySelectedLayer.id, nextKey ? (nextKey as DataBindingKey) : null)
-                          }}
-                        >
-                          <option value="">None (fixed text)</option>
-                          {primarySelectedLayer.binding && !bindingFields.some((field) => field.key === primarySelectedLayer.binding) ? (
-                            <option value={primarySelectedLayer.binding}>{primarySelectedLayer.binding}</option>
-                          ) : null}
-                          {fieldGroups.map(([group, fields]) => (
-                            <optgroup key={group} label={group}>
-                              {fields.map((field) => (
-                                <option key={field.key} value={field.key}>
-                                  {field.label}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                      </label>
-                      <form
-                        className="binding-panel__new"
-                        onSubmit={(event) => {
-                          event.preventDefault()
-                          const key = fieldKeyFromHeader(newFieldDraft)
-                          if (!newFieldDraft.trim()) return
-                          setFieldValue(key, primarySelectedLayer.text)
-                          updatePreviewTextBinding(primarySelectedLayer.id, key as DataBindingKey)
-                          setNewFieldDraft('')
-                        }}
-                      >
-                        <input value={newFieldDraft} placeholder="Or new field name..." onChange={(event) => setNewFieldDraft(event.target.value)} />
-                        <button type="submit" className="btn btn--small" disabled={!newFieldDraft.trim()}>Bind</button>
-                      </form>
-                    </div>
-                    <div className="binding-preview mono">
-                      {primarySelectedLayer.binding
-                        ? `${primarySelectedLayer.binding} = ${bindingPreviewValue || '(empty, shows the layer text)'}`
-                        : 'Fixed text. Pick a field to fill it from Data or a spreadsheet.'}
-                    </div>
-                    <div className="inspector-empty">Edit field values, or load a spreadsheet, on the Data page.</div>
-                  </>
-                ) : null}
-              </InspectorSection>
-            </>
-          ) : <div className="inspector-empty">Select one or more layers to inspect and edit virtual pixel values.</div>}
-        </aside>
+        <LayerInspector
+          selectedLayers={selectedLayers}
+          activeSelectedLayerIds={activeSelectedLayerIds}
+          fontOptions={availableFontOptions}
+          onStatus={setTransientStatus}
+        />
       </div>
     </section>
   )

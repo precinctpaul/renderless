@@ -1,14 +1,65 @@
 import type { AnchorPresetId } from '../lib/layerAnchor'
-import type { BindingFieldOption, PackageSigningState, ProgramTemplateId, ProgramTransitionState, ShapeStylePatch, TextStylePatch, TransitionType, TransportConnectionStatus, TransportMode } from './types'
+import type {
+  BindingFieldOption,
+  PackageSigningState,
+  ProgramTemplateId,
+  ProgramTransitionState,
+  ShapeStylePatch,
+  TextStylePatch,
+  TransitionType,
+  TransportConnectionStatus,
+  TransportMode,
+} from './types'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, cloneScene } from '../data/templates'
-import { CLEAR_TEMPLATE_ID, autosavedTemplates, buildTemplateCatalog, clampVersionHistory, createLayerId, createSceneId, createTemplateId, createUniqueSceneId, createUniqueTemplateId, findTemplateById, persistCustomTemplates, resolveSceneForTemplate, versionSnapshotOf } from './templateCatalog'
-import type { DataBindingKey, LayerBlendMode, SceneDefinition, SceneLayer, StoryState, TemplateDefinition, TemplateVersion } from '../types/scene'
+import {
+  CLEAR_TEMPLATE_ID,
+  autosavedTemplates,
+  buildTemplateCatalog,
+  clampVersionHistory,
+  createLayerId,
+  createSceneId,
+  createTemplateId,
+  createUniqueSceneId,
+  createUniqueTemplateId,
+  findTemplateById,
+  persistCustomTemplates,
+  resolveSceneForTemplate,
+  versionSnapshotOf,
+} from './templateCatalog'
+import type {
+  DataBindingKey,
+  LayerBlendMode,
+  SceneDefinition,
+  SceneLayer,
+  StoryState,
+  TemplateDefinition,
+  TemplateVersion,
+} from '../types/scene'
 import type { DataSheet } from '../lib/dataSheet'
 import type { LayerAlignMode, LayerDistributeAxis, SceneTransformPatch } from './sceneEdits'
 import type { TemplatePackage } from '../lib/templatePackages'
-import { alignLayersByMode, applyTransformPatchToLayer, distributeLayers, moveLayerByDelta, moveLayerToIndex, moveLayersByDelta, pushHistoryFrame, scenesEqual } from './sceneEdits'
+import {
+  alignLayersByMode,
+  applyTransformPatchToLayer,
+  distributeLayers,
+  moveLayerByDelta,
+  moveLayerToIndex,
+  moveLayersByDelta,
+  pushHistoryFrame,
+  scenesEqual,
+} from './sceneEdits'
 import { anchorForPreset, boxPositionForAnchorPosition, resolveAnchor, withAnchor } from '../lib/layerAnchor'
-import { buildFieldCatalog, cloneStory, getSigningConfigFromState, persistDataSheet, persistPackageSigningState, persistTransportConfig, readDataSheet, readPackageSigningState, readTransportConfig } from './persistence'
+import {
+  buildFieldCatalog,
+  cloneStory,
+  getSigningConfigFromState,
+  persistDataSheet,
+  persistPackageSigningState,
+  persistTransportConfig,
+  readDataSheet,
+  readPackageSigningState,
+  readTransportConfig,
+} from './persistence'
 import { buildTemplatePackage, parseTemplatePackage, templateFromPackage } from '../lib/templatePackages'
 import { create } from 'zustand'
 import { extractBindingKeys } from '../lib/bindings'
@@ -31,6 +82,8 @@ export interface PlayoutStore {
   previewTemplateId: string
   programTemplateId: ProgramTemplateId
   previewScene: SceneDefinition
+  /** Preview has edits since it was loaded/saved; only then may autosave write it back. */
+  previewDirty: boolean
   programScene: SceneDefinition
   transitionType: TransitionType
   transitionDurationMs: number
@@ -137,6 +190,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       return {
         previewScene: cloneScene(nextScene),
+        previewDirty: true,
         undoStack,
         redoStack: [],
         canUndo: undoStack.length > 0,
@@ -151,6 +205,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     previewTemplateId: hydratedSnapshot.previewTemplateId,
     programTemplateId: hydratedSnapshot.programTemplateId,
     previewScene: cloneScene(hydratedSnapshot.previewScene),
+    previewDirty: false,
     programScene: initialProgramScene,
     transitionType: hydratedSnapshot.transitionType,
     transitionDurationMs: hydratedSnapshot.transitionDurationMs,
@@ -185,6 +240,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         return {
           previewTemplateId: templateId,
           previewScene: resolveSceneForTemplate(state.templates, templateId),
+          previewDirty: false,
           undoStack: [],
           redoStack: [],
           canUndo: false,
@@ -658,6 +714,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
         return {
           previewScene: cloneScene(previousScene),
+          previewDirty: true,
           undoStack: nextUndoStack,
           redoStack: nextRedoStack,
           canUndo: nextUndoStack.length > 0,
@@ -678,6 +735,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
         return {
           previewScene: cloneScene(nextScene),
+          previewDirty: true,
           undoStack: nextUndoStack,
           redoStack: nextRedoStack,
           canUndo: nextUndoStack.length > 0,
@@ -723,6 +781,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         templates: [...currentState.templates, template],
         previewTemplateId: template.id,
         previewScene: cloneScene(blankScene),
+        previewDirty: false,
         undoStack: [],
         redoStack: [],
         canUndo: false,
@@ -734,12 +793,16 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       return template.id
     },
     autosavePreviewTemplate: () => {
+      if (!get().previewDirty) {
+        return false
+      }
+
       const templates = autosavedTemplates(get(), getLibraryAuthor(), Date.now())
       if (!templates) {
         return false
       }
 
-      set({ templates })
+      set({ templates, previewDirty: false })
       persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
       return true
     },
@@ -795,6 +858,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           templates: nextTemplates,
           previewTemplateId: templateId,
           previewScene: cloneScene(savedScene),
+          previewDirty: false,
           undoStack: [],
           redoStack: [],
           canUndo: false,
@@ -1090,6 +1154,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
         return {
           templates: nextTemplates,
+          previewDirty: currentState.previewTemplateId === restoredTemplate.id ? false : currentState.previewDirty,
           previewScene:
             currentState.previewTemplateId === restoredTemplate.id
               ? cloneScene(restoredTemplate.scene)
@@ -1134,6 +1199,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           previewTemplateId: nextPreviewTemplateId,
           programTemplateId: nextProgramTemplateId || CLEAR_TEMPLATE_ID,
           previewScene: nextPreviewScene,
+          previewDirty: false,
           programScene: nextProgramScene,
           undoStack: [],
           redoStack: [],
@@ -1165,7 +1231,15 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           .map((template) => (!template.builtIn && byId.has(template.id) ? byId.get(template.id)! : template))
         const known = new Set(kept.map((template) => template.id))
         const added = [...byId.values()].filter((template) => !known.has(template.id))
-        return { templates: [...kept, ...added] }
+        // A teammate changed the template that's open here: show it, unless there are local edits.
+        const openUpdate = byId.get(state.previewTemplateId)
+        const refreshPreview = openUpdate && !state.previewDirty
+        return {
+          templates: [...kept, ...added],
+          ...(refreshPreview
+            ? { previewScene: cloneScene(openUpdate.scene), undoStack: [], redoStack: [], canUndo: false, canRedo: false }
+            : {}),
+        }
       })
       persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
     },
@@ -1181,6 +1255,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           previewTemplateId: primaryTemplateId,
           programTemplateId: CLEAR_TEMPLATE_ID,
           previewScene: primaryTemplateId ? resolveSceneForTemplate(state.templates, primaryTemplateId) : cloneScene(CLEAR_SCENE),
+          previewDirty: false,
           programScene: cloneScene(CLEAR_SCENE),
           transitionType: 'cut',
           transitionDurationMs: 300,

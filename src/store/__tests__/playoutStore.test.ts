@@ -215,14 +215,18 @@ describe('Playout reliability and QA regression suite', () => {
     expect(anchorX('shape-lt-bg')).toBe(1920)
   })
 
-  test('layer movement clamps to stage bounds', async () => {
+  test('layers can move off the canvas (bleeds) and keep that position when saved', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 
     usePlayoutStore.getState().cuePreview('template-lower-third')
-    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-lt-bg'], { x: 5000, y: 5000 }, false)
-    const clampedPosition = getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg')
-    // The 1080x160 bar stops at the canvas's bottom-right corner.
-    expect(clampedPosition).toEqual({ x: 840, y: 920 })
+    usePlayoutStore.getState().movePreviewLayersByDelta(['shape-lt-bg'], { x: -400, y: 5000 }, false)
+    expect(getLayerPosition(usePlayoutStore.getState().previewScene, 'shape-lt-bg')).toEqual({ x: -280, y: 5820 })
+
+    usePlayoutStore.getState().updatePreviewLayerTransform('shape-lt-accent', { x: -50, y: -20 })
+    const templateId = usePlayoutStore.getState().savePreviewTemplate('Bleed QA')
+    const { usePlayoutStore: reloaded } = await loadStoreModule()
+    const saved = reloaded.getState().templates.find((template) => template.id === templateId)
+    expect(saved && getLayerPosition(saved.scene, 'shape-lt-accent')).toEqual({ x: -50, y: -20 })
   })
 
   test('distribute spaces anchor points evenly', async () => {
@@ -327,6 +331,27 @@ describe('Playout reliability and QA regression suite', () => {
     store().updatePreviewLayerTransform('scene-quote-card-frame-top', { x: 10 })
     expect(store().autosavePreviewTemplate()).toBe(false)
     expect(JSON.stringify(store().templates.find((template) => template.id === 'template-quote-card')?.scene)).toBe(builtInBefore)
+  })
+
+  test('a teammate update shows in an untouched preview and is not overwritten by switching away', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const store = () => usePlayoutStore.getState()
+
+    store().cuePreview('template-lower-third')
+    const templateId = store().savePreviewTemplate('Team QA') ?? ''
+    const mine = store().templates.find((template) => template.id === templateId)!
+    const theirs = {
+      ...mine,
+      scene: { ...mine.scene, layers: mine.scene.layers.map((layer) => (layer.id === 'shape-lt-bg' ? { ...layer, x: 777 } : layer)) },
+      updatedAt: (mine.updatedAt ?? 0) + 1000,
+    }
+
+    store().mergeLibraryTemplates([theirs], [])
+    expect(getLayerPosition(store().previewScene, 'shape-lt-bg').x).toBe(777)
+
+    store().cuePreview('template-quote-card')
+    const kept = store().templates.find((template) => template.id === templateId)
+    expect(kept && getLayerPosition(kept.scene, 'shape-lt-bg').x).toBe(777)
   })
 
   test('field values can be set, added and removed', async () => {

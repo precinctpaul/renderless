@@ -89,8 +89,8 @@ export function applyTransformPatchToLayer(layer: SceneDefinition['layers'][numb
 
   return {
     ...layer,
-    x: Number.isFinite(patch.x) ? Math.round(Math.max(0, patch.x ?? layer.x)) : layer.x,
-    y: Number.isFinite(patch.y) ? Math.round(Math.max(0, patch.y ?? layer.y)) : layer.y,
+    x: Number.isFinite(patch.x) ? Math.round(patch.x ?? layer.x) : layer.x,
+    y: Number.isFinite(patch.y) ? Math.round(patch.y ?? layer.y) : layer.y,
     width: nextWidth,
     height: nextHeight,
     rotation: nextRotation,
@@ -122,10 +122,7 @@ export function moveLayersByDelta(
   }
 
   const snap = (value: number) => (snapToGrid ? Math.round(value / 10) * 10 : value)
-  const clampX = (layer: SceneDefinition['layers'][number], nextX: number) =>
-    Math.min(Math.max(0, nextX), Math.max(0, scene.width - layer.width))
-  const clampY = (layer: SceneDefinition['layers'][number], nextY: number) =>
-    Math.min(Math.max(0, nextY), Math.max(0, scene.height - layer.height))
+  // Layers may move partly or fully off the canvas (bleeds), as in Illustrator/After Effects.
 
   return {
     ...scene,
@@ -136,8 +133,8 @@ export function moveLayersByDelta(
 
       return {
         ...layer,
-        x: Math.round(clampX(layer, snap(layer.x + deltaX))),
-        y: Math.round(clampY(layer, snap(layer.y + deltaY))),
+        x: Math.round(snap(layer.x + deltaX)),
+        y: Math.round(snap(layer.y + deltaY)),
       }
     }),
   }

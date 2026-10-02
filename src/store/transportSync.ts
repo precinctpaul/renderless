@@ -1,10 +1,31 @@
 /** Live sync between tabs (BroadcastChannel) and devices (relay WebSocket) for the playout store. */
 
 import { CLEAR_SCENE, cloneScene } from '../data/templates'
-import { CLEAR_TEMPLATE_ID, TEMPLATE_STORAGE_KEY, buildTemplateCatalog, findTemplateById, resolveSceneForTemplate } from './templateCatalog'
-import { DATA_SHEET_STORAGE_KEY, PACKAGE_SIGNING_STORAGE_KEY, TRANSPORT_STORAGE_KEY, buildFieldCatalog, cloneStory, readDataSheet, readPackageSigningState, readTransportConfig } from './persistence'
+import {
+  CLEAR_TEMPLATE_ID,
+  TEMPLATE_STORAGE_KEY,
+  buildTemplateCatalog,
+  findTemplateById,
+  resolveSceneForTemplate,
+} from './templateCatalog'
+import {
+  DATA_SHEET_STORAGE_KEY,
+  PACKAGE_SIGNING_STORAGE_KEY,
+  TRANSPORT_STORAGE_KEY,
+  buildFieldCatalog,
+  cloneStory,
+  readDataSheet,
+  readPackageSigningState,
+  readTransportConfig,
+} from './persistence'
 import type { PersistedPlayoutSnapshot, RoomRetirePayload, TransportSyncPayload } from './types'
-import { ROOM_STORAGE_KEY, buildRelayRoomUrl, getRoomId, isOutputViewerLocation, isViewingOtherRoom } from '../lib/outputUrls'
+import {
+  ROOM_STORAGE_KEY,
+  buildRelayRoomUrl,
+  getRoomId,
+  isOutputViewerLocation,
+  isViewingOtherRoom,
+} from '../lib/outputUrls'
 import { STORAGE_KEY, normalizeSnapshot, toSnapshot } from './snapshot'
 import { usePlayoutStore } from './playoutStore'
 

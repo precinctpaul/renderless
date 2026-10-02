@@ -265,8 +265,9 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
   const baseLayer = {
     id,
     name,
-    x: Math.round(Math.max(0, x)),
-    y: Math.round(Math.max(0, y)),
+    // Positions may be negative: art that bleeds off the canvas edge is a valid design.
+    x: Math.round(x),
+    y: Math.round(y),
     width: Math.round(Math.max(1, width)),
     height: Math.round(Math.max(1, height)),
     opacity: Math.min(Math.max(opacity, 0), 1),
