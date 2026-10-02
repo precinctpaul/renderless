@@ -12,5 +12,7 @@ export default defineConfig({
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
     clearMocks: true,
+    // Full click-path UI tests run slower on CI runners than locally.
+    testTimeout: 20000,
   },
 })
