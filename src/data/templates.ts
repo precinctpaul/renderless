@@ -34,7 +34,7 @@ function quoteScene(id: string, name: string, height: number): SceneDefinition {
   const frameTop = Math.round(height * 0.13)
   const frameBottom = Math.round(height * 0.87)
   // Quote + author sit as one group in the middle of the frame (tall formats get no dead gap).
-  const quoteHeight = Math.min(620, frameBottom - frameTop - 360)
+  const quoteHeight = Math.min(440, frameBottom - frameTop - 360)
   const quoteTop = Math.round((frameTop + frameBottom) / 2 - (quoteHeight + 100) / 2)
   return {
     id,
