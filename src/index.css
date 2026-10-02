@@ -1568,49 +1568,76 @@ select:focus {
   margin: 2px 0 8px;
 }
 
+/* Editor overlays: positioned in screen pixels from the stage geometry, so they always line up. */
+.scene-renderer__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.stage-grid {
+  position: absolute;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.09) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+}
+
 .stage-ruler {
   position: absolute;
-  z-index: 5;
-  pointer-events: none;
-  border: 1px solid #244064;
-  border-radius: 6px;
-  background: rgba(7, 17, 33, 0.8);
   overflow: hidden;
+  background: #1a1a1a;
+  color: #8a8a8a;
+}
+
+.stage-ruler--top {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 18px;
+  border-bottom: 1px solid #333;
+}
+
+.stage-ruler--left {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  border-right: 1px solid #333;
 }
 
 .stage-ruler__tick {
   position: absolute;
-  width: 1px;
-  background: rgba(147, 197, 253, 0.4);
+  background: #555;
 }
 
-.stage-ruler__tick--major {
-  background: rgba(191, 219, 254, 0.82);
+.stage-ruler--top .stage-ruler__tick {
+  bottom: 0;
+  width: 1px;
+  height: 4px;
+}
+
+.stage-ruler--top .stage-ruler__tick--major {
+  height: 18px;
+  background: #666;
+}
+
+.stage-ruler--left .stage-ruler__tick {
+  right: 0;
+  height: 1px;
+  width: 4px;
+}
+
+.stage-ruler--left .stage-ruler__tick--major {
+  width: 18px;
+  background: #666;
 }
 
 .stage-ruler__tick span {
   position: absolute;
-  font-size: 9px;
-  color: #bfdbfe;
-  letter-spacing: 0.02em;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
-}
-
-.stage-ruler__tick--vertical span {
-  right: 2px;
-  top: -5px;
-}
-
-.stage-ruler--top {
-  left: 10px;
-  right: 10px;
-  top: 8px;
-  height: 20px;
-}
-
-.stage-ruler--top .stage-ruler__tick {
-  top: 0;
-  bottom: 0;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .stage-ruler--top .stage-ruler__tick span {
@@ -1618,33 +1645,48 @@ select:focus {
   left: 3px;
 }
 
-.stage-ruler--left {
-  top: 32px;
-  bottom: 10px;
-  left: 8px;
-  width: 40px;
+.stage-ruler--left .stage-ruler__tick span {
+  left: 2px;
+  top: 3px;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  transform-origin: center;
 }
 
-.stage-ruler--left .stage-ruler__tick {
-  left: 0;
+/* Marks where the artboard spans on each ruler. */
+.stage-ruler__extent {
+  position: absolute;
+  bottom: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.stage-ruler__extent--vertical {
+  bottom: auto;
   right: 0;
-  height: 1px;
+  width: 2px;
+  height: auto;
 }
 
-.stage-ruler--left .stage-ruler__tick--vertical {
-  width: auto;
+.stage-ruler__corner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  background: #1a1a1a;
+  border-right: 1px solid #333;
+  border-bottom: 1px solid #333;
+  font-size: 0;
 }
 
 .stage-guides {
   position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 4;
 }
 
 .stage-guide {
   position: absolute;
-  background: rgba(59, 130, 246, 0.38);
+  background: rgba(60, 119, 187, 0.55);
 }
 
 .stage-guide--h {
@@ -1660,7 +1702,7 @@ select:focus {
 }
 
 .stage-guide--center {
-  background: rgba(59, 130, 246, 0.72);
+  background: rgba(60, 119, 187, 0.95);
 }
 
 .inspector-section {
@@ -2236,13 +2278,6 @@ select:focus {
   background-position: 0 0, 0 12px, 12px -12px, -12px 0;
 }
 
-.scene-renderer--grid {
-  background:
-    linear-gradient(to right, rgba(98, 135, 198, 0.22) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(98, 135, 198, 0.22) 1px, transparent 1px),
-    #0d1a33;
-  background-size: 40px 40px;
-}
 
 .scene-renderer__stage {
   position: absolute;
@@ -2253,8 +2288,7 @@ select:focus {
 
 /* Drawn as an outline so the bounds line never shifts or crops the scene (a border would). */
 .scene-renderer__stage--bounds {
-  outline: 1px solid rgba(147, 197, 253, 0.58);
-  box-shadow: inset 0 0 0 1px rgba(147, 197, 253, 0.22);
+  outline: var(--stage-px, 1px) solid rgba(255, 255, 255, 0.35);
 }
 
 .scene-renderer__layer {
@@ -2302,19 +2336,32 @@ select:focus {
 }
 
 .scene-renderer__safe-zone--action {
-  border: 1px dashed rgba(59, 130, 246, 0.86);
+  border: var(--stage-px, 1px) dashed rgba(249, 251, 237, 0.55);
 }
 
 .scene-renderer__safe-zone--title {
-  border: 1px dashed rgba(245, 158, 11, 0.86);
+  border: var(--stage-px, 1px) dotted rgba(249, 251, 237, 0.4);
   pointer-events: none;
 }
 
 .scene-renderer__selection {
   position: absolute;
-  border: 2px solid var(--blue-500);
-  box-shadow: 0 0 0 1px rgba(13, 84, 198, 0.48);
+  box-sizing: border-box;
+  border: calc(var(--stage-px, 1px) * 2) solid var(--blue-500);
   pointer-events: none;
+}
+
+/* Anchor point marker: a small crosshair, sized in screen pixels. */
+.scene-renderer__anchor {
+  position: absolute;
+  width: calc(var(--stage-px, 1px) * 13);
+  height: calc(var(--stage-px, 1px) * 13);
+  margin: calc(var(--stage-px, 1px) * -6.5) 0 0 calc(var(--stage-px, 1px) * -6.5);
+  border: calc(var(--stage-px, 1px) * 1.5) solid var(--blue-500);
+  border-radius: 50%;
+  background:
+    linear-gradient(var(--blue-500), var(--blue-500)) center / 100% calc(var(--stage-px, 1px) * 1.5) no-repeat,
+    linear-gradient(var(--blue-500), var(--blue-500)) center / calc(var(--stage-px, 1px) * 1.5) 100% no-repeat;
 }
 
 .output-feed-root {
@@ -3182,4 +3229,47 @@ html.renderless-output-embed #root,
 .inspector-toggle input[type='checkbox'] {
   width: auto;
   accent-color: var(--blue-500);
+}
+
+/* Anchor point picker (3×3) */
+.anchor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.anchor-row__hint {
+  font-size: 11px;
+  line-height: 1.35;
+  color: #8a8a8a;
+}
+
+.anchor-picker {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, 16px);
+  grid-template-rows: repeat(3, 16px);
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid #333;
+  background: #1a1a1a;
+}
+
+.anchor-picker__point {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #555;
+  background: transparent;
+  cursor: pointer;
+}
+
+.anchor-picker__point:hover {
+  border-color: #aaa;
+}
+
+.anchor-picker__point--active {
+  background: var(--blue-500);
+  border-color: var(--blue-500);
 }

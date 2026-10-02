@@ -16,6 +16,9 @@ import {
 } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
 import { TextBoxInspector } from '../components/TextBoxInspector'
+import { NumberField } from '../components/NumberField'
+import { AnchorPicker } from '../components/AnchorPicker'
+import { anchorPosition, anchorPresetOf, type AnchorPresetId } from '../lib/layerAnchor'
 import { LAYER_BLEND_MODES, type DataBindingKey, type LayerBlendMode, type SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 import { resolveBindingValue } from '../lib/bindings'
@@ -27,6 +30,7 @@ import {
   MEDIA_LIBRARY_UPDATED_EVENT,
   invalidateMediaEntriesCache,
   persistMediaEntries,
+  isPlaceableImageEntry,
   readMediaEntries,
   readMediaEntriesAsync,
   registerFontEntries,
@@ -81,10 +85,6 @@ function inferMetricLabel(option: BindingOption): string {
   return option.label
 }
 
-const toNumberOrNull = (value: string) => {
-  const numberValue = Number(value)
-  return Number.isFinite(numberValue) ? numberValue : null
-}
 const asPercent = (opacity: number) => Math.round(opacity * 100)
 const fromPercent = (percent: number) => Math.min(Math.max(percent, 0), 100) / 100
 const slugify = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'template-package'
@@ -108,29 +108,17 @@ function downloadTemplatePackageFile(templatePackage: TemplatePackage) {
   window.URL.revokeObjectURL(url)
 }
 
-function mixedNumber(layers: SceneLayer[], field: 'x' | 'y' | 'width' | 'height'): string {
-  if (layers.length === 0) return ''
-  const first = layers[0][field]
-  return layers.every((layer) => layer[field] === first) ? String(first) : ''
+/** The shared value across the selection, or null when layers differ ("mixed"). */
+function mixedValue(layers: SceneLayer[], read: (layer: SceneLayer) => number): number | null {
+  if (layers.length === 0) return null
+  const first = read(layers[0])
+  return layers.every((layer) => read(layer) === first) ? first : null
 }
 
-function mixedTransform(layers: SceneLayer[], field: 'rotation' | 'anchorX' | 'anchorY' | 'scaleX' | 'scaleY'): string {
-  if (layers.length === 0) return ''
-  const map = (layer: SceneLayer) => {
-    if (field === 'rotation') return layer.rotation ?? 0
-    if (field === 'anchorX') return layer.anchorX ?? 0
-    if (field === 'anchorY') return layer.anchorY ?? 0
-    if (field === 'scaleX') return layer.scaleX ?? 100
-    return layer.scaleY ?? 100
-  }
-  const first = map(layers[0])
-  return layers.every((layer) => map(layer) === first) ? String(first) : ''
-}
-
-function mixedOpacity(layers: SceneLayer[]): string {
-  if (layers.length === 0) return ''
-  const first = asPercent(layers[0].opacity)
-  return layers.every((layer) => asPercent(layer.opacity) === first) ? String(first) : ''
+function mixedAnchorPreset(layers: SceneLayer[]): AnchorPresetId | null {
+  if (layers.length === 0) return null
+  const first = anchorPresetOf(layers[0])
+  return layers.every((layer) => anchorPresetOf(layer) === first) ? first : null
 }
 
 export function DesignPage() {
@@ -142,6 +130,8 @@ export function DesignPage() {
   const movePreviewLayersByDelta = usePlayoutStore((state) => state.movePreviewLayersByDelta)
   const updatePreviewLayerTransform = usePlayoutStore((state) => state.updatePreviewLayerTransform)
   const updatePreviewLayersTransform = usePlayoutStore((state) => state.updatePreviewLayersTransform)
+  const setPreviewLayersPosition = usePlayoutStore((state) => state.setPreviewLayersPosition)
+  const setPreviewLayersAnchor = usePlayoutStore((state) => state.setPreviewLayersAnchor)
   const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
   const updatePreviewTextStyle = usePlayoutStore((state) => state.updatePreviewTextStyle)
   const updatePreviewLayerBlendMode = usePlayoutStore((state) => state.updatePreviewLayerBlendMode)
@@ -174,7 +164,8 @@ export function DesignPage() {
   const [versionToRestore, setVersionToRestore] = useState('')
   const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select')
   const [sidebarTab, setSidebarTab] = useState<'layers' | 'assets'>('layers')
-  const [showGrid, setShowGrid] = useState(true)
+  const [showGrid, setShowGrid] = useState(false)
+  const [showSafeZones, setShowSafeZones] = useState(false)
   const [showRulers, setShowRulers] = useState(false)
   const [showGuides, setShowGuides] = useState(false)
   const [snapToGrid, setSnapToGrid] = useState(true)
@@ -512,7 +503,8 @@ export function DesignPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const tag = (document.activeElement as HTMLElement | null)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const active = document.activeElement as HTMLElement | null
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || active?.isContentEditable) return
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault()
         if (event.shiftKey) redoPreviewScene()
@@ -534,6 +526,7 @@ export function DesignPage() {
 
       let deltaX = 0
       let deltaY = 0
+      // Nudges are exact (1px, or 10px with Shift); grid snapping applies to dragging only.
       const nudgeBy = event.shiftKey ? GRID_SNAP_STEP : 1
 
       if (event.key === 'ArrowLeft') deltaX = -nudgeBy
@@ -543,12 +536,12 @@ export function DesignPage() {
 
       if (deltaX !== 0 || deltaY !== 0) {
         event.preventDefault()
-        movePreviewLayersByDelta(selectedIds, { x: deltaX, y: deltaY }, snapToGrid)
+        movePreviewLayersByDelta(selectedIds, { x: deltaX, y: deltaY }, false)
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [activeSelectedLayerIds, interactionMode, movePreviewLayersByDelta, redoPreviewScene, snapToGrid, undoPreviewScene])
+  }, [activeSelectedLayerIds, interactionMode, movePreviewLayersByDelta, redoPreviewScene, undoPreviewScene])
 
   const handleLayerSelection = (layerId: string, modifiers?: SelectionModifiers) => {
     if (!layerId) {
@@ -572,23 +565,27 @@ export function DesignPage() {
     if (!range) setSelectionAnchorId(layerId)
   }
 
-  const commitTransform = (field: 'x' | 'y' | 'width' | 'height', value: string) => {
-    const numberValue = toNumberOrNull(value)
-    if (numberValue === null || selectedLayers.length === 0) return
-
-    const shouldSnap = snapToGrid && (field === 'x' || field === 'y' || field === 'width' || field === 'height')
-    const normalizedValue = shouldSnap ? Math.round(numberValue / GRID_SNAP_STEP) * GRID_SNAP_STEP : numberValue
+  // Typed values apply exactly; grid snapping is for dragging only.
+  const commitPosition = (field: 'x' | 'y', value: number) => {
+    if (selectedLayers.length === 0) return
+    setPreviewLayersPosition(activeSelectedLayerIds, { [field]: value })
+  }
+  const commitAnchor = (field: 'x' | 'y', value: number) => {
+    if (selectedLayers.length === 0) return
+    setPreviewLayersAnchor(activeSelectedLayerIds, { [field]: value })
+  }
+  const commitTransform = (field: 'width' | 'height', numberValue: number) => {
+    if (selectedLayers.length === 0) return
 
     if (selectedLayers.length === 1 && primarySelectedLayer) {
-      updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: normalizedValue })
+      updatePreviewLayerTransform(primarySelectedLayer.id, { [field]: numberValue })
       return
     }
 
-    updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: normalizedValue })
+    updatePreviewLayersTransform(activeSelectedLayerIds, { [field]: numberValue })
   }
-  const commitAdvanced = (field: 'rotation' | 'anchorX' | 'anchorY' | 'scaleX' | 'scaleY' | 'opacity', value: string) => {
-    const numberValue = toNumberOrNull(value)
-    if (numberValue === null || selectedLayers.length === 0) return
+  const commitAdvanced = (field: 'rotation' | 'scaleX' | 'scaleY' | 'opacity', numberValue: number) => {
+    if (selectedLayers.length === 0) return
 
     const normalizedValue = field === 'opacity' ? fromPercent(numberValue) : numberValue
 
@@ -715,6 +712,10 @@ export function DesignPage() {
     const entry = assetEntries.find((asset) => asset.id === entryId)
     if (!entry || !entry.dataUrl) {
       setTransientStatus('Asset missing data URL. Re-import from Dashboard.')
+      return
+    }
+    if (!isPlaceableImageEntry(entry)) {
+      setTransientStatus(`${entry.name} is not an image. Import .ai/.pdf files from Templates > Import File.`, 4000)
       return
     }
 
@@ -962,6 +963,16 @@ export function DesignPage() {
             </button>
             <button
               type="button"
+              className={`btn btn--small ${showSafeZones ? 'btn--accent-soft' : 'btn--ghost'}`}
+              onClick={() => {
+                setShowSafeZones((prev) => !prev)
+                setTransientStatus(showSafeZones ? 'Safe zones hidden.' : 'Safe zones shown.', 1100)
+              }}
+            >
+              Safe
+            </button>
+            <button
+              type="button"
               className={`btn btn--small ${showGrid ? 'btn--accent-soft' : 'btn--ghost'}`}
               onClick={() => {
                 setShowGrid((prev) => !prev)
@@ -1006,6 +1017,7 @@ export function DesignPage() {
               showGrid={showGrid}
               showRulers={showRulers}
               showGuides={showGuides}
+              showSafeZone={showSafeZones}
               snapToGrid={snapToGrid}
             />
           </div>
@@ -1087,34 +1099,20 @@ export function DesignPage() {
                   </label>
                   <label>
                     Font Size
-                    <input
-                      className="mono"
-                      type="number"
+                    <NumberField
                       min={8}
                       value={primarySelectedLayer.fontSize}
-                      onChange={(event) => {
-                        const numberValue = toNumberOrNull(event.target.value)
-                        if (numberValue !== null) {
-                          updatePreviewTextStyle(primarySelectedLayer.id, { fontSize: numberValue })
-                        }
-                      }}
+                      onCommit={(value) => updatePreviewTextStyle(primarySelectedLayer.id, { fontSize: value })}
                     />
                   </label>
                   <label>
                     Line Height
-                    <input
-                      className="mono"
-                      type="number"
+                    <NumberField
                       min={0.5}
                       max={4}
                       step={0.05}
                       value={primarySelectedLayer.lineHeight ?? 1}
-                      onChange={(event) => {
-                        const numberValue = toNumberOrNull(event.target.value)
-                        if (numberValue !== null) {
-                          updatePreviewTextStyle(primarySelectedLayer.id, { lineHeight: numberValue })
-                        }
-                      }}
+                      onCommit={(value) => updatePreviewTextStyle(primarySelectedLayer.id, { lineHeight: value })}
                     />
                   </label>
                   <label>
@@ -1141,17 +1139,24 @@ export function DesignPage() {
               ) : null}
               <div className="inspector-section">
                 <div className="inspector-section__label">Transform</div>
+                <div className="anchor-row">
+                  <AnchorPicker
+                    value={mixedAnchorPreset(selectedLayers)}
+                    onChange={(preset) => setPreviewLayersAnchor(activeSelectedLayerIds, { preset })}
+                  />
+                  <div className="anchor-row__hint">Anchor point. X and Y are where the anchor sits; picking a point never moves the layer.</div>
+                </div>
                 <div className="transform-grid">
-                  <label>X<input className="mono" type="number" value={mixedNumber(selectedLayers, 'x')} placeholder="mixed" onChange={(event) => commitTransform('x', event.target.value)} /></label>
-                  <label>Y<input className="mono" type="number" value={mixedNumber(selectedLayers, 'y')} placeholder="mixed" onChange={(event) => commitTransform('y', event.target.value)} /></label>
-                  <label>W<input className="mono" type="number" min={1} value={mixedNumber(selectedLayers, 'width')} placeholder="mixed" onChange={(event) => commitTransform('width', event.target.value)} /></label>
-                  <label>H<input className="mono" type="number" min={1} value={mixedNumber(selectedLayers, 'height')} placeholder="mixed" onChange={(event) => commitTransform('height', event.target.value)} /></label>
-                  <label>Scale X<input className="mono" type="number" value={mixedTransform(selectedLayers, 'scaleX')} placeholder="mixed" onChange={(event) => commitAdvanced('scaleX', event.target.value)} /></label>
-                  <label>Scale Y<input className="mono" type="number" value={mixedTransform(selectedLayers, 'scaleY')} placeholder="mixed" onChange={(event) => commitAdvanced('scaleY', event.target.value)} /></label>
-                  <label>Anchor X<input className="mono" type="number" value={mixedTransform(selectedLayers, 'anchorX')} placeholder="mixed" onChange={(event) => commitAdvanced('anchorX', event.target.value)} /></label>
-                  <label>Anchor Y<input className="mono" type="number" value={mixedTransform(selectedLayers, 'anchorY')} placeholder="mixed" onChange={(event) => commitAdvanced('anchorY', event.target.value)} /></label>
-                  <label>Rotation<input className="mono" type="number" value={mixedTransform(selectedLayers, 'rotation')} placeholder="mixed" onChange={(event) => commitAdvanced('rotation', event.target.value)} /></label>
-                  <label>Opacity<input className="mono" type="number" min={0} max={100} value={mixedOpacity(selectedLayers)} placeholder="mixed" onChange={(event) => commitAdvanced('opacity', event.target.value)} /></label>
+                  <label>X<NumberField value={mixedValue(selectedLayers, (layer) => anchorPosition(layer).x)} placeholder="mixed" onCommit={(value) => commitPosition('x', value)} /></label>
+                  <label>Y<NumberField value={mixedValue(selectedLayers, (layer) => anchorPosition(layer).y)} placeholder="mixed" onCommit={(value) => commitPosition('y', value)} /></label>
+                  <label>W<NumberField min={1} value={mixedValue(selectedLayers, (layer) => layer.width)} placeholder="mixed" onCommit={(value) => commitTransform('width', value)} /></label>
+                  <label>H<NumberField min={1} value={mixedValue(selectedLayers, (layer) => layer.height)} placeholder="mixed" onCommit={(value) => commitTransform('height', value)} /></label>
+                  <label>Anchor X<NumberField value={mixedValue(selectedLayers, (layer) => layer.anchorX ?? 0)} placeholder="mixed" onCommit={(value) => commitAnchor('x', value)} /></label>
+                  <label>Anchor Y<NumberField value={mixedValue(selectedLayers, (layer) => layer.anchorY ?? 0)} placeholder="mixed" onCommit={(value) => commitAnchor('y', value)} /></label>
+                  <label>Scale X<NumberField value={mixedValue(selectedLayers, (layer) => layer.scaleX ?? 100)} placeholder="mixed" onCommit={(value) => commitAdvanced('scaleX', value)} /></label>
+                  <label>Scale Y<NumberField value={mixedValue(selectedLayers, (layer) => layer.scaleY ?? 100)} placeholder="mixed" onCommit={(value) => commitAdvanced('scaleY', value)} /></label>
+                  <label>Rotation<NumberField value={mixedValue(selectedLayers, (layer) => layer.rotation ?? 0)} placeholder="mixed" onCommit={(value) => commitAdvanced('rotation', value)} /></label>
+                  <label>Opacity<NumberField min={0} max={100} value={mixedValue(selectedLayers, (layer) => asPercent(layer.opacity))} placeholder="mixed" onCommit={(value) => commitAdvanced('opacity', value)} /></label>
                 </div>
                 {primarySelectedLayer && selectedLayers.length === 1 ? (
                   <label>

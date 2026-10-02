@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { anchorForPreset, boxPositionForAnchorPosition, withAnchor } from '../lib/layerAnchor'
+import type { AnchorPresetId } from '../lib/layerAnchor'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
 import type {
   DataBindingKey,
@@ -189,6 +191,10 @@ interface PlayoutStore {
   reorderPreviewLayer: (layerId: string, direction: 'forward' | 'backward') => void
   reorderPreviewLayerToIndex: (layerId: string, targetIndex: number) => void
   updatePreviewLayersTransform: (layerIds: string[], patch: SceneTransformPatch) => void
+  /** Sets where each layer's anchor point sits on the canvas (the position the editor shows). */
+  setPreviewLayersPosition: (layerIds: string[], position: { x?: number; y?: number }) => void
+  /** Moves each layer's anchor point without moving its artwork. */
+  setPreviewLayersAnchor: (layerIds: string[], anchor: { preset: AnchorPresetId } | { x?: number; y?: number }) => void
   movePreviewLayersByDelta: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
   alignPreviewLayers: (layerIds: string[], mode: LayerAlignMode, snapToGrid?: boolean) => void
   distributePreviewLayers: (layerIds: string[], axis: LayerDistributeAxis, snapToGrid?: boolean) => void
@@ -798,8 +804,15 @@ function applyTransformPatchToLayer(layer: SceneDefinition['layers'][number], pa
     return layer
   }
 
-  const nextAnchorX = Number.isFinite(patch.anchorX) ? Math.round(Math.max(0, patch.anchorX ?? layer.anchorX ?? 0)) : layer.anchorX
-  const nextAnchorY = Number.isFinite(patch.anchorY) ? Math.round(Math.max(0, patch.anchorY ?? layer.anchorY ?? 0)) : layer.anchorY
+  const nextWidth = Number.isFinite(patch.width) ? Math.round(Math.max(1, patch.width ?? layer.width)) : layer.width
+  const nextHeight = Number.isFinite(patch.height) ? Math.round(Math.max(1, patch.height ?? layer.height)) : layer.height
+  // Resizing keeps the anchor at the same relative spot (a centered anchor stays centered).
+  const nextAnchorX = Number.isFinite(patch.anchorX)
+    ? Math.round((patch.anchorX ?? 0) * 100) / 100
+    : layer.anchorX && nextWidth !== layer.width ? Math.round(((layer.anchorX * nextWidth) / layer.width) * 100) / 100 : layer.anchorX
+  const nextAnchorY = Number.isFinite(patch.anchorY)
+    ? Math.round((patch.anchorY ?? 0) * 100) / 100
+    : layer.anchorY && nextHeight !== layer.height ? Math.round(((layer.anchorY * nextHeight) / layer.height) * 100) / 100 : layer.anchorY
   const nextScaleX = Number.isFinite(patch.scaleX)
     ? Math.round(Math.min(Math.max(patch.scaleX ?? layer.scaleX ?? 100, 1), 1000))
     : layer.scaleX
@@ -817,8 +830,8 @@ function applyTransformPatchToLayer(layer: SceneDefinition['layers'][number], pa
     ...layer,
     x: Number.isFinite(patch.x) ? Math.round(Math.max(0, patch.x ?? layer.x)) : layer.x,
     y: Number.isFinite(patch.y) ? Math.round(Math.max(0, patch.y ?? layer.y)) : layer.y,
-    width: Number.isFinite(patch.width) ? Math.round(Math.max(1, patch.width ?? layer.width)) : layer.width,
-    height: Number.isFinite(patch.height) ? Math.round(Math.max(1, patch.height ?? layer.height)) : layer.height,
+    width: nextWidth,
+    height: nextHeight,
     rotation: nextRotation,
     anchorX: nextAnchorX,
     anchorY: nextAnchorY,
@@ -1488,6 +1501,39 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           layers: scene.layers.map((layer) => (selectedIdSet.has(layer.id) ? applyTransformPatchToLayer(layer, patch) : layer)),
         }
       })
+    },
+    setPreviewLayersPosition: (layerIds, position) => {
+      if (layerIds.length === 0) {
+        return
+      }
+
+      const selectedIdSet = new Set(layerIds)
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) =>
+          selectedIdSet.has(layer.id) && !layer.locked ? { ...layer, ...boxPositionForAnchorPosition(layer, position) } : layer,
+        ),
+      }))
+    },
+    setPreviewLayersAnchor: (layerIds, anchor) => {
+      if (layerIds.length === 0) {
+        return
+      }
+
+      const selectedIdSet = new Set(layerIds)
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => {
+          if (!selectedIdSet.has(layer.id) || layer.locked) {
+            return layer
+          }
+          const next =
+            'preset' in anchor
+              ? anchorForPreset(layer, anchor.preset)
+              : { x: anchor.x ?? layer.anchorX ?? 0, y: anchor.y ?? layer.anchorY ?? 0 }
+          return withAnchor(layer, next)
+        }),
+      }))
     },
     movePreviewLayersByDelta: (layerIds, delta, snapToGrid = false) => {
       if (layerIds.length === 0) {

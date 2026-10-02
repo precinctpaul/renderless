@@ -25,6 +25,7 @@ import {
   FONT_STORAGE_KEY,
   MEDIA_LIBRARY_UPDATED_EVENT,
   buildEntriesFromFiles,
+  isDesignFileName,
   invalidateMediaEntriesCache,
   persistMediaEntries,
   readMediaEntries,
@@ -871,6 +872,7 @@ export function DashboardPage() {
     }
 
     const { entries, rejectedFiles } = await buildEntriesFromFiles(filesArray, 'asset', effectiveSelectedAssetFolder)
+    const designFiles = rejectedFiles.filter((name) => isDesignFileName(name))
     const batchTags = parseBatchTags(batchTagDraft)
     const taggedEntries = entries.map((entry) => ({
       ...entry,
@@ -878,12 +880,18 @@ export function DashboardPage() {
     }))
     const nextEntries = [...taggedEntries, ...assetEntries]
     persistAssets(nextEntries)
+    const uploadSummary = formatUploadResult({
+      kind: 'assets',
+      imported: taggedEntries.length,
+      rejected: rejectedFiles.length,
+    })
     setTransientStatus(
-      formatUploadResult({
-        kind: 'assets',
-        imported: taggedEntries.length,
-        rejected: rejectedFiles.length,
-      }),
+      designFiles.length > 0
+        ? `${uploadSummary} Media takes images only (PNG, JPG, WebP, SVG, GIF). Import ${designFiles.join(', ')} from Templates > Import File.`
+        : rejectedFiles.length > 0
+          ? `${uploadSummary} Media takes images only (PNG, JPG, WebP, SVG, GIF).`
+          : uploadSummary,
+      6000,
     )
     setBatchTagDraft('')
     setIsBusy(false)
@@ -1147,7 +1155,7 @@ export function DashboardPage() {
       ? '.json,.rltpl,.rltpl.json,.ai,.pdf,.psd,.lottie,.lottie.zip,.zip'
       : activeMode === 'Typography'
         ? '.ttf,.otf,.woff,.woff2'
-        : '*/*'
+        : 'image/*,.png,.jpg,.jpeg,.gif,.webp,.avif,.svg'
   const activeExplorerKind: ExplorerKind = activeMode === 'Typography' ? 'fonts' : 'assets'
   const usedAssetIds = useMemo(() => {
     const used = new Set<string>()

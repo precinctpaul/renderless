@@ -134,12 +134,13 @@ describe('Milestone 13 operator click-path regressions', () => {
 
     const xInput = screen.getByLabelText('X') as HTMLInputElement
     fireEvent.change(xInput, { target: { value: '123' } })
+    // Typed values apply exactly; snapping is for dragging only.
     expect(
       usePlayoutStore
         .getState()
         .previewScene.layers.find((layer) => layer.id === createdLayer?.id)
         ?.x,
-    ).toBe(120)
+    ).toBe(123)
 
     await user.click(screen.getByRole('button', { name: /Left/i }))
     expect(

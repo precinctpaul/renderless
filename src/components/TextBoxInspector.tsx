@@ -1,4 +1,5 @@
 import type { TextBoxStyle } from '../types/scene'
+import { NumberField } from './NumberField'
 
 /** New boxes default to the brand's near-black (#111111) with comfortable padding. */
 const DEFAULT_TEXT_BOX: TextBoxStyle = {
@@ -13,11 +14,6 @@ const DEFAULT_TEXT_BOX: TextBoxStyle = {
 interface TextBoxInspectorProps {
   box: TextBoxStyle | undefined
   onChange: (box: TextBoxStyle | null) => void
-}
-
-function toNumber(raw: string): number | null {
-  const value = Number(raw)
-  return raw.trim() !== '' && Number.isFinite(value) ? value : null
 }
 
 export function TextBoxInspector({ box, onChange }: TextBoxInspectorProps) {
@@ -37,41 +33,26 @@ export function TextBoxInspector({ box, onChange }: TextBoxInspectorProps) {
           <div className="transform-grid">
             <label>
               Padding H
-              <input
-                className="mono"
-                type="number"
+              <NumberField
                 min={0}
                 value={Math.round((box.paddingLeft + box.paddingRight) / 2)}
-                onChange={(event) => {
-                  const value = toNumber(event.target.value)
-                  if (value !== null) onChange({ ...box, paddingLeft: value, paddingRight: value })
-                }}
+                onCommit={(value) => onChange({ ...box, paddingLeft: value, paddingRight: value })}
               />
             </label>
             <label>
               Padding V
-              <input
-                className="mono"
-                type="number"
+              <NumberField
                 min={0}
                 value={Math.round((box.paddingTop + box.paddingBottom) / 2)}
-                onChange={(event) => {
-                  const value = toNumber(event.target.value)
-                  if (value !== null) onChange({ ...box, paddingTop: value, paddingBottom: value })
-                }}
+                onCommit={(value) => onChange({ ...box, paddingTop: value, paddingBottom: value })}
               />
             </label>
             <label>
               Radius
-              <input
-                className="mono"
-                type="number"
+              <NumberField
                 min={0}
                 value={box.radius ?? 0}
-                onChange={(event) => {
-                  const value = toNumber(event.target.value)
-                  if (value !== null) onChange({ ...box, radius: Math.max(0, value) })
-                }}
+                onCommit={(value) => onChange({ ...box, radius: Math.max(0, value) })}
               />
             </label>
           </div>

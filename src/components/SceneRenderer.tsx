@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useElementSize } from '../hooks/useElementSize'
 import type { SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
@@ -20,6 +20,8 @@ interface SceneRendererProps {
   snapToGrid?: boolean
   stageOffsetPx?: { x: number; y: number }
   stageZoomMultiplier?: number
+  /** Screen space reserved at the top/left (e.g. for rulers); the stage fits in what remains. */
+  fitInsetPx?: { top: number; left: number }
   onSelectLayer?: (
     layerId: string,
     modifiers?: {
@@ -31,6 +33,19 @@ interface SceneRendererProps {
   onMoveLayers?: (layerIds: string[], delta: { x: number; y: number }, snapToGrid?: boolean) => void
   onPanBy?: (delta: { x: number; y: number }) => void
   onAssetDrop?: (entryId: string, position: { x: number; y: number }) => void
+  /** Editor overlays (rulers, grid, guides) drawn in screen pixels, aligned to the stage. */
+  renderOverlay?: (geometry: StageGeometry) => ReactNode
+}
+
+/** Where the scene's stage sits inside the renderer, in screen pixels. */
+export interface StageGeometry {
+  scale: number
+  stageLeftPx: number
+  stageTopPx: number
+  stageWidthPx: number
+  stageHeightPx: number
+  containerWidth: number
+  containerHeight: number
 }
 
 interface DragState {
@@ -38,6 +53,17 @@ interface DragState {
   layerIds: string[]
   lastClientX: number
   lastClientY: number
+  /** Scene-unit movement not yet applied (sub-pixel or below the snap step). */
+  pendingX: number
+  pendingY: number
+}
+
+const DRAG_SNAP_STEP = 10
+
+/** Splits accumulated drag movement into the part to apply now and the remainder to keep. */
+function takeDragStep(pending: number, snap: boolean): number {
+  if (snap) return Math.round(pending / DRAG_SNAP_STEP) * DRAG_SNAP_STEP
+  return Math.trunc(pending)
 }
 
 function resolveText(layer: TextLayer, story: StoryState): string {
@@ -142,29 +168,35 @@ export function SceneRenderer({
   snapToGrid = false,
   stageOffsetPx,
   stageZoomMultiplier = 1,
+  fitInsetPx,
   onSelectLayer,
   onMoveLayers,
   onPanBy,
   onAssetDrop,
+  renderOverlay,
 }: SceneRendererProps) {
   const [containerRef, containerSize] = useElementSize<HTMLDivElement>()
   const dragStateRef = useRef<DragState | null>(null)
   const [dragMode, setDragMode] = useState<'none' | 'pan' | 'layers'>('none')
   const scaleRef = useRef(1)
 
-  const stageGeometry = useMemo(() => {
+  const stageGeometry = useMemo((): StageGeometry => {
     const sceneWidth = Math.max(1, scene.width)
     const sceneHeight = Math.max(1, scene.height)
-    const widthScale = containerSize.width / sceneWidth
-    const heightScale = containerSize.height / sceneHeight
+    const insetLeft = fitInsetPx?.left ?? 0
+    const insetTop = fitInsetPx?.top ?? 0
+    const availableWidth = Math.max(1, containerSize.width - insetLeft)
+    const availableHeight = Math.max(1, containerSize.height - insetTop)
+    const widthScale = availableWidth / sceneWidth
+    const heightScale = availableHeight / sceneHeight
     const fitScale = Math.min(widthScale, heightScale)
     const zoom = Number.isFinite(stageZoomMultiplier) ? Math.max(stageZoomMultiplier, 0.05) : 1
     const baseScale = !Number.isFinite(fitScale) || fitScale <= 0 ? 1 : fitScale
     const scale = baseScale * zoom
     const stageWidthPx = sceneWidth * scale
     const stageHeightPx = sceneHeight * scale
-    const stageLeftPx = (containerSize.width - stageWidthPx) / 2 + (stageOffsetPx?.x ?? 0)
-    const stageTopPx = (containerSize.height - stageHeightPx) / 2 + (stageOffsetPx?.y ?? 0)
+    const stageLeftPx = insetLeft + (availableWidth - stageWidthPx) / 2 + (stageOffsetPx?.x ?? 0)
+    const stageTopPx = insetTop + (availableHeight - stageHeightPx) / 2 + (stageOffsetPx?.y ?? 0)
 
     return {
       scale,
@@ -172,8 +204,10 @@ export function SceneRenderer({
       stageTopPx,
       stageWidthPx,
       stageHeightPx,
+      containerWidth: containerSize.width,
+      containerHeight: containerSize.height,
     }
-  }, [containerSize.height, containerSize.width, scene.height, scene.width, stageOffsetPx?.x, stageOffsetPx?.y, stageZoomMultiplier])
+  }, [containerSize.height, containerSize.width, fitInsetPx?.left, fitInsetPx?.top, scene.height, scene.width, stageOffsetPx?.x, stageOffsetPx?.y, stageZoomMultiplier])
 
   const scale = stageGeometry.scale
   const actionSafeVisible = showActionSafe ?? showSafeZone
@@ -214,14 +248,16 @@ export function SceneRenderer({
       }
 
       const sceneScale = scaleRef.current || 1
-      onMoveLayers?.(
-        dragState.layerIds,
-        {
-          x: deltaClientX / sceneScale,
-          y: deltaClientY / sceneScale,
-        },
-        snapToGrid,
-      )
+      dragState.pendingX += deltaClientX / sceneScale
+      dragState.pendingY += deltaClientY / sceneScale
+      const stepX = takeDragStep(dragState.pendingX, snapToGrid)
+      const stepY = takeDragStep(dragState.pendingY, snapToGrid)
+      if (stepX === 0 && stepY === 0) {
+        return
+      }
+      dragState.pendingX -= stepX
+      dragState.pendingY -= stepY
+      onMoveLayers?.(dragState.layerIds, { x: stepX, y: stepY }, snapToGrid)
     }
 
     const handleUp = () => {
@@ -287,6 +323,8 @@ export function SceneRenderer({
             layerIds: [],
             lastClientX: event.clientX,
             lastClientY: event.clientY,
+            pendingX: 0,
+            pendingY: 0,
           }
           setDragMode('pan')
           return
@@ -308,6 +346,8 @@ export function SceneRenderer({
           top: `${stageGeometry.stageTopPx.toFixed(2)}px`,
           transform: `scale(${stageGeometry.scale})`,
           background: scene.background,
+          // Lets editor lines inside the scaled stage stay 1 screen pixel thick at any zoom.
+          ['--stage-px' as string]: `${1 / (stageGeometry.scale || 1)}px`,
         }}
       >
         {scene.layers.map((layer) => (
@@ -328,6 +368,8 @@ export function SceneRenderer({
                   layerIds: [],
                   lastClientX: event.clientX,
                   lastClientY: event.clientY,
+                  pendingX: 0,
+                  pendingY: 0,
                 }
                 setDragMode('pan')
                 return
@@ -350,6 +392,8 @@ export function SceneRenderer({
                 layerIds: dragLayerIds,
                 lastClientX: event.clientX,
                 lastClientY: event.clientY,
+                pendingX: 0,
+                pendingY: 0,
               }
               setDragMode('layers')
             }}
@@ -390,19 +434,30 @@ export function SceneRenderer({
           />
         ) : null}
 
-        {selectedLayers.map((selectedLayer) => (
-          <div
-            key={selectedLayer.id}
-            className="scene-renderer__selection"
-            style={{
-              left: selectedLayer.x,
-              top: selectedLayer.y,
-              width: selectedLayer.width,
-              height: selectedLayer.height,
-            }}
-          />
-        ))}
+        {selectedLayers.map((selectedLayer) => {
+          const { transformOrigin, transform } = layerStyle(selectedLayer)
+          return (
+            <div
+              key={selectedLayer.id}
+              className="scene-renderer__selection"
+              style={{
+                left: selectedLayer.x,
+                top: selectedLayer.y,
+                width: selectedLayer.width,
+                height: selectedLayer.height,
+                transformOrigin,
+                transform,
+              }}
+            >
+              <div
+                className="scene-renderer__anchor"
+                style={{ left: selectedLayer.anchorX ?? 0, top: selectedLayer.anchorY ?? 0 }}
+              />
+            </div>
+          )
+        })}
       </div>
+      {renderOverlay ? <div className="scene-renderer__overlay">{renderOverlay(stageGeometry)}</div> : null}
     </div>
   )
 }

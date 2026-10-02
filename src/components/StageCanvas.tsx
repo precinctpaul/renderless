@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SceneRenderer } from './SceneRenderer'
+import type { StageGeometry } from './SceneRenderer'
 import type { SceneDefinition, StoryState } from '../types/scene'
 
 interface StageCanvasProps {
@@ -27,21 +28,113 @@ interface StageCanvasProps {
 
 interface RulerTick {
   value: number
-  percent: number
+  offsetPx: number
   major: boolean
 }
 
-function buildRulerTicks(limit: number): RulerTick[] {
-  const ticks: RulerTick[] = []
-  for (let value = 0; value <= limit; value += 50) {
-    ticks.push({
-      value,
-      percent: value / limit,
-      major: value % 100 === 0,
-    })
-  }
+const RULER_SIZE_PX = 18
+const RULER_INSET = { top: RULER_SIZE_PX + 6, left: RULER_SIZE_PX + 6 }
+const RULER_STEPS = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000]
+const GRID_STEPS = [10, 20, 50, 100, 200, 500, 1000]
+const RULER_LABEL_MIN_PX = 60
+const GRID_MIN_PX = 14
 
+function pickStep(steps: number[], scale: number, minPx: number): number {
+  return steps.find((step) => step * scale >= minPx) ?? steps[steps.length - 1]
+}
+
+/**
+ * Ticks in screen pixels for one ruler: `origin` is where scene 0 sits on screen, and the ruler
+ * covers `lengthPx` of screen, so labels always read real scene coordinates at any pan or zoom.
+ */
+function buildRulerTicks(origin: number, scale: number, lengthPx: number): RulerTick[] {
+  if (!(scale > 0) || lengthPx <= 0) return []
+  const major = pickStep(RULER_STEPS, scale, RULER_LABEL_MIN_PX)
+  const minor = major / 5
+  const first = Math.floor(-origin / scale / minor) * minor
+  const last = (lengthPx - origin) / scale
+  const ticks: RulerTick[] = []
+  for (let index = 0; first + index * minor <= last && index < 2000; index += 1) {
+    const value = Math.round((first + index * minor) * 1000) / 1000
+    ticks.push({ value, offsetPx: origin + value * scale, major: Math.abs(value / major - Math.round(value / major)) < 1e-6 })
+  }
   return ticks
+}
+
+function StageOverlay({
+  geometry,
+  scene,
+  showRulers,
+  showGuides,
+  showGrid,
+}: {
+  geometry: StageGeometry
+  scene: SceneDefinition
+  showRulers: boolean
+  showGuides: boolean
+  showGrid: boolean
+}) {
+  const { scale, stageLeftPx, stageTopPx, stageWidthPx, stageHeightPx, containerWidth, containerHeight } = geometry
+  const stageRect = { left: stageLeftPx, top: stageTopPx, width: stageWidthPx, height: stageHeightPx }
+  const gridStepPx = pickStep(GRID_STEPS, scale, GRID_MIN_PX) * scale
+  const horizontalTicks = showRulers ? buildRulerTicks(stageLeftPx, scale, containerWidth) : []
+  const verticalTicks = showRulers ? buildRulerTicks(stageTopPx, scale, containerHeight) : []
+
+  return (
+    <>
+      {showGrid ? (
+        <div
+          className="stage-grid"
+          style={{ ...stageRect, backgroundSize: `${gridStepPx}px ${gridStepPx}px` }}
+        />
+      ) : null}
+
+      {showGuides ? (
+        <div className="stage-guides" style={stageRect}>
+          {[1 / 3, 2 / 3].map((fraction) => (
+            <div key={`h${fraction}`} className="stage-guide stage-guide--h" style={{ top: Math.round(stageHeightPx * fraction) }} />
+          ))}
+          {[1 / 3, 2 / 3].map((fraction) => (
+            <div key={`v${fraction}`} className="stage-guide stage-guide--v" style={{ left: Math.round(stageWidthPx * fraction) }} />
+          ))}
+          <div className="stage-guide stage-guide--h stage-guide--center" style={{ top: Math.round(stageHeightPx / 2) }} />
+          <div className="stage-guide stage-guide--v stage-guide--center" style={{ left: Math.round(stageWidthPx / 2) }} />
+        </div>
+      ) : null}
+
+      {showRulers ? (
+        <>
+          <div className="stage-ruler stage-ruler--top mono" aria-hidden>
+            {horizontalTicks.map((tick) => (
+              <div
+                key={`h-${tick.value}`}
+                className={`stage-ruler__tick ${tick.major ? 'stage-ruler__tick--major' : ''}`.trim()}
+                style={{ left: Math.round(tick.offsetPx) }}
+              >
+                {tick.major ? <span>{tick.value}</span> : null}
+              </div>
+            ))}
+            <div className="stage-ruler__extent" style={{ left: stageLeftPx, width: stageWidthPx }} />
+          </div>
+          <div className="stage-ruler stage-ruler--left mono" aria-hidden>
+            {verticalTicks.map((tick) => (
+              <div
+                key={`v-${tick.value}`}
+                className={`stage-ruler__tick stage-ruler__tick--vertical ${tick.major ? 'stage-ruler__tick--major' : ''}`.trim()}
+                style={{ top: Math.round(tick.offsetPx) }}
+              >
+                {tick.major ? <span>{tick.value}</span> : null}
+              </div>
+            ))}
+            <div className="stage-ruler__extent stage-ruler__extent--vertical" style={{ top: stageTopPx, height: stageHeightPx }} />
+          </div>
+          <div className="stage-ruler__corner mono" aria-hidden>
+            {scene.width}×{scene.height}
+          </div>
+        </>
+      ) : null}
+    </>
+  )
 }
 
 export function StageCanvas({
@@ -49,8 +142,8 @@ export function StageCanvas({
   story,
   selectedLayerId,
   selectedLayerIds,
-  showGrid = true,
-  showSafeZone = true,
+  showGrid = false,
+  showSafeZone = false,
   showRulers = false,
   showGuides = false,
   snapToGrid = false,
@@ -62,9 +155,6 @@ export function StageCanvas({
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [stageOffset, setStageOffset] = useState({ x: 0, y: 0 })
   const [zoomMultiplier, setZoomMultiplier] = useState(1)
-
-  const horizontalTicks = useMemo(() => buildRulerTicks(scene.width), [scene.width])
-  const verticalTicks = useMemo(() => buildRulerTicks(scene.height), [scene.height])
 
   useEffect(() => {
     const node = canvasRef.current
@@ -92,45 +182,15 @@ export function StageCanvas({
   }, [])
 
   return (
-    <div ref={canvasRef} className="stage-canvas">
-      {showRulers ? (
-        <>
-          <div className="stage-ruler stage-ruler--top mono">
-            {horizontalTicks.map((tick) => (
-              <div
-                key={`h-${tick.value}`}
-                className={`stage-ruler__tick ${tick.major ? 'stage-ruler__tick--major' : ''}`.trim()}
-                style={{ left: `${tick.percent * 100}%` }}
-              >
-                {tick.major ? <span>{tick.value}</span> : null}
-              </div>
-            ))}
-          </div>
-          <div className="stage-ruler stage-ruler--left mono">
-            {verticalTicks.map((tick) => (
-              <div
-                key={`v-${tick.value}`}
-                className={`stage-ruler__tick stage-ruler__tick--vertical ${tick.major ? 'stage-ruler__tick--major' : ''}`.trim()}
-                style={{ top: `${tick.percent * 100}%` }}
-              >
-                {tick.major ? <span>{tick.value}</span> : null}
-              </div>
-            ))}
-          </div>
-        </>
-      ) : null}
-
-      {showGuides ? (
-        <div className="stage-guides">
-          <div className="stage-guide stage-guide--h stage-guide--center" style={{ top: '50%' }} />
-          <div className="stage-guide stage-guide--v stage-guide--center" style={{ left: '50%' }} />
-          <div className="stage-guide stage-guide--h" style={{ top: '33.333%' }} />
-          <div className="stage-guide stage-guide--h" style={{ top: '66.666%' }} />
-          <div className="stage-guide stage-guide--v" style={{ left: '33.333%' }} />
-          <div className="stage-guide stage-guide--v" style={{ left: '66.666%' }} />
-        </div>
-      ) : null}
-
+    <div
+      ref={canvasRef}
+      className={`stage-canvas ${showRulers ? 'stage-canvas--rulers' : ''}`.trim()}
+      onMouseDownCapture={() => {
+        // Clicking the canvas leaves inspector fields, so arrow keys nudge the selection.
+        const active = document.activeElement as HTMLElement | null
+        if (active && active !== document.body && canvasRef.current && !canvasRef.current.contains(active)) active.blur()
+      }}
+    >
       <SceneRenderer
         scene={scene}
         story={story}
@@ -148,7 +208,10 @@ export function StageCanvas({
         interactionMode={interactionMode}
         stageOffsetPx={stageOffset}
         stageZoomMultiplier={zoomMultiplier}
-        className={showGrid ? 'scene-renderer--grid' : ''}
+        fitInsetPx={showRulers ? RULER_INSET : undefined}
+        renderOverlay={(geometry) => (
+          <StageOverlay geometry={geometry} scene={scene} showRulers={showRulers} showGuides={showGuides} showGrid={showGrid} />
+        )}
       />
     </div>
   )

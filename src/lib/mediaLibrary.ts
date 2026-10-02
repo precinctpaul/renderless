@@ -86,6 +86,21 @@ export function isFontFileName(fileName: string): boolean {
   return /\.(ttf|otf|woff|woff2)$/i.test(fileName)
 }
 
+/** Images a browser can draw on the stage. */
+export function isImageFileName(fileName: string): boolean {
+  return /\.(png|jpe?g|gif|webp|avif|svg|bmp)$/i.test(fileName)
+}
+
+/** Design files that belong in the Templates importer, not the Media library. */
+export function isDesignFileName(fileName: string): boolean {
+  return /\.(ai|pdf|psd|eps|indd)$/i.test(fileName)
+}
+
+/** Whether a Media entry can be placed on the stage as an image layer. */
+export function isPlaceableImageEntry(entry: Pick<MediaLibraryEntry, 'name' | 'mime'>): boolean {
+  return entry.mime.startsWith('image/') ? !/^image\/(vnd\.adobe|x-photoshop)/.test(entry.mime) && !isDesignFileName(entry.name) : isImageFileName(entry.name)
+}
+
 function normalizeEntry(rawEntry: unknown, kind: MediaLibraryKind): MediaLibraryEntry | null {
   if (!rawEntry || typeof rawEntry !== 'object') {
     return null
@@ -370,6 +385,11 @@ export async function buildEntriesFromFiles(
 
   for (const file of files) {
     if (kind === 'font' && !isFontFileName(file.name)) {
+      rejectedFiles.push(file.name)
+      continue
+    }
+
+    if (kind === 'asset' && !isPlaceableImageEntry({ name: file.name, mime: file.type })) {
       rejectedFiles.push(file.name)
       continue
     }
