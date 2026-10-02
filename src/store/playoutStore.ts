@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
+import { acceptRemoteAsset, assetRefFromHash, collectAssetHashes, getCachedAsset, loadAsset, onAssetMissing } from '../lib/assetStore'
 import type {
   DataBindingKey,
   LayerBlendMode,
@@ -82,7 +83,7 @@ type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], {
 type TextStylePatch = Partial<
   Pick<
     Extract<SceneDefinition['layers'][number], { kind: 'text' }>,
-    'text' | 'fontSize' | 'color' | 'opacity' | 'fontFamily' | 'lineHeight' | 'align'
+    'text' | 'fontSize' | 'color' | 'opacity' | 'fontFamily' | 'lineHeight' | 'letterSpacing' | 'align'
   >
 > & {
   /** A box style to set, or null to remove the text box. */
@@ -132,6 +133,23 @@ interface RoomRetirePayload {
   type: 'renderless-room-retire'
   source: string
 }
+
+/** One image from the asset store, sent once per connection; receivers verify it against its hash. */
+interface AssetPayload {
+  type: 'renderless-asset'
+  source: string
+  hash: string
+  dataUrl: string
+}
+
+/** Asks the room (relay storage or a controller) for images this screen does not have yet. */
+interface AssetRequestPayload {
+  type: 'renderless-asset-request'
+  source: string
+  hashes: string[]
+}
+
+type RelayMessage = TransportSyncPayload | RoomRetirePayload | AssetPayload | AssetRequestPayload
 
 declare global {
   interface Window {
@@ -209,7 +227,7 @@ interface PlayoutStore {
   savePreviewTemplate: (name: string, options?: { asNew?: boolean }) => string | null
   createBlankTemplate: (name: string) => string | null
   exportTemplatePackage: (templateId: string) => TemplatePackage | null
-  exportPreviewTemplatePackage: () => TemplatePackage
+  exportPreviewTemplatePackage: (assets?: Record<string, string>) => TemplatePackage
   importTemplatePackage: (rawPackage: unknown) => { ok: boolean; templateId?: string; error?: string; migrationTrail?: string[] }
   importTemplateDefinition: (template: TemplateDefinition) => { ok: boolean; templateId?: string; error?: string }
   setTransportMode: (mode: TransportMode) => void
@@ -1563,6 +1581,9 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
             lineHeight: Number.isFinite(patch.lineHeight)
               ? Math.min(Math.max(patch.lineHeight ?? 1, 0.5), 4)
               : layer.lineHeight,
+            letterSpacing: Number.isFinite(patch.letterSpacing)
+              ? Math.min(Math.max(patch.letterSpacing ?? 0, -50), 200) || undefined
+              : layer.letterSpacing,
             align: patch.align === 'left' || patch.align === 'center' || patch.align === 'right' ? patch.align : layer.align,
             box:
               patch.box === null
@@ -1920,7 +1941,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
       return buildTemplatePackage(template, getSigningConfigFromState(state))
     },
-    exportPreviewTemplatePackage: () => {
+    exportPreviewTemplatePackage: (assets) => {
       const state = get()
       const activeTemplate = findTemplateById(state.templates, state.previewTemplateId)
       const fallbackTemplate: TemplateDefinition = {
@@ -1940,7 +1961,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         updatedAt: Date.now(),
       }
 
-      return buildTemplatePackage(fallbackTemplate, getSigningConfigFromState(state))
+      return buildTemplatePackage(fallbackTemplate, getSigningConfigFromState(state), assets)
     },
     importTemplatePackage: (rawPackage) => {
       const state = get()
@@ -1954,6 +1975,11 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           ok: false,
           error: parsedPackage.error,
         }
+      }
+
+      // Embedded images go into the asset store (each verified against its hash).
+      for (const [hash, dataUrl] of Object.entries(parsedPackage.value.assets ?? {})) {
+        void acceptRemoteAsset(hash, dataUrl)
       }
 
       const importedTemplate = templateFromPackage(parsedPackage.value)
@@ -2460,6 +2486,55 @@ if (typeof window !== 'undefined') {
   let reconnectAttempt = 0
   let lastPublishedSnapshotJson = ''
 
+  // Images are sent once per connection (the relay keeps a copy for late joiners).
+  const sentAssetHashes = new Set<string>()
+  const assetRequestTimes = new Map<string, number>()
+
+  const sendRelayMessage = (message: RelayMessage) => {
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+      return false
+    }
+    try {
+      websocket.send(JSON.stringify(message))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const sendAsset = async (hash: string) => {
+    const dataUrl = await loadAsset(assetRefFromHash(hash))
+    if (dataUrl && sendRelayMessage({ type: 'renderless-asset', source: INSTANCE_ID, hash, dataUrl })) {
+      sentAssetHashes.add(hash)
+    }
+  }
+
+  const publishAssetsForSnapshot = async (snapshot: PersistedPlayoutSnapshot) => {
+    if (isOutputViewerLocation()) {
+      return
+    }
+    for (const hash of collectAssetHashes(snapshot)) {
+      if (!sentAssetHashes.has(hash)) {
+        await sendAsset(hash)
+      }
+    }
+  }
+
+  const requestMissingAssets = (hashes: string[]) => {
+    const now = Date.now()
+    const due = hashes.filter((hash) => now - (assetRequestTimes.get(hash) ?? 0) > 5000)
+    if (due.length === 0) return
+    if (sendRelayMessage({ type: 'renderless-asset-request', source: INSTANCE_ID, hashes: due })) {
+      due.forEach((hash) => assetRequestTimes.set(hash, now))
+    }
+  }
+
+  const stopAssetMissingListener = onAssetMissing((hashes) => {
+    if (usePlayoutStore.getState().transportMode === 'ws') {
+      requestMissingAssets(hashes)
+    }
+  })
+
   const publishPayloadToWebSocket = (payload: TransportSyncPayload) => {
     if (!websocket || websocket.readyState !== WebSocket.OPEN) {
       return
@@ -2609,6 +2684,15 @@ if (typeof window !== 'undefined') {
 
         reconnectAttempt = 0
         usePlayoutStore.getState().setTransportStatus('online')
+        sentAssetHashes.clear()
+        assetRequestTimes.clear()
+        const visibleState = usePlayoutStore.getState()
+        const missing = [...collectAssetHashes([visibleState.programScene, visibleState.previewScene])].filter(
+          (hash) => !getCachedAsset(assetRefFromHash(hash)),
+        )
+        if (missing.length > 0) {
+          missing.forEach((hash) => void loadAsset(assetRefFromHash(hash)))
+        }
         if (isOutputViewerLocation()) {
           return
         }
@@ -2619,6 +2703,7 @@ if (typeof window !== 'undefined') {
           source: INSTANCE_ID,
           snapshot,
         })
+        void publishAssetsForSnapshot(snapshot)
       })
 
       nextSocket.addEventListener('message', (event) => {
@@ -2627,7 +2712,23 @@ if (typeof window !== 'undefined') {
         }
 
         try {
-          const message = JSON.parse(event.data) as Partial<TransportSyncPayload> | Partial<RoomRetirePayload>
+          const message = JSON.parse(event.data) as Partial<RelayMessage>
+          if (message.type === 'renderless-asset') {
+            const asset = message as Partial<AssetPayload>
+            if (typeof asset.hash === 'string' && typeof asset.dataUrl === 'string') {
+              void acceptRemoteAsset(asset.hash, asset.dataUrl)
+            }
+            return
+          }
+
+          if (message.type === 'renderless-asset-request') {
+            const request = message as Partial<AssetRequestPayload>
+            if (!isOutputViewerLocation() && Array.isArray(request.hashes)) {
+              request.hashes.filter((hash): hash is string => typeof hash === 'string').forEach((hash) => void sendAsset(hash))
+            }
+            return
+          }
+
           if (message.type === 'renderless-room-retire') {
             if (message.source !== INSTANCE_ID && isOutputViewerLocation()) {
               blankRetiredRoomViewer()
@@ -2701,6 +2802,7 @@ if (typeof window !== 'undefined') {
 
     channel?.postMessage(payload)
     publishPayloadToWebSocket(payload)
+    void publishAssetsForSnapshot(snapshot)
   })
 
   const onChannelMessage = (event: MessageEvent) => {
@@ -2831,6 +2933,7 @@ if (typeof window !== 'undefined') {
     isCleaningUp = true
     retireActiveRelayRoom = null
     reconcileTransportNow = null
+    stopAssetMissingListener()
     usePlayoutStore.getState().pauseSimulation()
     clearReconnect()
     unsubscribe()

@@ -79,6 +79,10 @@ export interface TextBoxStyle {
   paddingBottom: number
   paddingLeft: number
   radius?: number
+  /** When the box would get wider than this (px), the text scales down to fit instead. */
+  maxWidth?: number
+  /** Which edge stays put as lines are added: 'bottom' grows upward (lower thirds). Default 'center'. */
+  anchor?: 'top' | 'center' | 'bottom'
 }
 
 export interface ShapeLayer extends BaseLayer {
@@ -97,6 +101,8 @@ export interface TextLayer extends BaseLayer {
   align?: 'left' | 'center' | 'right'
   /** Line spacing as a multiple of the font size (default 1). */
   lineHeight?: number
+  /** Extra space between letters in px (Illustrator tracking/kerning differences). */
+  letterSpacing?: number
   box?: TextBoxStyle
   binding?: DataBindingKey
 }

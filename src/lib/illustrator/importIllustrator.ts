@@ -9,6 +9,7 @@
  */
 import type { PDFDict as PdfLibDict, PDFRef as PdfLibRef } from 'pdf-lib'
 import type { PDFPageProxy, PageViewport } from 'pdfjs-dist'
+import { storeAsset } from '../assetStore'
 import { describeOffBrandColor } from '../brandPalette'
 import { LAYER_BLEND_MODES, type ImageLayer, type LayerBlendMode, type SceneDefinition, type SceneLayer, type TextLayer } from '../../types/scene'
 import { stripTextAndBoxes, type LocalRect } from './pdfContent'
@@ -32,7 +33,10 @@ export interface IllustratorImportResult {
 export interface IllustratorImportOptions {
   /** Font families available in the font library (uploaded in Dashboard > Typography). */
   fontFamilies: string[]
-  /** Target canvas width; the artboard is scaled to fit (default 1920). */
+  /**
+   * Target canvas width. Defaults to the artboard's own size (Illustrator: 1 pt = 1 px), so a
+   * 1920x1080 thumbnail, a 1080x1350 social post and a 3840x2160 board all keep their dimensions.
+   */
   sceneWidth?: number
 }
 
@@ -430,16 +434,40 @@ function importId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${importCounter.toString(36)}`
 }
 
-function buildTextLayer(block: TextBlock, box: FilledRect | null, font: MeasuredFont, rawFontName: string, layerVisible: boolean): TextLayer {
+function buildTextLayer(
+  block: TextBlock,
+  box: FilledRect | null,
+  font: MeasuredFont,
+  rawFontName: string,
+  layerVisible: boolean,
+  scene: { width: number; height: number },
+): TextLayer {
   const fontSize = Math.round(block.fontSize * 10) / 10
   const lineGap = block.lineGap ?? fontSize * 1.2
   const lineHeight = Math.round((lineGap / fontSize) * 1000) / 1000
   // Illustrator counts trailing spaces when centering/right-aligning a line, but PDF text
   // extraction drops them. Restore one when the PDF line is a space-width wider than its
   // visible text, so the line lands where Illustrator put it (box text renders white-space: pre).
+  // Tracking/kerning: compare each line's width in the file with the browser's rendering of
+  // the same font, and carry the per-letter difference over as CSS letter-spacing.
+  const perLetter = block.lines
+    .map((line) => {
+      const measured = font.measure(line.text)
+      const letters = [...line.text].length
+      return measured === null || letters < 2 ? null : (line.width - measured) / letters
+    })
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b)
+  const rawSpacing = perLetter.length > 0 ? perLetter[Math.floor(perLetter.length / 2)] : 0
+  const letterSpacing = Math.abs(rawSpacing) >= 0.25 ? Math.round(rawSpacing * 10) / 10 : 0
+  const measureText = (value: string) => {
+    const measured = font.measure(value)
+    return measured === null ? null : measured + letterSpacing * [...value].length
+  }
+
   // A trailing space shows up as that line's visible text sitting half a space left of
   // (centered) or a full space left of (right-aligned) the block's shared alignment edge.
-  const spaceWidth = font.measure(' ')
+  const spaceWidth = measureText(' ')
   const anchorOf = (line: TextBlock['lines'][number]) => (block.align === 'right' ? line.left + line.width : line.left + line.width / 2)
   const sharedAnchor = Math.max(...block.lines.map(anchorOf))
   const lineTexts = block.lines.map((line) => {
@@ -448,7 +476,7 @@ function buildTextLayer(block: TextBlock, box: FilledRect | null, font: Measured
     const spaces = Math.round((sharedAnchor - anchorOf(line)) / perSpace)
     return spaces >= 1 && spaces <= 3 ? `${line.text}${' '.repeat(spaces)}` : line.text
   })
-  const widths = lineTexts.map((text, index) => font.measure(text) ?? block.lines[index].width)
+  const widths = lineTexts.map((text, index) => measureText(text) ?? block.lines[index].width)
   const contentWidth = Math.max(...widths)
   const contentHeight = block.lines.length * lineGap
   // CSS centers the font's ascent+descent inside each line box; put the first baseline where the PDF has it.
@@ -472,6 +500,7 @@ function buildTextLayer(block: TextBlock, box: FilledRect | null, font: Measured
     fontWeight: font.matched ? 400 : weightFromStyle(rawFontName),
     align: block.align,
     lineHeight,
+    letterSpacing: letterSpacing || undefined,
     opacity: 1,
     visible: layerVisible,
     locked: false,
@@ -497,6 +526,10 @@ function buildTextLayer(block: TextBlock, box: FilledRect | null, font: Measured
         paddingLeft: round(contentLeft - box.x),
         paddingRight: round(box.x + box.width - (contentLeft + contentWidth)),
         radius: 0,
+        // Keep the designer's side margins: longer text scales down instead of running off-canvas.
+        maxWidth: Math.round(Math.max(box.width, scene.width - 2 * Math.max(0, Math.min(box.x, scene.width - (box.x + box.width))))),
+        // Boxes low in the frame grow upward (lower thirds); high ones grow downward.
+        anchor: (box.y + box.height / 2) / scene.height > 0.6 ? 'bottom' : (box.y + box.height / 2) / scene.height < 0.4 ? 'top' : 'center',
       },
     }
   }
@@ -528,7 +561,8 @@ export async function importIllustratorFile(file: File, options: IllustratorImpo
 
   const page = await source.getPage(1)
   const base = page.getViewport({ scale: 1 })
-  const sceneWidth = Math.round(options.sceneWidth ?? 1920)
+  // Very large artboards are capped at 4K width to keep image layers a sane size.
+  const sceneWidth = Math.round(options.sceneWidth ?? Math.min(base.width, 3840))
   const scale = sceneWidth / base.width
   const viewport = page.getViewport({ scale })
   const sceneHeight = Math.round(viewport.height)
@@ -542,7 +576,9 @@ export async function importIllustratorFile(file: File, options: IllustratorImpo
   const optionalContent = await source.getOptionalContentConfig()
   const groups = new Map<string, { name: string; visible: boolean }>()
   for (const [id, group] of Object.entries(optionalContent.getGroups() ?? {})) {
-    groups.set(id, { name: (group as { name?: string }).name ?? id, visible: optionalContent.isVisible(id) })
+    // `isVisible` takes a marked-content group, not an id; the group object carries its own state.
+    const info = group as { name?: string; visible?: boolean }
+    groups.set(id, { name: info.name ?? id, visible: info.visible !== false })
   }
 
   const analysis = await analyzePage(pdfjs, page, viewport.transform as Matrix, groups)
@@ -599,7 +635,8 @@ export async function importIllustratorFile(file: File, options: IllustratorImpo
         y: crop.y,
         width: crop.width,
         height: crop.height,
-        src: canvasToImage(canvas, crop),
+        // Stored once in the asset store; the scene keeps only a short reference.
+        src: await storeAsset(canvasToImage(canvas, crop)),
         fit: 'stretch',
         opacity: 1,
         visible: section.visible,
@@ -620,7 +657,7 @@ export async function importIllustratorFile(file: File, options: IllustratorImpo
       const pdfFont = fontNames.get(block.fontName) ?? { name: block.fontName, ascent: 0.8, descent: 0.2 }
       const font = await prepareFont(pdfFont.name, block.fontSize, pdfFont, options.fontFamilies)
       const box = blockBoxes[blockIndex]
-      const layer = buildTextLayer(block, box, font, pdfFont.name, section.visible)
+      const layer = buildTextLayer(block, box, font, pdfFont.name, section.visible, { width: sceneWidth, height: sceneHeight })
       layers.push(layer)
 
       if (!font.matched && !usedFontWarnings.has(font.family)) {

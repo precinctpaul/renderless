@@ -1,8 +1,9 @@
 import type { CSSProperties } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useElementSize } from '../hooks/useElementSize'
 import type { SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
 import { resolveBindingValue } from '../lib/bindings'
+import { useAssetSrc } from '../lib/assetStore'
 
 interface SceneRendererProps {
   scene: SceneDefinition
@@ -89,6 +90,7 @@ function layerStyle(layer: SceneLayer): CSSProperties {
     fontWeight: layer.fontWeight,
     textAlign: layer.align,
     lineHeight: layer.lineHeight ?? 1,
+    letterSpacing: layer.letterSpacing ? `${layer.letterSpacing}px` : undefined,
     whiteSpace: 'pre-wrap',
   }
 
@@ -100,7 +102,7 @@ function layerStyle(layer: SceneLayer): CSSProperties {
   return {
     ...textStyle,
     display: layer.visible ? 'flex' : 'none',
-    alignItems: 'center',
+    alignItems: layer.box.anchor === 'top' ? 'flex-start' : layer.box.anchor === 'bottom' ? 'flex-end' : 'center',
     justifyContent: layer.align === 'left' ? 'flex-start' : layer.align === 'right' ? 'flex-end' : 'center',
     overflow: 'visible',
   }
@@ -121,9 +123,56 @@ function textBoxStyle(layer: TextLayer): CSSProperties | undefined {
   }
 }
 
+/** Image layer content; `rlasset:` references resolve from the asset store once loaded. */
+function SceneImage({ src, alt, fit }: { src: string; alt: string; fit: string }) {
+  const resolved = useAssetSrc(src)
+  if (!resolved) {
+    return null
+  }
+  return <img src={resolved} alt={alt} draggable={false} className={`scene-renderer__image scene-renderer__image--${fit}`.trim()} />
+}
+
+/**
+ * Boxed text: the box hugs the text; past `maxWidth` the whole box scales down to fit,
+ * shrinking toward its alignment edge and anchor so it stays where the design put it.
+ */
+function TextBoxContent({ layer, text }: { layer: TextLayer; text: string }) {
+  const boxRef = useRef<HTMLSpanElement>(null)
+  const [fitScale, setFitScale] = useState(1)
+  const maxWidth = layer.box?.maxWidth
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const natural = boxRef.current?.offsetWidth ?? 0
+      setFitScale(maxWidth && natural > maxWidth ? maxWidth / natural : 1)
+    }
+    measure()
+    if (!maxWidth || typeof document === 'undefined' || !document.fonts) return
+    // Web fonts can finish loading after the first measurement and change the width.
+    document.fonts.addEventListener('loadingdone', measure)
+    return () => document.fonts.removeEventListener('loadingdone', measure)
+  }, [maxWidth, text, layer.fontFamily, layer.fontSize, layer.letterSpacing, layer.box?.paddingLeft, layer.box?.paddingRight])
+
+  const originX = layer.align === 'left' ? '0%' : layer.align === 'right' ? '100%' : '50%'
+  const originY = layer.box?.anchor === 'top' ? '0%' : layer.box?.anchor === 'bottom' ? '100%' : '50%'
+  return (
+    <span
+      ref={boxRef}
+      className="scene-renderer__text-box"
+      style={{
+        ...textBoxStyle(layer),
+        transform: fitScale < 1 ? `scale(${fitScale})` : undefined,
+        transformOrigin: `${originX} ${originY}`,
+      }}
+    >
+      {text}
+    </span>
+  )
+}
+
 function renderTextContent(layer: TextLayer, story: StoryState) {
   const text = resolveText(layer, story)
-  return layer.box ? <span className="scene-renderer__text-box" style={textBoxStyle(layer)}>{text}</span> : text
+  return layer.box ? <TextBoxContent layer={layer} text={text} /> : text
 }
 
 export function SceneRenderer({
@@ -355,14 +404,7 @@ export function SceneRenderer({
             }}
           >
             {layer.kind === 'text' ? renderTextContent(layer, story) : null}
-            {layer.kind === 'image' ? (
-              <img
-                src={layer.src}
-                alt={layer.name}
-                draggable={false}
-                className={`scene-renderer__image scene-renderer__image--${layer.fit ?? 'contain'}`.trim()}
-              />
-            ) : null}
+            {layer.kind === 'image' ? <SceneImage src={layer.src} alt={layer.name} fit={layer.fit ?? 'contain'} /> : null}
           </div>
         ))}
 

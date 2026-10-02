@@ -68,6 +68,8 @@ export interface TemplatePackageV2 {
   scenegraph: SceneDefinition
   history: TemplatePackageVersionEntry[]
   bindingHints?: TemplateBindingHint[]
+  /** Images referenced as `rlasset:<hash>`, embedded so exported files are portable. */
+  assets?: Record<string, string>
   integrity: TemplatePackageIntegrity
 }
 
@@ -260,8 +262,9 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
   const baseLayer = {
     id,
     name,
-    x: Math.round(Math.max(0, x)),
-    y: Math.round(Math.max(0, y)),
+    // Positions may be negative (art bleeding off the canvas edge is a valid design).
+    x: Math.round(x),
+    y: Math.round(y),
     width: Math.round(Math.max(1, width)),
     height: Math.round(Math.max(1, height)),
     opacity: Math.min(Math.max(opacity, 0), 1),
@@ -311,11 +314,13 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       kind: 'text',
       text,
       color,
-      fontSize: Math.round(Math.max(8, fontSize)),
+      // Fractional sizes (e.g. 87.5pt from Illustrator) are kept so checksums round-trip.
+      fontSize: Math.round(Math.max(8, fontSize) * 100) / 100,
       fontFamily,
       fontWeight: Math.round(Math.max(100, fontWeight)),
       align,
       lineHeight: parseLineHeight(record.lineHeight),
+      letterSpacing: parseLetterSpacing(record.letterSpacing),
       box: parseTextBox(record.box),
       binding,
     }
@@ -355,6 +360,11 @@ function parseLineHeight(raw: unknown): number | undefined {
   return value === null ? undefined : Math.min(Math.max(value, 0.5), 4)
 }
 
+function parseLetterSpacing(raw: unknown): number | undefined {
+  const value = asFiniteNumber(raw)
+  return value === null || value === 0 ? undefined : Math.min(Math.max(value, -50), 200)
+}
+
 function parseTextBox(raw: unknown): TextBoxStyle | undefined {
   const record = asRecord(raw)
   const fill = record ? asNonEmptyString(record.fill) : null
@@ -364,6 +374,8 @@ function parseTextBox(raw: unknown): TextBoxStyle | undefined {
 
   const padding = (value: unknown) => Math.max(0, asFiniteNumber(value) ?? 0)
   const radius = asFiniteNumber(record.radius)
+  const maxWidth = asFiniteNumber(record.maxWidth)
+  const anchor = record.anchor === 'top' || record.anchor === 'bottom' || record.anchor === 'center' ? record.anchor : undefined
   return {
     fill,
     paddingTop: padding(record.paddingTop),
@@ -371,6 +383,8 @@ function parseTextBox(raw: unknown): TextBoxStyle | undefined {
     paddingBottom: padding(record.paddingBottom),
     paddingLeft: padding(record.paddingLeft),
     radius: radius === null ? undefined : Math.max(0, radius),
+    maxWidth: maxWidth !== null && maxWidth > 0 ? maxWidth : undefined,
+    anchor,
   }
 }
 
@@ -612,6 +626,21 @@ function parseTemplatePackageV1(record: Record<string, unknown>): TemplatePackag
   }
 }
 
+/** Embedded images keyed by SHA-256 hash; anything else is dropped (and then fails the checksum). */
+function parsePackageAssets(raw: unknown): { assets?: Record<string, string> } {
+  const record = asRecord(raw)
+  if (!record) {
+    return {}
+  }
+  const assets: Record<string, string> = {}
+  for (const [hash, value] of Object.entries(record)) {
+    if (/^[0-9a-f]{64}$/.test(hash) && typeof value === 'string' && value.startsWith('data:image/')) {
+      assets[hash] = value
+    }
+  }
+  return Object.keys(assets).length > 0 ? { assets } : {}
+}
+
 function parseTemplatePackageV2(record: Record<string, unknown>): TemplatePackageV2 | null {
   if (record.kind !== TEMPLATE_PACKAGE_KIND || asPositiveInteger(record.contractVersion, 0) !== TEMPLATE_PACKAGE_VERSION) {
     return null
@@ -688,6 +717,7 @@ function parseTemplatePackageV2(record: Record<string, unknown>): TemplatePackag
           .filter((entry): entry is TemplatePackageVersionEntry => entry !== null)
       : [],
     bindingHints: normalizeTemplateBindingHints(record.bindingHints),
+    ...parsePackageAssets(record.assets),
     integrity: {
       checksum: {
         algorithm: TEMPLATE_PACKAGE_CHECKSUM_ALGORITHM,
@@ -714,6 +744,7 @@ function verifyChecksum(templatePackage: TemplatePackageV2): boolean {
       scenegraph: cloneValue(entry.scenegraph),
     })),
     bindingHints: normalizeTemplateBindingHints(templatePackage.bindingHints),
+    ...(templatePackage.assets ? { assets: { ...templatePackage.assets } } : {}),
   }
 
   const expectedChecksum = hashFnv1a32(canonicalizeUnsignedPackage(unsignedPackage))
@@ -741,6 +772,7 @@ function migrateV1Package(templatePackageV1: TemplatePackageV1): TemplatePackage
 export function buildTemplatePackage(
   template: TemplateDefinition,
   signingConfig?: TemplatePackageSigningConfig | null,
+  assets?: Record<string, string>,
 ): TemplatePackageV2 {
   const scenegraph = cloneValue(template.scene)
   const history = (template.versions ?? []).map((entry) => ({
@@ -773,6 +805,7 @@ export function buildTemplatePackage(
     scenegraph,
     history,
     bindingHints: normalizeTemplateBindingHints(template.bindingHints),
+    ...(assets && Object.keys(assets).length > 0 ? { assets: { ...assets } } : {}),
   }
 
   return attachIntegrity(unsignedPackage, signingConfig)
@@ -869,6 +902,7 @@ export function migrateTemplatePackage(
       scenegraph: cloneValue(entry.scenegraph),
     })),
     bindingHints: normalizeTemplateBindingHints(parsedPackage.value.bindingHints),
+    ...(parsedPackage.value.assets ? { assets: { ...parsedPackage.value.assets } } : {}),
   }
 
   return {

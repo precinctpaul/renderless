@@ -56,7 +56,9 @@ interface ParsedFontName {
 
 /** "BCWBYW+DrukTextWideTrial-Bold" -> { family: "DrukTextWide", style: "Bold", trial: true } */
 export function parsePdfFontName(raw: string): ParsedFontName {
-  const withoutSubset = raw.replace(/^[A-Z]{6}\+/, '')
+  // Drop the 6-letter subset prefix and any numeric uniqueness suffix some exporters append
+  // (e.g. "DrukWide-Super-7572").
+  const withoutSubset = raw.replace(/^[A-Z]{6}\+/, '').replace(/[-_ ]\d{3,}$/, '')
   const [familyPart, ...styleParts] = withoutSubset.split('-')
   const trial = /trial/i.test(withoutSubset)
   const family = familyPart.replace(/trial/i, '').trim() || familyPart
@@ -207,7 +209,8 @@ export function blockBounds(block: TextBlock): { left: number; top: number; righ
  */
 export function findBoxForBlock(block: TextBlock, rects: FilledRect[], sceneArea: number): FilledRect | null {
   const bounds = blockBounds(block)
-  const tolerance = 2
+  // Scales with the type so tight boxes around large headlines still count.
+  const tolerance = Math.max(2, block.fontSize * 0.08)
   const candidates = rects.filter(
     (rect) =>
       rect.section === block.section &&

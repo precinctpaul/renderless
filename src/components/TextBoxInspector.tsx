@@ -62,6 +62,32 @@ export function TextBoxInspector({ box, onChange }: TextBoxInspectorProps) {
               />
             </label>
             <label>
+              Max Width
+              <input
+                className="mono"
+                type="number"
+                min={0}
+                placeholder="none"
+                value={box.maxWidth ?? ''}
+                onChange={(event) => {
+                  const value = toNumber(event.target.value)
+                  onChange({ ...box, maxWidth: value && value > 0 ? value : undefined })
+                }}
+              />
+            </label>
+            <label>
+              Grows
+              <select
+                className="mono"
+                value={box.anchor ?? 'center'}
+                onChange={(event) => onChange({ ...box, anchor: event.target.value as 'top' | 'center' | 'bottom' })}
+              >
+                <option value="bottom">Up</option>
+                <option value="center">Both ways</option>
+                <option value="top">Down</option>
+              </select>
+            </label>
+            <label>
               Radius
               <input
                 className="mono"

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { StageCanvas } from '../components/StageCanvas'
 import { TextBoxInspector } from '../components/TextBoxInspector'
+import { assetRefFromHash, collectAssetHashes, loadAsset } from '../lib/assetStore'
 import { LAYER_BLEND_MODES, type DataBindingKey, type LayerBlendMode, type SceneLayer } from '../types/scene'
 import { usePlayoutStore } from '../store/playoutStore'
 import { resolveBindingValue } from '../lib/bindings'
@@ -665,8 +666,14 @@ export function DesignPage() {
     if (!createBlankTemplate(requested)) return setTransientStatus('Template name is required.')
     setTransientStatus(`Created ${requested.trim()} (1920 x 1080).`, 2200)
   }
-  const handleExportPackage = () => {
-    const templatePackage = exportPreviewTemplatePackage()
+  const handleExportPackage = async () => {
+    // Embed referenced images so the exported file works on any machine.
+    const assets: Record<string, string> = {}
+    for (const hash of collectAssetHashes(scene)) {
+      const dataUrl = await loadAsset(assetRefFromHash(hash))
+      if (dataUrl) assets[hash] = dataUrl
+    }
+    const templatePackage = exportPreviewTemplatePackage(assets)
     downloadTemplatePackageFile(templatePackage)
     setTransientStatus(`Exported ${templatePackage.metadata.label}.rltpl.json`, 2200)
   }
@@ -1113,6 +1120,21 @@ export function DesignPage() {
                         const numberValue = toNumberOrNull(event.target.value)
                         if (numberValue !== null) {
                           updatePreviewTextStyle(primarySelectedLayer.id, { lineHeight: numberValue })
+                        }
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Letter Spacing
+                    <input
+                      className="mono"
+                      type="number"
+                      step={0.1}
+                      value={primarySelectedLayer.letterSpacing ?? 0}
+                      onChange={(event) => {
+                        const numberValue = toNumberOrNull(event.target.value)
+                        if (numberValue !== null) {
+                          updatePreviewTextStyle(primarySelectedLayer.id, { letterSpacing: numberValue })
                         }
                       }}
                     />

@@ -2,6 +2,11 @@ import { DurableObject } from 'cloudflare:workers'
 
 const ROOM_PATH = /^\/room\/([A-Za-z0-9_-]{6,64})\/?$/
 const LAST_PAYLOAD_KEY = 'lastPayload'
+const ASSET_HASH = /^[0-9a-f]{64}$/
+// Durable Object values are capped (~2 MB); larger images are stored in 1 MB chunks.
+const ASSET_CHUNK = 1_000_000
+const MAX_ASSET_CHARS = 25_000_000
+const MAX_REQUESTED_HASHES = 64
 
 function isAllowedOrigin(origin, env) {
   // Non-browser clients (e.g. OBS on some platforms) may omit Origin; the room code still gates them.
@@ -68,10 +73,45 @@ export class RelayRoom extends DurableObject {
       return
     }
 
-    if (payload?.type === 'renderless-room-retire') {
-      // A controller moved to a new room: forget the replay state and blank the remaining viewers.
+    if (payload?.type === 'renderless-asset') {
+      if (!ASSET_HASH.test(payload.hash ?? '') || typeof payload.dataUrl !== 'string' || message.length > MAX_ASSET_CHARS) {
+        return
+      }
+      this.broadcast(socket, message)
       try {
-        await this.ctx.storage.delete(LAST_PAYLOAD_KEY)
+        await this.storeAsset(payload.hash, message)
+      } catch {
+        // Still relayed live; just not kept for late joiners.
+      }
+      return
+    }
+
+    if (payload?.type === 'renderless-asset-request') {
+      const hashes = Array.isArray(payload.hashes) ? payload.hashes.filter((hash) => ASSET_HASH.test(hash)).slice(0, MAX_REQUESTED_HASHES) : []
+      const unknown = []
+      for (const hash of hashes) {
+        const stored = await this.readAsset(hash)
+        if (stored) {
+          try {
+            socket.send(stored)
+          } catch {
+            // Requester went away.
+          }
+        } else {
+          unknown.push(hash)
+        }
+      }
+      if (unknown.length > 0) {
+        // Ask the room's controller, which answers with renderless-asset messages.
+        this.broadcast(socket, JSON.stringify({ ...payload, hashes: unknown }))
+      }
+      return
+    }
+
+    if (payload?.type === 'renderless-room-retire') {
+      // A controller moved to a new room: forget everything and blank the remaining viewers.
+      try {
+        await this.ctx.storage.deleteAll()
       } catch {
         // Nothing stored.
       }
@@ -89,8 +129,38 @@ export class RelayRoom extends DurableObject {
       // Persist so a viewer that connects later (or after eviction) gets the current program.
       await this.ctx.storage.put(LAST_PAYLOAD_KEY, message)
     } catch {
-      // Oversized snapshots (e.g. large embedded images) still relay live; they just are not replayed.
+      // Oversized snapshots still relay live; they just are not replayed.
     }
+  }
+
+  async storeAsset(hash, message) {
+    const existing = await this.ctx.storage.get(`asset:${hash}`)
+    if (existing !== undefined) {
+      return
+    }
+    if (message.length <= ASSET_CHUNK) {
+      await this.ctx.storage.put(`asset:${hash}`, message)
+      return
+    }
+    const entries = { [`asset:${hash}`]: Math.ceil(message.length / ASSET_CHUNK) }
+    for (let index = 0; index * ASSET_CHUNK < message.length; index += 1) {
+      entries[`asset:${hash}:${index}`] = message.slice(index * ASSET_CHUNK, (index + 1) * ASSET_CHUNK)
+    }
+    await this.ctx.storage.put(entries)
+  }
+
+  async readAsset(hash) {
+    const head = await this.ctx.storage.get(`asset:${hash}`)
+    if (typeof head === 'string') {
+      return head
+    }
+    if (typeof head !== 'number') {
+      return null
+    }
+    const keys = Array.from({ length: head }, (_, index) => `asset:${hash}:${index}`)
+    const chunks = await this.ctx.storage.get(keys)
+    const parts = keys.map((key) => chunks.get(key))
+    return parts.every((part) => typeof part === 'string') ? parts.join('') : null
   }
 
   broadcast(sender, message) {

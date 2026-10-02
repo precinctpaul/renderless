@@ -39,6 +39,7 @@ describe('font matching', () => {
   test('parses subset prefixes, styles and trial names', () => {
     expect(parsePdfFontName('BCWBYW+DrukTextWideTrial-Bold')).toEqual({ family: 'DrukTextWide', style: 'Bold', trial: true })
     expect(suggestFontFamily('BCWBYW+DrukTextWideTrial-Bold')).toBe('DrukTextWide Bold Trial')
+    expect(parsePdfFontName('DrukWide-Super-7572')).toEqual({ family: 'DrukWide', style: 'Super', trial: false })
   })
 
   test('matches uploaded families regardless of separators, case and the Trial suffix', () => {

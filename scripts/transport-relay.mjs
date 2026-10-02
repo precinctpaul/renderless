@@ -17,7 +17,7 @@ function roomKeyFor(request) {
 function getRoom(key) {
   let room = rooms.get(key)
   if (!room) {
-    room = { clients: new Set(), lastPayload: null }
+    room = { clients: new Set(), lastPayload: null, assets: new Map() }
     rooms.set(key, room)
   }
   return room
@@ -59,8 +59,28 @@ server.on('connection', (socket, request) => {
       return
     }
 
+    if (payload?.type === 'renderless-asset') {
+      if (/^[0-9a-f]{64}$/.test(payload.hash ?? '') && typeof payload.dataUrl === 'string') {
+        room.assets.set(payload.hash, encoded)
+        broadcast(room, encoded, socket)
+      }
+      return
+    }
+
+    if (payload?.type === 'renderless-asset-request') {
+      const hashes = Array.isArray(payload.hashes) ? payload.hashes.slice(0, 64) : []
+      const unknown = hashes.filter((hash) => {
+        const stored = room.assets.get(hash)
+        if (stored) socket.send(stored)
+        return !stored
+      })
+      if (unknown.length > 0) broadcast(room, JSON.stringify({ ...payload, hashes: unknown }), socket)
+      return
+    }
+
     if (payload?.type === 'renderless-room-retire') {
       room.lastPayload = null
+      room.assets.clear()
       broadcast(room, encoded, socket)
       return
     }
@@ -75,7 +95,7 @@ server.on('connection', (socket, request) => {
 
   const leave = () => {
     room.clients.delete(socket)
-    if (room.clients.size === 0 && !room.lastPayload) {
+    if (room.clients.size === 0 && !room.lastPayload && room.assets.size === 0) {
       rooms.delete(roomKey)
     }
   }
