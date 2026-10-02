@@ -7,6 +7,7 @@ import {
   type TemplateBindingHint,
   type TemplateDefinition,
   type TemplateVersion,
+  type TemplateVersionReason,
   type TextBoxStyle,
 } from '../types/scene'
 import { extractBindingKeys, isDataBindingKey } from './bindings'
@@ -35,6 +36,10 @@ interface TemplatePackageVersionEntry {
   updatedAt: number
   bindings: DataBindingKey[]
   scenegraph: SceneDefinition
+  /** Who made this version (team library name). */
+  updatedBy?: string
+  /** How it was made: a manual save, an autosave checkpoint, or a restore. */
+  reason?: TemplateVersionReason
 }
 
 interface TemplatePackageIntegrity {
@@ -417,6 +422,13 @@ function parseScene(rawScene: unknown): SceneDefinition | null {
   }
 }
 
+/** Optional who/why fields on a version, kept only when present (so old checksums still match). */
+function versionExtras(entry: { updatedBy?: unknown; reason?: unknown }): Pick<TemplatePackageVersionEntry, 'updatedBy' | 'reason'> {
+  const updatedBy = typeof entry.updatedBy === 'string' && entry.updatedBy.trim() ? entry.updatedBy.trim().slice(0, 60) : undefined
+  const reason = entry.reason === 'save' || entry.reason === 'autosave' || entry.reason === 'restore' ? entry.reason : undefined
+  return { ...(updatedBy ? { updatedBy } : {}), ...(reason ? { reason } : {}) }
+}
+
 function parseVersionEntry(rawVersion: unknown): TemplatePackageVersionEntry | null {
   const record = asRecord(rawVersion)
   if (!record) {
@@ -435,6 +447,7 @@ function parseVersionEntry(rawVersion: unknown): TemplatePackageVersionEntry | n
     updatedAt: asPositiveInteger(record.updatedAt, Date.now()),
     bindings: normalizeBindings(record.bindings, scenegraph),
     scenegraph,
+    ...versionExtras(record),
   }
 }
 
@@ -499,6 +512,7 @@ function unsignedPackageFromTemplatePackageV1(templatePackage: TemplatePackageV1
       updatedAt: entry.updatedAt,
       bindings: [...entry.bindings],
       scenegraph: cloneValue(entry.scenegraph),
+      ...versionExtras(entry),
     })),
     bindingHints: [],
   }
@@ -527,6 +541,8 @@ function parseLegacyTemplateRecord(record: Record<string, unknown>): TemplatePac
             updatedAt: versionRecord.updatedAt,
             bindings: versionRecord.bindings,
             scenegraph: versionRecord.scene,
+            updatedBy: versionRecord.updatedBy,
+            reason: versionRecord.reason,
           })
         })
         .filter((entry): entry is TemplatePackageVersionEntry => entry !== null)
@@ -717,6 +733,7 @@ function verifyChecksum(templatePackage: TemplatePackageV2): boolean {
       updatedAt: entry.updatedAt,
       bindings: [...entry.bindings],
       scenegraph: cloneValue(entry.scenegraph),
+      ...versionExtras(entry),
     })),
     bindingHints: normalizeTemplateBindingHints(templatePackage.bindingHints),
   }
@@ -754,6 +771,7 @@ export function buildTemplatePackage(
     updatedAt: asPositiveInteger(entry.updatedAt, Date.now()),
     bindings: normalizeBindings(entry.bindings, entry.scene),
     scenegraph: cloneValue(entry.scene),
+    ...versionExtras(entry),
   }))
   const templateVersion = asPositiveInteger(template.version, 1)
   const updatedAt = asPositiveInteger(template.updatedAt, Date.now())
@@ -872,6 +890,7 @@ export function migrateTemplatePackage(
       updatedAt: entry.updatedAt,
       bindings: [...entry.bindings],
       scenegraph: cloneValue(entry.scenegraph),
+      ...versionExtras(entry),
     })),
     bindingHints: normalizeTemplateBindingHints(parsedPackage.value.bindingHints),
   }
@@ -889,6 +908,7 @@ export function templateFromPackage(templatePackage: TemplatePackage): TemplateD
     updatedAt: entry.updatedAt,
     bindings: [...entry.bindings],
     scene: cloneValue(entry.scenegraph),
+    ...versionExtras(entry),
   }))
 
   return {

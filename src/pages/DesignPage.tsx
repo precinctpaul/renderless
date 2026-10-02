@@ -12,6 +12,7 @@ import {
   ChevronDown,
   ChevronUp,
   Hand,
+  History,
   ImageDown,
   MousePointer2,
   Copy,
@@ -30,6 +31,7 @@ import { NumberField } from '../components/NumberField'
 import { AnchorPicker } from '../components/AnchorPicker'
 import { InspectorSection } from '../components/InspectorSection'
 import { CanvasSizeSelect, NewTemplateDialog } from '../components/CanvasSizeControls'
+import { VersionHistoryDialog } from '../components/VersionHistoryDialog'
 import { downloadDataUrl, renderScenePng } from '../lib/exportScenePng'
 import { anchorPosition, anchorPresetOf, resolveAnchor, type AnchorPresetId } from '../lib/layerAnchor'
 import { LAYER_BLEND_MODES, type DataBindingKey, type LayerBlendMode, type SceneLayer } from '../types/scene'
@@ -131,6 +133,7 @@ export function DesignPage() {
   const setPreviewCanvasSize = usePlayoutStore((state) => state.setPreviewCanvasSize)
   const exportPreviewTemplatePackage = usePlayoutStore((state) => state.exportPreviewTemplatePackage)
   const restoreTemplateVersion = usePlayoutStore((state) => state.restoreTemplateVersion)
+  const autosavePreviewTemplate = usePlayoutStore((state) => state.autosavePreviewTemplate)
   const bindingFields = usePlayoutStore((state) => state.bindingFields)
   const setFieldValue = usePlayoutStore((state) => state.setFieldValue)
 
@@ -143,7 +146,8 @@ export function DesignPage() {
   const [isExportingPng, setIsExportingPng] = useState(false)
   const [isNewTemplateOpen, setIsNewTemplateOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
-  const [versionToRestore, setVersionToRestore] = useState('')
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false)
+  const [autosavePending, setAutosavePending] = useState(false)
   const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select')
   const [sidebarTab, setSidebarTab] = useState<'layers' | 'assets'>('layers')
   const [showGrid, setShowGrid] = useState(false)
@@ -176,7 +180,6 @@ export function DesignPage() {
   )
   const primarySelectedLayer = selectedLayers[0] ?? null
   const activeTemplate = templates.find((template) => template.id === previewTemplateId) ?? null
-  const versionHistory = activeTemplate?.versions ?? []
   const availableFontOptions = useMemo(() => {
     const options = new Map<string, string>()
 
@@ -330,6 +333,33 @@ export function DesignPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [activeSelectedLayerIds, interactionMode, movePreviewLayersByDelta, redoPreviewScene, undoPreviewScene])
 
+  // Autosave: your own templates save themselves shortly after edits stop (built-ins never change).
+  const activeTemplateId = activeTemplate?.id
+  const activeIsBuiltIn = Boolean(activeTemplate?.builtIn)
+  useEffect(() => {
+    if (!activeTemplateId || activeIsBuiltIn) return
+    setAutosavePending(true)
+    const handle = window.setTimeout(() => {
+      autosavePreviewTemplate()
+      setAutosavePending(false)
+    }, 1500)
+    return () => window.clearTimeout(handle)
+  }, [scene, activeTemplateId, activeIsBuiltIn, autosavePreviewTemplate])
+
+  // Closing or hiding the tab saves immediately, so no edit is lost.
+  useEffect(() => {
+    const flush = () => {
+      usePlayoutStore.getState().autosavePreviewTemplate()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', flush)
+    return () => {
+      flush()
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', flush)
+    }
+  }, [])
+
   const handleLayerSelection = (layerId: string, modifiers?: SelectionModifiers) => {
     if (!layerId) {
       setSelectedLayerIds([])
@@ -416,7 +446,9 @@ export function DesignPage() {
   }
 
   const handleSaveTemplate = () => {
-    const requested = window.prompt('Save template as', activeTemplate?.label ?? scene.name)
+    // Your own templates save in place; a built-in is saved as a new copy, so it needs a name.
+    const requested =
+      activeTemplate && !activeTemplate.builtIn ? activeTemplate.label : window.prompt('Save as a new template', `${activeTemplate?.label ?? scene.name} copy`)
     if (!requested) return
     const savedId = savePreviewTemplate(requested)
     if (!savedId) return setTransientStatus('Template name is required.')
@@ -455,11 +487,13 @@ export function DesignPage() {
     downloadTemplatePackageFile(templatePackage)
     setTransientStatus(`Exported ${templatePackage.metadata.label}.rltpl.json`, 2200)
   }
-  const handleRestoreVersion = () => {
-    if (!activeTemplate || !versionToRestore) return
-    if (!restoreTemplateVersion(activeTemplate.id, Number(versionToRestore))) return setTransientStatus('Restore failed.')
-    setVersionToRestore('')
-    setTransientStatus(`Restored v${versionToRestore}.`, 2200)
+  const handleRestoreVersion = (version: number) => {
+    if (!activeTemplate) return
+    // Save any pending edits first so they become a version rather than being overwritten.
+    autosavePreviewTemplate()
+    if (!restoreTemplateVersion(activeTemplate.id, version)) return setTransientStatus('Restore failed.')
+    setIsHistoryOpen(false)
+    setTransientStatus(`Restored v${version}. The previous design is kept in History.`, 2600)
   }
   const flashMovedLayer = (layerId: string) => {
     setJustMovedLayerId(layerId)
@@ -563,6 +597,9 @@ export function DesignPage() {
 
   return (
     <section className="screen screen--design">
+      {isHistoryOpen && activeTemplate ? (
+        <VersionHistoryDialog template={activeTemplate} story={story} onRestore={handleRestoreVersion} onClose={() => setIsHistoryOpen(false)} />
+      ) : null}
       {isNewTemplateOpen ? (
         <NewTemplateDialog
           defaultSize={{ width: scene.width, height: scene.height }}
@@ -786,6 +823,30 @@ export function DesignPage() {
             />
             <div className="stage-toolbar__actions">
               <span className="mono stage-toolbar__template-name">{activeTemplate?.label ?? scene.name} | v{activeTemplate?.version ?? 1}</span>
+              <span className={`mono autosave-status ${activeTemplate?.builtIn ? 'autosave-status--builtin' : ''}`.trim()}>
+                {!activeTemplate
+                  ? ''
+                  : activeTemplate.builtIn
+                    ? 'Built-in: Save As New to keep changes'
+                    : autosavePending
+                      ? 'Saving…'
+                      : activeTemplate.updatedAt
+                        ? `Saved ${new Date(activeTemplate.updatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+                        : 'Saved'}
+              </span>
+              <button
+                type="button"
+                className="btn btn--small btn--ghost"
+                disabled={!activeTemplate || activeTemplate.builtIn}
+                title={activeTemplate?.builtIn ? 'Built-in templates have no history. Save As New first.' : 'See and restore earlier versions'}
+                onClick={() => {
+                  autosavePreviewTemplate()
+                  setIsHistoryOpen(true)
+                }}
+              >
+                <History size={14} />
+                History
+              </button>
               <button type="button" className="btn btn--small btn--ghost" onClick={handleNewTemplate}>New Template</button>
               <button type="button" className="btn btn--small btn--accent" onClick={handleSaveTemplate}>Save Template</button>
               <button type="button" className="btn btn--small btn--ghost" onClick={handleSaveAsNewTemplate}>Save As New</button>
@@ -871,15 +932,6 @@ export function DesignPage() {
             <span className="stage-toolbar__hint mono">
               {snapToGrid ? `GRID ${GRID_SNAP_STEP}px` : 'GRID SNAP OFF'} | ALT = FREE DRAG | ARROWS NUDGE
             </span>
-            {versionHistory.length > 0 ? (
-              <>
-                <select className="stage-select mono" value={versionToRestore} onChange={(event) => setVersionToRestore(event.target.value)}>
-                  <option value="">Restore version</option>
-                  {[...versionHistory].sort((a, b) => b.version - a.version).map((entry) => <option key={entry.version} value={entry.version}>v{entry.version} ({new Date(entry.updatedAt).toLocaleDateString('en-US')})</option>)}
-                </select>
-                <button type="button" className="btn btn--small btn--ghost" disabled={!versionToRestore} onClick={handleRestoreVersion}>Restore</button>
-              </>
-            ) : null}
             {saveStatus ? <span className="mono stage-toolbar__save-status">{saveStatus}</span> : null}
           </div>
           <div className="stage-canvas-wrap">

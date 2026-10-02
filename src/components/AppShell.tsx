@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import { buildOutputPath, withBasePath } from '../lib/outputUrls'
 import { usePlayoutStore } from '../store/playoutStore'
+import { LibraryControl } from './LibraryControl'
 
 const NAV_ITEMS = [
   { to: '/dashboard', label: 'Dashboard' },
@@ -73,6 +74,7 @@ export function AppShell() {
         </div>
 
         <div className="header-actions">
+          <LibraryControl />
           <span className="badge badge--ready">READY</span>
           <span className="badge badge--mono">PROGRAM {onAir ? 'LOCKED' : 'CLEAR'} | {clock}</span>
 

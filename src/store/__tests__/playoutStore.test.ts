@@ -286,6 +286,49 @@ describe('Playout reliability and QA regression suite', () => {
     expect(overwrittenTemplate?.versions?.some((entry) => entry.bindings.includes('headline'))).toBe(true)
   })
 
+  test('autosave writes edits into a custom template and keeps checkpoints', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const store = () => usePlayoutStore.getState()
+
+    store().cuePreview('template-lower-third')
+    const templateId = store().savePreviewTemplate('Autosave QA')
+    const versionAfterSave = store().templates.find((template) => template.id === templateId)?.version ?? 0
+
+    // First edit after a manual save: the saved design becomes a restore point.
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 300 })
+    expect(store().autosavePreviewTemplate()).toBe(true)
+    let saved = store().templates.find((template) => template.id === templateId)
+    expect(saved?.scene.layers.find((layer) => layer.id === 'shape-lt-bg')?.x).toBe(300)
+    expect(saved?.version).toBe(versionAfterSave + 1)
+    expect(saved?.versions?.at(-1)?.reason).toBe('save')
+
+    // More edits within the checkpoint window update in place: no extra versions.
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 320 })
+    store().autosavePreviewTemplate()
+    saved = store().templates.find((template) => template.id === templateId)
+    expect(saved?.version).toBe(versionAfterSave + 1)
+    expect(saved?.scene.layers.find((layer) => layer.id === 'shape-lt-bg')?.x).toBe(320)
+
+    // Nothing changed: no-op.
+    expect(store().autosavePreviewTemplate()).toBe(false)
+  })
+
+  test('switching templates saves the outgoing edits; built-ins are never overwritten', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const store = () => usePlayoutStore.getState()
+
+    store().cuePreview('template-lower-third')
+    const templateId = store().savePreviewTemplate('Switch QA') ?? ''
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 444 })
+    store().cuePreview('template-quote-card')
+    expect(store().templates.find((template) => template.id === templateId)?.scene.layers.find((layer) => layer.id === 'shape-lt-bg')?.x).toBe(444)
+
+    const builtInBefore = JSON.stringify(store().templates.find((template) => template.id === 'template-quote-card')?.scene)
+    store().updatePreviewLayerTransform('scene-quote-card-frame-top', { x: 10 })
+    expect(store().autosavePreviewTemplate()).toBe(false)
+    expect(JSON.stringify(store().templates.find((template) => template.id === 'template-quote-card')?.scene)).toBe(builtInBefore)
+  })
+
   test('field values can be set, added and removed', async () => {
     const { usePlayoutStore } = await loadStoreModule()
 

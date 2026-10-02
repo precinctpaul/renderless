@@ -6,13 +6,21 @@
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
   "durable_objects": {
-    "bindings": [{ "name": "RELAY_ROOM", "class_name": "RelayRoom" }]
+    "bindings": [
+      { "name": "RELAY_ROOM", "class_name": "RelayRoom" },
+      // The shared team library (templates, media, fonts, version history).
+      { "name": "TEAM_LIBRARY", "class_name": "TeamLibrary" }
+    ]
   },
   // SQLite-backed Durable Objects are what the Workers free plan supports.
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayRoom"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["RelayRoom"] },
+    { "tag": "v2", "new_sqlite_classes": ["TeamLibrary"] }
+  ],
   "vars": {
     // Comma-separated browser origins allowed to connect. Room codes are the real access control;
     // this just stops other websites from using the relay.
     "ALLOWED_ORIGINS": "https://precinctpaul.github.io,http://localhost:5173,http://127.0.0.1:5173"
   }
+  // Secret (not in this file): LIBRARY_PASSPHRASE, set with `npx wrangler secret put LIBRARY_PASSPHRASE`.
 }

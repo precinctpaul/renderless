@@ -94,12 +94,17 @@ export interface SceneDefinition {
   layers: SceneLayer[]
 }
 
+export type TemplateVersionReason = 'save' | 'autosave' | 'restore'
+
 export interface TemplateVersion {
   version: number
   scene: SceneDefinition
   label: string
   bindings: DataBindingKey[]
   updatedAt: number
+  /** Who made this version (team library name), when known. */
+  updatedBy?: string
+  reason?: TemplateVersionReason
 }
 
 export interface TemplateBindingHint {
@@ -122,4 +127,9 @@ export interface TemplateDefinition {
   version?: number
   versions?: TemplateVersion[]
   updatedAt?: number
+  /** Who last changed it (team library name). */
+  updatedBy?: string
+  /** How the current content was made, and when its checkpoint started (drives autosave history). */
+  versionReason?: TemplateVersionReason
+  checkpointAt?: number
 }

@@ -15,6 +15,7 @@ import type {
 import { extractBindingKeys, isDataBindingKey } from '../lib/bindings'
 import { fieldDefsFor, type StoryFieldDef } from '../data/storySchema'
 import type { DataSheet } from '../lib/dataSheet'
+import { getLibraryAuthor } from '../lib/sharedLibrary'
 import {
   buildTemplatePackage,
   migrateTemplatePackage,
@@ -189,6 +190,8 @@ interface PlayoutStore {
   undoPreviewScene: () => void
   redoPreviewScene: () => void
   savePreviewTemplate: (name: string, options?: { asNew?: boolean }) => string | null
+  /** Saves Preview edits into the current custom template in place (autosave). Returns whether it saved. */
+  autosavePreviewTemplate: () => boolean
   createBlankTemplate: (name: string, size?: { width: number; height: number }) => string | null
   /** Resizes the design canvas; layers keep their positions. Undoable. */
   setPreviewCanvasSize: (size: { width: number; height: number }) => void
@@ -203,6 +206,8 @@ interface PlayoutStore {
   setPackageSigningConfig: (patch: Partial<PackageSigningState>) => void
   restoreTemplateVersion: (templateId: string, version: number) => boolean
   deleteTemplate: (templateId: string) => void
+  /** Applies teammates' template changes from the shared library (never touches built-ins). */
+  mergeLibraryTemplates: (upserts: TemplateDefinition[], removedIds: string[]) => void
   resetDemo: () => void
 }
 
@@ -464,12 +469,67 @@ function createUniqueSceneId(templates: TemplateDefinition[], preferredId: strin
   return candidateId
 }
 
+const MAX_TEMPLATE_VERSIONS = 30
+/** While editing, autosave also keeps a restorable checkpoint at least this often. */
+const AUTOSAVE_CHECKPOINT_MS = 10 * 60 * 1000
+
 function clampVersionHistory(versions: TemplateVersion[]): TemplateVersion[] {
-  if (versions.length <= 50) {
+  if (versions.length <= MAX_TEMPLATE_VERSIONS) {
     return versions
   }
 
-  return versions.slice(versions.length - 50)
+  return versions.slice(versions.length - MAX_TEMPLATE_VERSIONS)
+}
+
+/** The template's current content as a history entry (before it gets replaced). */
+function versionSnapshotOf(template: TemplateDefinition, now: number): TemplateVersion {
+  return {
+    version: template.version ?? 1,
+    scene: cloneScene(template.scene),
+    label: template.label,
+    bindings: template.bindings ?? extractBindingKeys(template.scene),
+    updatedAt: template.updatedAt ?? now,
+    ...(template.updatedBy ? { updatedBy: template.updatedBy } : {}),
+    reason: template.versionReason ?? 'save',
+  }
+}
+
+/**
+ * Writes the Preview edits into its custom template (no-op for built-ins or when nothing changed).
+ * The content being replaced becomes a version when it was a manual save/restore, or when the
+ * last checkpoint is older than AUTOSAVE_CHECKPOINT_MS, so history keeps useful restore points
+ * without one entry per keystroke.
+ */
+function autosavedTemplates(state: Pick<PlayoutStore, 'templates' | 'previewTemplateId' | 'previewScene'>, author: string, now: number) {
+  const template = findTemplateById(state.templates, state.previewTemplateId)
+  if (!template || template.builtIn) {
+    return null
+  }
+
+  const scene = cloneScene({ ...state.previewScene, id: template.scene.id, name: template.label })
+  if (scenesEqual(scene, template.scene)) {
+    return null
+  }
+
+  const isEmptyStart = template.scene.layers.length === 0 && !template.versionReason
+  const needsCheckpoint =
+    !isEmptyStart && (template.versionReason !== 'autosave' || now - (template.checkpointAt ?? 0) > AUTOSAVE_CHECKPOINT_MS)
+  const next: TemplateDefinition = {
+    ...template,
+    scene,
+    bindings: extractBindingKeys(scene),
+    updatedAt: now,
+    ...(author ? { updatedBy: author } : {}),
+    versionReason: 'autosave',
+    ...(needsCheckpoint
+      ? {
+          version: (template.version ?? 1) + 1,
+          versions: clampVersionHistory([...(template.versions ?? []), versionSnapshotOf(template, now)]),
+          checkpointAt: now,
+        }
+      : {}),
+  }
+  return state.templates.map((entry) => (entry.id === template.id ? next : entry))
 }
 
 function sceneFromUnknown(value: unknown): SceneDefinition | null {
@@ -1021,6 +1081,8 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     dataSheet: initialDataSheet,
     dataRowIndex: null,
     cuePreview: (templateId) => {
+      // Switching templates never drops edits: the outgoing custom template is saved first.
+      get().autosavePreviewTemplate()
       set((state) => {
         if (!findTemplateById(state.templates, templateId)) {
           return {}
@@ -1451,9 +1513,9 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               width: 440,
               height: 80,
               text: 'New Text Layer',
-              color: '#f8fafc',
+              color: '#F9FBED',
               fontSize: 64,
-              fontFamily: 'Inter, sans-serif',
+              fontFamily: '"Recoleta", Georgia, serif',
               fontWeight: 600,
               // New text is centered in its box and anchored at its middle.
               align: 'center',
@@ -1473,7 +1535,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
               y: Math.max(0, centerY - 60),
               width: 320,
               height: 120,
-              fill: '#2563eb',
+              fill: '#3C77BB',
               opacity: 1,
               visible: true,
               locked: false,
@@ -1577,6 +1639,16 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
       return template.id
     },
+    autosavePreviewTemplate: () => {
+      const templates = autosavedTemplates(get(), getLibraryAuthor(), Date.now())
+      if (!templates) {
+        return false
+      }
+
+      set({ templates })
+      persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
+      return true
+    },
     savePreviewTemplate: (name, options) => {
       const trimmedName = name.trim()
       if (!trimmedName) {
@@ -1590,18 +1662,15 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       const templateId = shouldOverwrite && activeTemplate ? activeTemplate.id : createTemplateId()
       const sceneId = shouldOverwrite && activeTemplate ? activeTemplate.scene.id : createSceneId()
       const now = Date.now()
-      const nextVersion = shouldOverwrite ? (activeTemplate?.version ?? 1) + 1 : 1
+      // Autosave may already hold these exact edits; then Save just marks them as a checkpoint.
+      const alreadyCurrent =
+        shouldOverwrite && activeTemplate
+          ? scenesEqual(cloneScene({ ...state.previewScene, id: activeTemplate.scene.id, name: trimmedName }), activeTemplate.scene)
+          : false
+      const nextVersion = shouldOverwrite ? (activeTemplate?.version ?? 1) + (alreadyCurrent ? 0 : 1) : 1
       const previousVersions = shouldOverwrite ? (activeTemplate?.versions ?? []) : []
       const snapshotOfPriorVersion: TemplateVersion | null =
-        shouldOverwrite && activeTemplate
-          ? {
-              version: activeTemplate.version ?? 1,
-              scene: cloneScene(activeTemplate.scene),
-              label: activeTemplate.label,
-              bindings: activeTemplate.bindings ?? extractBindingKeys(activeTemplate.scene),
-              updatedAt: activeTemplate.updatedAt ?? now,
-            }
-          : null
+        shouldOverwrite && activeTemplate && !alreadyCurrent ? versionSnapshotOf(activeTemplate, now) : null
 
       const savedScene = cloneScene({
         ...state.previewScene,
@@ -1620,6 +1689,9 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         version: nextVersion,
         versions: clampVersionHistory(snapshotOfPriorVersion ? [...previousVersions, snapshotOfPriorVersion] : previousVersions),
         updatedAt: now,
+        ...(getLibraryAuthor() ? { updatedBy: getLibraryAuthor() } : {}),
+        versionReason: 'save',
+        checkpointAt: now,
       }
 
       set((currentState) => {
@@ -1899,13 +1971,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       const nextVersion = currentVersion + 1
       const fallbackVersionScene = cloneScene(template.scene)
 
-      const snapshotOfCurrentVersion: TemplateVersion = {
-        version: currentVersion,
-        scene: fallbackVersionScene,
-        label: template.label,
-        bindings: template.bindings ?? extractBindingKeys(template.scene),
-        updatedAt: template.updatedAt ?? now,
-      }
+      const snapshotOfCurrentVersion: TemplateVersion = { ...versionSnapshotOf(template, now), scene: fallbackVersionScene }
 
       const restoredTemplate: TemplateDefinition = {
         ...template,
@@ -1918,6 +1984,9 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         version: nextVersion,
         versions: clampVersionHistory([...(template.versions ?? []), snapshotOfCurrentVersion]),
         updatedAt: now,
+        ...(getLibraryAuthor() ? { updatedBy: getLibraryAuthor() } : {}),
+        versionReason: 'restore',
+        checkpointAt: now,
       }
 
       set((currentState) => {
@@ -1981,6 +2050,29 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         }
       })
 
+      persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
+    },
+    mergeLibraryTemplates: (upserts, removedIds) => {
+      if (upserts.length === 0 && removedIds.length === 0) {
+        return
+      }
+
+      const removed = new Set(removedIds)
+      // Removing the template that's in Preview or on air goes through deleteTemplate's fallbacks.
+      const { previewTemplateId, programTemplateId } = get()
+      removedIds
+        .filter((id) => id === previewTemplateId || id === programTemplateId)
+        .forEach((id) => get().deleteTemplate(id))
+
+      set((state) => {
+        const byId = new Map(upserts.filter((template) => !template.builtIn).map((template) => [template.id, template]))
+        const kept = state.templates
+          .filter((template) => template.builtIn || !removed.has(template.id))
+          .map((template) => (!template.builtIn && byId.has(template.id) ? byId.get(template.id)! : template))
+        const known = new Set(kept.map((template) => template.id))
+        const added = [...byId.values()].filter((template) => !known.has(template.id))
+        return { templates: [...kept, ...added] }
+      })
       persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
     },
     resetDemo: () => {

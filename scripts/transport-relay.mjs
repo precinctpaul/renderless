@@ -1,9 +1,37 @@
+import http from 'node:http'
 import { WebSocketServer } from 'ws'
+import { corsHeaders, createMemoryLibraryStore, handleLibraryRequest } from '../relay/src/library.js'
 
 const port = Number(process.env.RENDERLESS_WS_PORT ?? 8787)
 const host = process.env.RENDERLESS_WS_HOST ?? '0.0.0.0'
+// Local development only: the hosted relay reads the real passphrase from a Cloudflare secret.
+const libraryPassphrase = process.env.RENDERLESS_LIBRARY_PASSPHRASE ?? 'local-dev-library'
+const libraryStore = createMemoryLibraryStore()
 
-const server = new WebSocketServer({ port, host })
+// Same team-library API as the hosted Worker, kept in memory (resets when the relay restarts).
+const httpServer = http.createServer(async (req, res) => {
+  const origin = req.headers.origin ?? ''
+  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+  if (!url.pathname.startsWith('/library')) {
+    res.writeHead(url.pathname === '/' || url.pathname === '/health' ? 200 : 404, { 'content-type': 'text/plain' })
+    res.end('RenderLess relay OK')
+    return
+  }
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, corsHeaders(origin))
+    res.end()
+    return
+  }
+  const chunks = []
+  for await (const chunk of req) chunks.push(chunk)
+  const body = chunks.length ? Buffer.concat(chunks) : undefined
+  const request = new Request(url, { method: req.method, headers: req.headers, body: req.method === 'GET' ? undefined : body })
+  const response = await handleLibraryRequest(request, libraryStore, libraryPassphrase)
+  res.writeHead(response.status, { ...Object.fromEntries(response.headers), ...corsHeaders(origin) })
+  res.end(Buffer.from(await response.arrayBuffer()))
+})
+
+const server = new WebSocketServer({ server: httpServer })
 // Mirrors the hosted relay (relay/src/index.js): traffic is scoped per room, keyed by the
 // request path (/room/<id>). Clients connecting to any other path share a default room.
 const rooms = new Map()
@@ -84,11 +112,11 @@ server.on('connection', (socket, request) => {
   socket.on('error', leave)
 })
 
-server.on('listening', () => {
-  console.log(`[RenderLess relay] listening on ws://${host}:${port}`)
+httpServer.listen(port, host, () => {
+  console.log(`[RenderLess relay] listening on ws://${host}:${port} (team library at http://${host}:${port}/library)`)
 })
 
-server.on('error', (error) => {
+httpServer.on('error', (error) => {
   console.error(`[RenderLess relay] fatal error: ${error.message}`)
   process.exitCode = 1
 })
