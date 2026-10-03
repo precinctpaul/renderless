@@ -483,3 +483,227 @@
   min-height: 22px;
   padding: 0 6px;
 }
+
+/* ---------- Spreadsheet paste + matching (Make and Data) ---------- */
+.sheet-paste {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sheet-paste textarea {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.sheet-paste__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sheet-paste__help {
+  font-size: 12px;
+  color: var(--zinc-300);
+}
+
+.sheet-paste__problem {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--milk);
+  padding-left: 8px;
+  border-left: 3px solid var(--red);
+}
+
+.copy-header {
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+
+.sheet-match {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sheet-match__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--milk);
+  background: var(--bg-list);
+  border-left: 4px solid var(--zinc-400);
+}
+
+.sheet-match__summary--ok {
+  border-left-color: var(--acid);
+}
+
+.sheet-match__summary--ok svg {
+  color: var(--acid);
+}
+
+.sheet-match__summary--partial {
+  border-left-color: #f0a03c;
+}
+
+.sheet-match__summary--partial svg {
+  color: #f0a03c;
+}
+
+.sheet-match__columns {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sheet-chip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-list);
+  border-left: 3px solid transparent;
+}
+
+.sheet-chip--matched {
+  border-left-color: var(--acid);
+}
+
+.sheet-chip--matched .sheet-chip__icon {
+  color: var(--acid);
+}
+
+.sheet-chip--unmatched {
+  border-left-color: #f0a03c;
+}
+
+.sheet-chip--unmatched .sheet-chip__icon {
+  color: #f0a03c;
+}
+
+.sheet-chip--ignored {
+  border-left-color: var(--zinc-500);
+}
+
+.sheet-chip--ignored .sheet-chip__icon,
+.sheet-chip--ignored .sheet-chip__name {
+  color: var(--zinc-300);
+}
+
+.sheet-chip__icon {
+  display: inline-flex;
+}
+
+.sheet-chip__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sheet-chip__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--milk);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-chip__detail {
+  font-size: 12px;
+  color: var(--zinc-200);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet-chip__picker {
+  min-height: 30px;
+  max-width: 160px;
+  font-size: 12px;
+}
+
+.sheet-match__unfilled {
+  margin: 0;
+  font-size: 12px;
+  color: var(--zinc-200);
+}
+
+.data-sheet__table th.data-sheet__th--matched {
+  box-shadow: inset 0 -3px 0 var(--acid);
+}
+
+.data-sheet__table th.data-sheet__th--unmatched {
+  box-shadow: inset 0 -3px 0 #f0a03c;
+}
+
+/* Make's spreadsheet section */
+.make-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.make-sheet__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.make-sheet__head > :not(:first-child):last-child {
+  margin-left: auto;
+}
+
+.make-sheet__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 4px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--milk);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.make-sheet__toggle:hover {
+  color: var(--acid);
+}
+
+.make-sheet__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--milk);
+}
+
+.make-sheet__rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.make-sheet__rows select {
+  min-height: 36px;
+  min-width: 0;
+}

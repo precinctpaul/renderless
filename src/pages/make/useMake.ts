@@ -10,6 +10,8 @@ import {
   type MediaLibraryEntry,
 } from '../../lib/mediaLibrary'
 import { makeFieldsOf, swappableImagesOf, withImageSwaps } from '../../lib/makeFields'
+import type { DataSheet } from '../../lib/dataSheet'
+import { matchSheet, readManualMapping, rowValues, withManualChoice, writeManualMapping, type ManualMapping } from '../../lib/sheetMatching'
 import type { StoryState } from '../../types/scene'
 
 const STORAGE_KEY = 'renderless.make.v1'
@@ -48,6 +50,10 @@ export function useMake() {
   // Replaced images live for this visit only (photos are too big for local storage).
   const [swaps, setSwaps] = useState<Record<string, Record<string, string>>>({})
   const [libraryImages, setLibraryImages] = useState<MediaLibraryEntry[]>([])
+  // A pasted sheet lasts for this visit and carries across templates; each template matches it on its own.
+  const [sheet, setSheet] = useState<DataSheet | null>(null)
+  const [rowIndex, setRowIndex] = useState<number | null>(null)
+  const [manualByTemplate, setManualByTemplate] = useState<Record<string, ManualMapping>>({})
 
   const template = templates.find((entry) => entry.id === stored.templateId) ?? templates[0] ?? null
   const templateId = template?.id ?? ''
@@ -58,6 +64,8 @@ export function useMake() {
   const imageSlots = useMemo(() => (template ? swappableImagesOf(template.scene) : []), [template])
   const scene = useMemo(() => (template ? withImageSwaps(template.scene, templateSwaps) : null), [template, templateSwaps])
   const story = useMemo<StoryState>(() => ({ bindings: { ...values } }), [values])
+  const manual = useMemo(() => manualByTemplate[templateId] ?? readManualMapping(templateId), [manualByTemplate, templateId])
+  const match = useMemo(() => (sheet ? matchSheet(sheet, fields, manual) : null), [sheet, fields, manual])
 
   const update = useCallback((recipe: (current: StoredMake) => StoredMake) => {
     setStored((current) => {
@@ -67,7 +75,11 @@ export function useMake() {
     })
   }, [])
 
-  const selectTemplate = useCallback((id: string) => update((current) => ({ ...current, templateId: id })), [update])
+  const mergeValues = useCallback(
+    (id: string, filled: Record<string, string>) =>
+      update((current) => ({ ...current, values: { ...current.values, [id]: { ...current.values?.[id], ...filled } } })),
+    [update],
+  )
 
   const setValue = useCallback(
     (key: string, value: string) =>
@@ -76,6 +88,59 @@ export function useMake() {
         values: { ...current.values, [templateId]: { ...current.values?.[templateId], [key]: value } },
       })),
     [templateId, update],
+  )
+
+  const fillFromRow = useCallback(
+    (index: number | null, mapping: Record<string, string>) => {
+      const row = index === null ? null : sheet?.rows[index]
+      setRowIndex(row ? index : null)
+      if (row) mergeValues(templateId, rowValues(row, mapping))
+    },
+    [sheet, templateId, mergeValues],
+  )
+
+  const selectRow = useCallback((index: number | null) => fillFromRow(index, match?.mapping ?? {}), [fillFromRow, match])
+
+  const loadSheet = useCallback(
+    (next: DataSheet) => {
+      setSheet(next)
+      setRowIndex(null)
+      // Fill from the first row straight away, so the preview shows the sheet working.
+      if (next.rows.length > 0) {
+        setRowIndex(0)
+        mergeValues(templateId, rowValues(next.rows[0], matchSheet(next, fields, manual).mapping))
+      }
+    },
+    [fields, manual, templateId, mergeValues],
+  )
+
+  // With a sheet loaded, a newly picked template fills from the same row.
+  const selectTemplate = useCallback(
+    (id: string) => {
+      update((current) => ({ ...current, templateId: id }))
+      const next = templates.find((entry) => entry.id === id)
+      const row = sheet && rowIndex !== null ? sheet.rows[rowIndex] : null
+      if (next && sheet && row) {
+        const mapping = matchSheet(sheet, makeFieldsOf(next.scene), manualByTemplate[id] ?? readManualMapping(id)).mapping
+        mergeValues(id, rowValues(row, mapping))
+      }
+    },
+    [update, templates, sheet, rowIndex, manualByTemplate, mergeValues],
+  )
+
+  const clearSheet = useCallback(() => {
+    setSheet(null)
+    setRowIndex(null)
+  }, [])
+
+  const chooseColumn = useCallback(
+    (columnKey: string, choice: string | null) => {
+      const nextManual = withManualChoice(manual, columnKey, choice)
+      writeManualMapping(templateId, nextManual)
+      setManualByTemplate((current) => ({ ...current, [templateId]: nextManual }))
+      if (sheet) fillFromRow(rowIndex, matchSheet(sheet, fields, nextManual).mapping)
+    },
+    [manual, templateId, sheet, fields, rowIndex, fillFromRow],
   )
 
   const clearValues = useCallback(() => {
@@ -148,6 +213,13 @@ export function useMake() {
     imageSlots,
     swaps: templateSwaps,
     libraryImages,
+    sheet,
+    rowIndex,
+    match,
+    loadSheet,
+    selectRow,
+    clearSheet,
+    chooseColumn,
     selectTemplate,
     setValue,
     clearValues,

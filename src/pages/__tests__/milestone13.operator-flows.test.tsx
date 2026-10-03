@@ -93,9 +93,14 @@ describe('Milestone 13 operator click-path regressions', () => {
     expect(usePlayoutStore.getState().story.bindings.name).toBe('Alex Rivera')
 
     const paste = screen.getByPlaceholderText(/Paste cells from Google Sheets/) as HTMLTextAreaElement
-    fireEvent.change(paste, { target: { value: ['name\ttitle', 'Jane Doe\tSenator', 'John Roe\tMayor'].join('\n') } })
-    await user.click(screen.getByRole('button', { name: 'Use pasted rows' }))
+    // Pasting loads the rows at once: there is no "use" button.
+    expect(screen.queryByRole('button', { name: /Use pasted rows/ })).toBeNull()
+    const rows = ['name\ttitle\tnotes', 'Jane Doe\tSenator\tx', 'John Roe\tMayor\ty'].join('\n')
+    fireEvent.paste(paste, { clipboardData: { getData: () => rows } })
     expect(usePlayoutStore.getState().dataSheet?.rows).toHaveLength(2)
+    // The report says what matched the Preview template and flags the rest.
+    expect(screen.getByText(/matched · 2 rows/)).toBeTruthy()
+    expect(screen.getByText('No field called “notes”')).toBeTruthy()
 
     await user.click(screen.getByText('John Roe'))
     expect(usePlayoutStore.getState().story.bindings).toMatchObject({ name: 'John Roe', title: 'Mayor' })

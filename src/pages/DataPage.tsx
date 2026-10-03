@@ -1,7 +1,11 @@
-import { useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, FileSpreadsheet, Plus, Trash2, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react'
 import { usePlayoutStore } from '../store/playoutStore'
-import { fieldKeyFromHeader, parseDataSheet, rowLabel } from '../lib/dataSheet'
+import { fieldKeyFromHeader, rowLabel, type DataSheet } from '../lib/dataSheet'
+import { makeFieldsOf } from '../lib/makeFields'
+import { matchSheet, readManualMapping } from '../lib/sheetMatching'
+import { CopyHeaderRowButton, SheetMatchReport } from '../components/SheetMatchReport'
+import { SheetPasteBox } from '../components/SheetPasteBox'
 
 /**
  * Data: the named fields templates bind to (name, title, quote...) and an optional spreadsheet
@@ -17,21 +21,27 @@ export function DataPage() {
   const loadDataSheet = usePlayoutStore((state) => state.loadDataSheet)
   const selectDataRow = usePlayoutStore((state) => state.selectDataRow)
   const clearDataSheet = usePlayoutStore((state) => state.clearDataSheet)
+  const chooseDataColumn = usePlayoutStore((state) => state.chooseDataColumn)
+  const previewScene = usePlayoutStore((state) => state.previewScene)
+  const previewTemplateId = usePlayoutStore((state) => state.previewTemplateId)
+  const previewLabel = usePlayoutStore((state) => state.templates.find((template) => template.id === state.previewTemplateId)?.label ?? state.previewScene.name)
+  const mappingRevision = usePlayoutStore((state) => state.dataMappingRevision)
 
   const [newFieldName, setNewFieldName] = useState('')
-  const [pasteDraft, setPasteDraft] = useState('')
   const [status, setStatus] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const loadText = (text: string, sourceName: string) => {
-    const parsed = parseDataSheet(text, sourceName)
-    if (!parsed) {
-      setStatus('Need a header row plus at least one data row.')
-      return
-    }
+  // Sheets are matched against the template in Preview: that's what a row will fill next.
+  const targets = useMemo(() => makeFieldsOf(previewScene), [previewScene])
+  const match = useMemo(
+    () => (sheet ? matchSheet(sheet, targets, readManualMapping(previewTemplateId)) : null),
+    // mappingRevision: re-read the remembered choices after one changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sheet, targets, previewTemplateId, mappingRevision],
+  )
+
+  const loadSheet = (parsed: DataSheet) => {
     loadDataSheet(parsed)
-    setPasteDraft('')
-    setStatus(`Loaded ${parsed.rows.length} rows, ${parsed.columns.length} columns from ${sourceName}. Pick a row to fill the fields.`)
+    setStatus(`Loaded ${parsed.rows.length} rows from ${parsed.sourceName}. Pick a row to fill the fields (this updates Preview and Program).`)
   }
 
   const addField = () => {
@@ -108,21 +118,7 @@ export function DataPage() {
               </p>
             </div>
             <div className="data-sheet__actions">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values"
-                hidden
-                onChange={async (event) => {
-                  const file = event.target.files?.[0]
-                  event.target.value = ''
-                  if (file) loadText(await file.text(), file.name)
-                }}
-              />
-              <button type="button" className="btn btn--small" onClick={() => fileInputRef.current?.click()}>
-                <FileSpreadsheet size={14} />
-                Upload CSV
-              </button>
+              <CopyHeaderRowButton targets={targets} />
               {sheet ? (
                 <button type="button" className="btn btn--small btn--ghost" onClick={clearDataSheet}>
                   <X size={14} />
@@ -132,8 +128,9 @@ export function DataPage() {
             </div>
           </div>
 
-          {sheet ? (
+          {sheet && match ? (
             <>
+              <SheetMatchReport match={match} targets={targets} rowCount={sheet.rows.length} templateLabel={previewLabel} onChoose={chooseDataColumn} />
               <div className="data-sheet__nav">
                 <button type="button" className="btn btn--small" onClick={() => step(-1)} disabled={rowIndex === 0}>
                   <ChevronLeft size={14} />
@@ -154,7 +151,11 @@ export function DataPage() {
                     <tr>
                       <th className="mono">#</th>
                       {sheet.columns.map((column) => (
-                        <th key={column.key} title={column.key}>
+                        <th
+                          key={column.key}
+                          title={column.key}
+                          className={`data-sheet__th--${match.columns.find((entry) => entry.columnKey === column.key)?.status ?? 'unmatched'}`}
+                        >
                           {column.label}
                         </th>
                       ))}
@@ -179,15 +180,7 @@ export function DataPage() {
             </>
           ) : (
             <div className="data-sheet__empty">
-              <textarea
-                rows={8}
-                value={pasteDraft}
-                placeholder={'Paste cells from Google Sheets or Excel (include the header row), e.g.\n\nname\ttitle\nJane Doe\tState Senator, District 12\nJohn Roe\tCounty Commissioner'}
-                onChange={(event) => setPasteDraft(event.target.value)}
-              />
-              <button type="button" className="btn btn--small btn--accent" disabled={!pasteDraft.trim()} onClick={() => loadText(pasteDraft, 'Pasted data')}>
-                Use pasted rows
-              </button>
+              <SheetPasteBox onSheet={loadSheet} rows={8} />
             </div>
           )}
           {status ? <div className="data-sheet__status mono">{status}</div> : null}

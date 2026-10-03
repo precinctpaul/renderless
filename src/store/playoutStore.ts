@@ -66,6 +66,8 @@ import { create } from 'zustand'
 import { extractBindingKeys } from '../lib/bindings'
 import { getLibraryAuthor } from '../lib/sharedLibrary'
 import { getRoomId, rotateRoomId } from '../lib/outputUrls'
+import { makeFieldsOf } from '../lib/makeFields'
+import { matchSheet, readManualMapping, rowValues, withManualChoice, writeManualMapping } from '../lib/sheetMatching'
 import { installTransportSync, transportHooks } from './transportSync'
 import { normalizeSnapshot, readStoredSnapshot } from './snapshot'
 
@@ -109,6 +111,8 @@ export interface PlayoutStore {
   /** Spreadsheet loaded on the Data page; picking a row fills the fields. */
   dataSheet: DataSheet | null
   dataRowIndex: number | null
+  /** Bumped when a sheet column is matched by hand, so views re-read the remembered choices. */
+  dataMappingRevision: number
   cuePreview: (templateId: string) => void
   take: () => void
   clearProgram: () => void
@@ -121,6 +125,8 @@ export interface PlayoutStore {
   loadDataSheet: (sheet: DataSheet) => void
   selectDataRow: (index: number | null) => void
   clearDataSheet: () => void
+  /** Match a sheet column to a field of the Preview template by hand (null: back to automatic). */
+  chooseDataColumn: (columnKey: string, choice: string | null) => void
   reorderPreviewLayer: (layerId: string, direction: 'forward' | 'backward') => void
   reorderPreviewLayerToIndex: (layerId: string, targetIndex: number) => void
   updatePreviewLayersTransform: (layerIds: string[], patch: SceneTransformPatch) => void
@@ -231,6 +237,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     bindingFields: buildFieldCatalog(hydratedSnapshot.story.bindings, initialDataSheet),
     dataSheet: initialDataSheet,
     dataRowIndex: null,
+    dataMappingRevision: 0,
     cuePreview: (templateId) => {
       // Switching templates never drops edits: the outgoing custom template is saved first.
       get().autosavePreviewTemplate()
@@ -362,7 +369,10 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         if (!row) {
           return { dataRowIndex: null }
         }
-        const bindings = { ...state.story.bindings, ...row }
+        // Every column fills the field named after it; columns matched to the Preview template's
+        // fields (by alias or by hand) fill those too.
+        const mapping = matchSheet(state.dataSheet as DataSheet, makeFieldsOf(state.previewScene), readManualMapping(state.previewTemplateId)).mapping
+        const bindings = { ...state.story.bindings, ...row, ...rowValues(row, mapping) }
         return {
           dataRowIndex: index,
           story: { bindings },
@@ -370,6 +380,12 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           updatedAt: Date.now(),
         }
       })
+    },
+    chooseDataColumn: (columnKey, choice) => {
+      const { previewTemplateId, dataRowIndex, selectDataRow } = get()
+      writeManualMapping(previewTemplateId, withManualChoice(readManualMapping(previewTemplateId), columnKey, choice))
+      set((state) => ({ dataMappingRevision: state.dataMappingRevision + 1 }))
+      if (dataRowIndex !== null) selectDataRow(dataRowIndex)
     },
     clearDataSheet: () => {
       persistDataSheet(null)

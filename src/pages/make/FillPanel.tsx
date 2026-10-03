@@ -1,5 +1,6 @@
 import { useRef } from 'react'
 import { AlertTriangle, ImageUp, RotateCcw } from 'lucide-react'
+import { SheetSection } from './SheetSection'
 import type { MakeState } from './useMake'
 
 interface FillPanelProps {
@@ -41,6 +42,8 @@ export function FillPanel({ make, overflowKeys }: FillPanelProps) {
           Clear
         </button>
       </div>
+
+      <SheetSection make={make} />
 
       {fields.length === 0 && imageSlots.length === 0 ? (
         <p className="make-empty">
