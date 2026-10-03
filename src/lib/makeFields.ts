@@ -11,6 +11,8 @@ export interface MakeField {
   multiline: boolean
   /** Text layers that show this field. */
   layerIds: string[]
+  /** The template lets staffers turn this field off. */
+  optional: boolean
 }
 
 export type CanvasShape = 'feed' | 'story' | 'wide'
@@ -25,11 +27,13 @@ export function makeFieldsOf(scene: SceneDefinition): MakeField[] {
   const byKey = new Map<string, MakeField>()
   bound.forEach((layer) => {
     const lineHeightPx = layer.fontSize * (layer.lineHeight ?? 1)
-    const multiline = layer.height >= lineHeightPx * 1.8 || layer.text.includes('\n')
+    // Shrink-to-fit text knows its line limit; otherwise go by the frame's height.
+    const multiline = layer.text.includes('\n') || (layer.fit ? layer.fit.maxLines > 1 : layer.height >= lineHeightPx * 1.8)
     const existing = byKey.get(layer.binding)
     if (existing) {
       existing.layerIds.push(layer.id)
       existing.multiline ||= multiline
+      existing.optional ||= Boolean(layer.optional)
       return
     }
     byKey.set(layer.binding, {
@@ -38,6 +42,7 @@ export function makeFieldsOf(scene: SceneDefinition): MakeField[] {
       sample: layer.text,
       multiline,
       layerIds: [layer.id],
+      optional: Boolean(layer.optional),
     })
   })
   return [...byKey.values()]
@@ -62,8 +67,9 @@ export function withImageSwaps(scene: SceneDefinition, swaps: Record<string, str
 }
 
 /** A shape drawn just around the photo (a ring, frame or backing) belongs to it: at most 25% bigger each way. */
-function framesImage(layer: SceneLayer, image: ImageLayer): boolean {
+function framesImage(layer: SceneLayer, image: SceneLayer): boolean {
   return (
+    image.kind === 'image' &&
     layer.kind === 'shape' &&
     layer.x <= image.x &&
     layer.y <= image.y &&
@@ -74,41 +80,63 @@ function framesImage(layer: SceneLayer, image: ImageLayer): boolean {
   )
 }
 
-const sharesColumn = (layer: SceneLayer, image: ImageLayer) => layer.x < image.x + image.width && layer.x + layer.width > image.x
+const sharesColumn = (layer: SceneLayer, other: SceneLayer) => layer.x < other.x + other.width && layer.x + layer.width > other.x
+
+/** Toggle key for an optional field (image slots use their layer id). */
+export const fieldToggleKey = (fieldKey: string) => `field:${fieldKey}`
+
+/** Whether a Make toggle is on: the staffer's choice, else how the template ships. */
+export function isToggleOn(scene: SceneDefinition, toggles: Record<string, boolean>, key: string): boolean {
+  if (key in toggles) return toggles[key]
+  if (key.startsWith('field:')) return true
+  return scene.layers.find((layer) => layer.id === key)?.visible ?? true
+}
 
 /**
- * The scene with some swappable images left out. The photo and any shape framing it are hidden,
- * and text stacked above or below it (sharing its column) closes the gap from both sides, so a
- * centered stack stays centered.
+ * The scene with Make's on/off choices applied: photo slots (by layer id) and optional fields
+ * (`field:<key>`). In auto-layout templates the flow closes the gap. Elsewhere a hidden layer
+ * takes any shape framing it along, and text stacked above or below it (same column) closes
+ * the gap from both sides, so a centered stack stays centered.
  */
-export function withHiddenImages(scene: SceneDefinition, hiddenIds: string[]): SceneDefinition {
-  const hidden = scene.layers.filter(
-    (layer): layer is ImageLayer => layer.kind === 'image' && Boolean(layer.swappable) && layer.visible && hiddenIds.includes(layer.id),
-  )
-  if (hidden.length === 0) return scene
+export function withVisibility(scene: SceneDefinition, toggles: Record<string, boolean>): SceneDefinition {
+  const fields = makeFieldsOf(scene)
+  const layerIdsOf = (key: string) =>
+    key.startsWith('field:') ? (fields.find((field) => fieldToggleKey(field.key) === key)?.layerIds ?? []) : [key]
+  const allowed = (layer: SceneLayer) => (layer.kind === 'image' ? Boolean(layer.swappable) : layer.kind === 'text' && Boolean(layer.optional))
+  const flowItems = new Set((scene.flows ?? []).flatMap((flow) => flow.items.map((item) => item.layerId)))
 
   let layers = scene.layers
-  for (const image of hidden) {
-    const hideIds = new Set([image.id, ...layers.filter((layer) => framesImage(layer, image)).map((layer) => layer.id)])
-    const stack = layers.filter((layer) => layer.kind === 'text' && layer.visible && sharesColumn(layer, image))
-    const below = stack.filter((layer) => layer.y >= image.y + image.height)
-    const above = stack.filter((layer) => layer.y + layer.height <= image.y)
-    const belowTop = below.length > 0 ? Math.min(...below.map((layer) => layer.y)) : null
-    const aboveBottom = above.length > 0 ? Math.max(...above.map((layer) => layer.y + layer.height)) : null
-    const hole = (belowTop ?? image.y + image.height) - (aboveBottom ?? image.y)
-    // With text on both sides, keep one gap between them.
-    const keep = belowTop !== null && aboveBottom !== null ? Math.min(belowTop - image.y - image.height, image.y - aboveBottom) : 0
-    const shift = belowTop !== null || aboveBottom !== null ? Math.max(0, hole - keep) / 2 : 0
-    const belowIds = new Set(below.map((layer) => layer.id))
-    const aboveIds = new Set(above.map((layer) => layer.id))
-    layers = layers.map((layer) => {
-      if (hideIds.has(layer.id)) return { ...layer, visible: false }
-      if (belowIds.has(layer.id)) return { ...layer, y: layer.y - shift }
-      if (aboveIds.has(layer.id)) return { ...layer, y: layer.y + shift }
-      return layer
-    })
+  let changed = false
+  for (const [key, on] of Object.entries(toggles)) {
+    for (const id of layerIdsOf(key)) {
+      const target = layers.find((layer) => layer.id === id)
+      if (!target || !allowed(target) || target.visible === on) continue
+      changed = true
+      if (on || flowItems.has(id)) {
+        layers = layers.map((layer) => (layer.id === id ? { ...layer, visible: on } : layer))
+        continue
+      }
+      const hideIds = new Set([id, ...layers.filter((layer) => framesImage(layer, target)).map((layer) => layer.id)])
+      const stack = layers.filter((layer) => layer.kind === 'text' && layer.visible && !hideIds.has(layer.id) && sharesColumn(layer, target))
+      const below = stack.filter((layer) => layer.y >= target.y + target.height)
+      const above = stack.filter((layer) => layer.y + layer.height <= target.y)
+      const belowTop = below.length > 0 ? Math.min(...below.map((layer) => layer.y)) : null
+      const aboveBottom = above.length > 0 ? Math.max(...above.map((layer) => layer.y + layer.height)) : null
+      const hole = (belowTop ?? target.y + target.height) - (aboveBottom ?? target.y)
+      // With text on both sides, keep one gap between them.
+      const keep = belowTop !== null && aboveBottom !== null ? Math.min(belowTop - target.y - target.height, target.y - aboveBottom) : 0
+      const shift = belowTop !== null || aboveBottom !== null ? Math.max(0, hole - keep) / 2 : 0
+      const belowIds = new Set(below.map((layer) => layer.id))
+      const aboveIds = new Set(above.map((layer) => layer.id))
+      layers = layers.map((layer) => {
+        if (hideIds.has(layer.id)) return { ...layer, visible: false }
+        if (belowIds.has(layer.id)) return { ...layer, y: layer.y - shift }
+        if (aboveIds.has(layer.id)) return { ...layer, y: layer.y + shift }
+        return layer
+      })
+    }
   }
-  return { ...scene, layers }
+  return changed ? { ...scene, layers } : scene
 }
 
 /** Feed (square and 4:5), story (9:16) or wide (16:9). */

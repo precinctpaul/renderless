@@ -1,8 +1,9 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useElementSize } from '../hooks/useElementSize'
-import type { SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
-import { resolveBindingValue } from '../lib/bindings'
+import type { ImageLayer, SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
+import { layoutScene, resolvedText } from '../lib/sceneLayout'
+import { clearMeasureCache } from '../lib/textMeasure'
 import { resolveAnchor } from '../lib/layerAnchor'
 import { collectSnapTargets, computeSmartSnap, type SnapTargets } from '../lib/smartSnap'
 
@@ -76,11 +77,21 @@ const DRAG_SNAP_STEP = 10
 /** How close (screen px) an edge/center must come to a target before it snaps. */
 const SMART_SNAP_THRESHOLD_PX = 6
 
-function resolveText(layer: TextLayer, story: StoryState): string {
-  if (!layer.binding) {
-    return layer.text
-  }
-  return resolveBindingValue(layer.binding, story) || layer.text
+/** Bumps when web fonts finish loading, so auto layout re-measures with the real fonts. */
+function useFontsVersion(): number {
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined
+    if (!fonts?.addEventListener) return
+    const bump = () => {
+      clearMeasureCache()
+      setVersion((current) => current + 1)
+    }
+    fonts.addEventListener('loadingdone', bump)
+    void fonts.ready?.then(bump)
+    return () => fonts.removeEventListener('loadingdone', bump)
+  }, [])
+  return version
 }
 
 function layerStyle(layer: SceneLayer): CSSProperties {
@@ -111,7 +122,8 @@ function layerStyle(layer: SceneLayer): CSSProperties {
   }
 
   if (layer.kind === 'image') {
-    return layer.radius ? { ...baseStyle, borderRadius: layer.radius, overflow: 'hidden' } : baseStyle
+    const clipped = layer.radius ? { ...baseStyle, borderRadius: layer.radius, overflow: 'hidden' as const } : baseStyle
+    return clipped
   }
 
   const textStyle: CSSProperties = {
@@ -176,8 +188,40 @@ function textBoxStyle(layer: TextLayer): CSSProperties | undefined {
   }
 }
 
+const channel = (hex: string, index: number) => (parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16) / 255).toFixed(3)
+
+function renderImageContent(layer: ImageLayer) {
+  const tone = layer.tone
+  // Duotone: map the photo's brightness from the dark color (shadows) to the light one (highlights).
+  // The filter sits inside the layer so it travels with it into PNG export.
+  const filterId = tone ? `rl-duotone-${tone.dark.slice(1)}-${tone.light.slice(1)}` : ''
+  return (
+    <>
+      {tone ? (
+        <svg className="scene-renderer__filter" aria-hidden="true" focusable="false">
+          <filter id={filterId} colorInterpolationFilters="sRGB">
+            <feColorMatrix type="matrix" values=".2126 .7152 .0722 0 0 .2126 .7152 .0722 0 0 .2126 .7152 .0722 0 0 0 0 0 1 0" />
+            <feComponentTransfer>
+              <feFuncR type="table" tableValues={`${channel(tone.dark, 0)} ${channel(tone.light, 0)}`} />
+              <feFuncG type="table" tableValues={`${channel(tone.dark, 1)} ${channel(tone.light, 1)}`} />
+              <feFuncB type="table" tableValues={`${channel(tone.dark, 2)} ${channel(tone.light, 2)}`} />
+            </feComponentTransfer>
+          </filter>
+        </svg>
+      ) : null}
+      <img
+        src={layer.src}
+        alt={layer.name}
+        draggable={false}
+        className={`scene-renderer__image scene-renderer__image--${layer.fit ?? 'contain'}`.trim()}
+        style={tone ? { filter: `url(#${filterId})` } : undefined}
+      />
+    </>
+  )
+}
+
 function renderTextContent(layer: TextLayer, story: StoryState) {
-  const text = resolveText(layer, story)
+  const text = resolvedText(layer, story)
   return layer.box ? (
     <span className="scene-renderer__text-box scene-renderer__text" style={textBoxStyle(layer)}>{text}</span>
   ) : (
@@ -212,6 +256,14 @@ export function SceneRenderer({
   onSnapLinesChange,
 }: SceneRendererProps) {
   const [containerRef, containerSize] = useElementSize<HTMLDivElement>()
+  const fontsVersion = useFontsVersion()
+  // What is drawn: the scene after auto layout (fitted text, flows) for the current words.
+  const laidOut = useMemo(
+    () => layoutScene(scene, story),
+    // fontsVersion: re-measure once the real fonts have loaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scene, story, fontsVersion],
+  )
   const dragStateRef = useRef<DragState | null>(null)
   const [dragMode, setDragMode] = useState<'none' | 'pan' | 'layers'>('none')
   const scaleRef = useRef(1)
@@ -259,7 +311,7 @@ export function SceneRenderer({
   }, [selectedLayerId, selectedLayerIds])
 
   const selectedLayers = showSelection
-    ? scene.layers.filter((layer) => selectedIdSet.has(layer.id) && layer.visible)
+    ? laidOut.layers.filter((layer) => selectedIdSet.has(layer.id) && layer.visible)
     : []
 
   useEffect(() => {
@@ -421,7 +473,7 @@ export function SceneRenderer({
           ['--stage-px' as string]: `${1 / (stageGeometry.scale || 1)}px`,
         }}
       >
-        {scene.layers.map((layer) => (
+        {laidOut.layers.map((layer) => (
           <div
             key={layer.id}
             data-layer-id={layer.id}
@@ -487,14 +539,7 @@ export function SceneRenderer({
             }}
           >
             {layer.kind === 'text' ? renderTextContent(layer, story) : null}
-            {layer.kind === 'image' ? (
-              <img
-                src={layer.src}
-                alt={layer.name}
-                draggable={false}
-                className={`scene-renderer__image scene-renderer__image--${layer.fit ?? 'contain'}`.trim()}
-              />
-            ) : null}
+            {layer.kind === 'image' ? renderImageContent(layer) : null}
           </div>
         ))}
 

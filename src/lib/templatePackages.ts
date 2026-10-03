@@ -8,7 +8,10 @@ import {
   type TemplateDefinition,
   type TemplateVersion,
   type TemplateVersionReason,
+  type SceneFlow,
+  type SceneFlowItem,
   type TextBoxStyle,
+  type TextFit,
 } from '../types/scene'
 import { extractBindingKeys, isDataBindingKey } from './bindings'
 
@@ -329,6 +332,8 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       lineHeight: parseLineHeight(record.lineHeight),
       box: parseTextBox(record.box),
       binding,
+      ...parseTextFit(record.fit),
+      ...(record.optional === true ? { optional: true } : {}),
     }
   }
 
@@ -352,10 +357,51 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       fit,
       ...(radius !== null && radius > 0 ? { radius } : {}),
       ...(record.swappable === true ? { swappable: true } : {}),
+      ...parseTone(record.tone),
     }
   }
 
   return null
+}
+
+/** Optional extras are only added when present, so packages without them keep their checksums. */
+function parseTextFit(raw: unknown): { fit?: TextFit } {
+  const record = asRecord(raw)
+  const maxLines = record ? asFiniteNumber(record.maxLines) : null
+  const minFontSize = record ? asFiniteNumber(record.minFontSize) : null
+  if (maxLines === null || minFontSize === null) return {}
+  return { fit: { maxLines: Math.min(Math.max(Math.round(maxLines), 1), 20), minFontSize: Math.max(8, Math.round(minFontSize)) } }
+}
+
+function parseTone(raw: unknown): { tone?: { dark: string; light: string } } {
+  const record = asRecord(raw)
+  const dark = record ? asNonEmptyString(record.dark) : null
+  const light = record ? asNonEmptyString(record.light) : null
+  return dark && light ? { tone: { dark, light } } : {}
+}
+
+function parseFlows(raw: unknown, layerIds: Set<string>): { flows?: SceneFlow[] } {
+  if (!Array.isArray(raw)) return {}
+  const flows: SceneFlow[] = []
+  for (const entry of raw) {
+    const record = asRecord(entry)
+    const id = record ? asNonEmptyString(record.id) : null
+    const start = record ? asFiniteNumber(record.start) : null
+    const end = record ? asFiniteNumber(record.end) : null
+    if (!record || !id || start === null || end === null || !Array.isArray(record.items)) continue
+    const axis = record.axis === 'x' ? 'x' : 'y'
+    const justify = record.justify === 'start' || record.justify === 'end' ? record.justify : 'center'
+    const items: SceneFlowItem[] = []
+    for (const rawItem of record.items) {
+      const item = asRecord(rawItem)
+      const layerId = item ? asNonEmptyString(item.layerId) : null
+      if (!item || !layerId || !layerIds.has(layerId)) continue
+      const companions = Array.isArray(item.with) ? item.with.filter((value): value is string => typeof value === 'string' && layerIds.has(value)) : []
+      items.push({ layerId, gap: Math.max(0, asFiniteNumber(item.gap) ?? 0), ...(companions.length > 0 ? { with: companions } : {}) })
+    }
+    if (items.length > 0) flows.push({ id, axis, start, end, justify, items })
+  }
+  return flows.length > 0 ? { flows } : {}
 }
 
 function parseBlendMode(raw: unknown): LayerBlendMode | undefined {
@@ -423,6 +469,7 @@ function parseScene(rawScene: unknown): SceneDefinition | null {
     height: Math.round(Math.max(1, height)),
     background,
     layers,
+    ...parseFlows(record.flows, new Set(layers.map((layer) => layer.id))),
   }
 }
 

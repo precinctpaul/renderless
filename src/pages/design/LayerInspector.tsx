@@ -413,6 +413,51 @@ export function LayerInspector({ selectedLayers, activeSelectedLayerIds, fontOpt
                         : 'Fixed text. Pick a field to fill it from Data or a spreadsheet.'}
                     </div>
                     <div className="inspector-empty">Edit field values, or load a spreadsheet, on the Data page.</div>
+                    <label className="inspector-check">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(primarySelectedLayer.fit)}
+                        disabled={Boolean(primarySelectedLayer.locked)}
+                        onChange={(event) =>
+                          updatePreviewTextStyle(primarySelectedLayer.id, {
+                            fit: event.target.checked
+                              ? { maxLines: primarySelectedLayer.box ? 1 : 2, minFontSize: Math.max(12, Math.round(primarySelectedLayer.fontSize * 0.5)) }
+                              : null,
+                          })
+                        }
+                      />
+                      Shrink to fit
+                    </label>
+                    {primarySelectedLayer.fit && !primarySelectedLayer.box ? (
+                      <label>
+                        Max lines
+                        <NumberField
+                          value={primarySelectedLayer.fit.maxLines}
+                          min={1}
+                          max={20}
+                          onCommit={(maxLines) => updatePreviewTextStyle(primarySelectedLayer.id, { fit: { ...primarySelectedLayer.fit!, maxLines } })}
+                        />
+                      </label>
+                    ) : null}
+                    <div className="inspector-empty">
+                      {primarySelectedLayer.fit
+                        ? `Long text gets smaller (down to ${primarySelectedLayer.fit.minFontSize}px) instead of spilling out.`
+                        : 'Turn on so long text gets smaller instead of spilling out of its box.'}
+                    </div>
+                    {primarySelectedLayer.binding ? (
+                      <>
+                        <label className="inspector-check">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(primarySelectedLayer.optional)}
+                            disabled={Boolean(primarySelectedLayer.locked)}
+                            onChange={(event) => updatePreviewTextStyle(primarySelectedLayer.id, { optional: event.target.checked })}
+                          />
+                          Can be turned off in Make
+                        </label>
+                        <div className="inspector-empty">Staffers get an On/Off switch for this field; the layout closes up when it's off.</div>
+                      </>
+                    ) : null}
                   </>
                 ) : null}
               </InspectorSection>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { canvasShapeOf, makeFieldsOf, makeFileName, swappableImagesOf, withHiddenImages, withImageSwaps } from '../makeFields'
+import { canvasShapeOf, fieldToggleKey, isToggleOn, makeFieldsOf, makeFileName, swappableImagesOf, withImageSwaps, withVisibility } from '../makeFields'
+import { layoutScene } from '../sceneLayout'
 import { buildTemplatePackage, parseTemplatePackage, templateFromPackage } from '../templatePackages'
 import { TEMPLATE_LIBRARY } from '../../data/templates'
 import type { SceneDefinition, SceneLayer } from '../../types/scene'
@@ -16,7 +17,7 @@ describe('makeFieldsOf', () => {
     const fields = makeFieldsOf(scene([text('b', 'quote_author', 500), text('a', 'quote', 100, 300), text('c', 'quote', 900), text('d', undefined, 0)]))
     expect(fields.map((field) => field.key)).toEqual(['quote', 'quote_author'])
     expect(fields[0]).toMatchObject({ label: 'Quote', sample: 'a sample', multiline: true, layerIds: ['a', 'c'] })
-    expect(fields[1]).toMatchObject({ label: 'Quote Author', multiline: false })
+    expect(fields[1]).toMatchObject({ label: 'Speaker', multiline: false, optional: false })
   })
 
   it('labels unknown keys from the key', () => {
@@ -60,53 +61,77 @@ describe('canvasShapeOf / makeFileName', () => {
   })
 })
 
-describe('leaving a photo out', () => {
+describe('turning pieces off in Make', () => {
   const template = (id: string) => TEMPLATE_LIBRARY.find((entry) => entry.id === id)!.scene
-  const layer = (scene: SceneDefinition, suffix: string) => scene.layers.find((entry) => entry.id.endsWith(suffix))!
+  const find = (scene: SceneDefinition, suffix: string) => scene.layers.find((entry) => entry.id.endsWith(suffix))!
+  const story = { bindings: {} }
 
-  it('hides the headshot and its ring, and re-centers the quote and author', () => {
+  it('quote card: no headshot hides it and its ring, and the stack re-centers', () => {
     const scene = template('template-quote-card')
-    const out = withHiddenImages(scene, [layer(scene, '-headshot').id])
-    expect(layer(out, '-headshot').visible).toBe(false)
-    expect(layer(out, '-headshot-ring').visible).toBe(false)
-    // Headshot (220) plus its 30px gap is gone; the rest of the group moves up half of that.
-    expect(layer(out, '-quote').y).toBe(layer(scene, '-quote').y - 125)
-    expect(layer(out, '-author').y).toBe(layer(scene, '-author').y - 125)
-    // The frame, background shapes and quote marks stay put.
-    for (const suffix of ['-frame-top', '-frame-bottom', '-circle-a', '-mark-open', '-mark-close']) {
-      expect(layer(out, suffix)).toEqual(layer(scene, suffix))
-    }
+    const before = layoutScene(scene, story)
+    const after = layoutScene(withVisibility(scene, { [find(scene, '-headshot').id]: false }), story)
+    expect(find(after, '-headshot').visible).toBe(false)
+    expect(find(after, '-headshot-ring').visible).toBe(false)
+    // The headshot (240) and its 56px gap leave; the centered stack moves up by half of that.
+    expect(find(before, '-quote').y - find(after, '-quote').y).toBe(148)
+    expect(find(before, '-author').y - find(after, '-author').y).toBe(148)
   })
 
-  it('leaves text in other columns alone (YouTube photo on the right)', () => {
+  it('optional text gets an On/Off switch and closes up when off', () => {
     const scene = template('template-youtube-thumbnail')
-    const out = withHiddenImages(scene, ['image-yt-photo'])
-    expect(layer(out, 'image-yt-photo').visible).toBe(false)
-    expect(out.layers.filter((entry) => entry.id !== 'image-yt-photo')).toEqual(scene.layers.filter((entry) => entry.id !== 'image-yt-photo'))
+    const fields = makeFieldsOf(scene)
+    expect(fields.map((field) => [field.key, field.optional])).toEqual([
+      ['headline', false],
+      ['subhead', true],
+    ])
+    const off = withVisibility(scene, { [fieldToggleKey('subhead')]: false, [fieldToggleKey('headline')]: false })
+    expect(find(off, 'text-yt-subhead').visible).toBe(false)
+    // Required fields can't be turned off.
+    expect(find(off, 'text-yt-headline').visible).toBe(true)
   })
 
-  it('closes the gap from both sides when text sits above and below', () => {
-    const text = (id: string, y: number, height: number) =>
+  it('lower third headshot ships off; turning it on slides the bar right', () => {
+    const scene = template('template-lower-third')
+    expect(isToggleOn(scene, {}, 'image-lt-photo')).toBe(false)
+    const on = layoutScene(withVisibility(scene, { 'image-lt-photo': true }), story)
+    expect(find(on, 'image-lt-photo')).toMatchObject({ visible: true, x: 120 })
+    expect(find(on, 'shape-lt-bg').x).toBe(280)
+    expect(find(on, 'text-lt-name').x).toBe(176 + 160)
+  })
+
+  it('templates without auto layout: text stacked around a hidden photo closes the gap from both sides', () => {
+    const layer = (id: string, y: number, height: number) =>
       ({ id, kind: 'text', name: id, x: 0, y, width: 400, height, text: id, color: '#fff', fontSize: 40, fontFamily: 'x', opacity: 1, visible: true }) as SceneLayer
     const scene = {
       id: 's', name: 's', width: 400, height: 1000, background: '#000',
       layers: [
-        text('top', 100, 100),
+        layer('top', 100, 100),
         { id: 'photo', kind: 'image', name: 'Photo', x: 50, y: 240, width: 300, height: 300, src: 'x', fit: 'cover', swappable: true, opacity: 1, visible: true },
-        text('bottom', 580, 100),
+        layer('bottom', 580, 100),
       ],
     } as SceneDefinition
-    const out = withHiddenImages(scene, ['photo'])
+    const out = withVisibility(scene, { photo: false })
     const top = out.layers.find((entry) => entry.id === 'top')!
     const bottom = out.layers.find((entry) => entry.id === 'bottom')!
     // 40px gaps on each side and a 300px photo: one 40px gap stays, each side moves 170.
     expect(top.y).toBe(270)
     expect(bottom.y).toBe(410)
-    expect(bottom.y - (top.y + top.height)).toBe(40)
   })
 
-  it('ignores ids that are not swappable images', () => {
+  it('ignores ids that are not swappable images or optional text', () => {
     const scene = template('template-quote-card')
-    expect(withHiddenImages(scene, [layer(scene, '-quote').id])).toBe(scene)
+    expect(withVisibility(scene, { [find(scene, '-quote').id]: false })).toBe(scene)
+  })
+})
+
+describe('auto layout survives a template package', () => {
+  it('keeps flows, shrink-to-fit, optional text and duotone', () => {
+    const scene = TEMPLATE_LIBRARY.find((entry) => entry.id === 'template-quote-card')!.scene
+    const parsed = parseTemplatePackage(JSON.parse(JSON.stringify(buildTemplatePackage({ id: 't', label: 'Q', scene }))))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const back = templateFromPackage(parsed.value).scene
+    expect(back.flows).toEqual(scene.flows)
+    expect(back.layers.find((layer) => layer.id.endsWith('-title'))).toMatchObject({ optional: true, fit: { maxLines: 2, minFontSize: 24 } })
   })
 })

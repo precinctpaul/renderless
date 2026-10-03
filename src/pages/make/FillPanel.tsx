@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { AlertTriangle, ImageUp, RotateCcw } from 'lucide-react'
 import { SheetSection } from './SheetSection'
 import type { MakeState } from './useMake'
+import { fieldToggleKey, isToggleOn } from '../../lib/makeFields'
 
 interface FillPanelProps {
   make: MakeState
@@ -18,15 +19,34 @@ function readAsDataUrl(file: File): Promise<string> {
   })
 }
 
+/** One on/off control for everything a staffer can leave out (optional text, photos). */
+function OnOffSwitch({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={`Show ${label}`}
+      className={`make-switch ${on ? 'make-switch--on' : ''}`.trim()}
+      onClick={() => onChange(!on)}
+    >
+      <span className="make-switch__track" aria-hidden="true">
+        <span className="make-switch__thumb" />
+      </span>
+      {on ? 'On' : 'Off'}
+    </button>
+  )
+}
+
 /**
- * Center column: the template's fill-in fields and replaceable images. Only leaving a photo out
- * moves anything (its text closes the gap); the template itself never changes.
+ * Center column: the template's fill-in fields and replaceable images. Turning a piece off is
+ * the only thing that moves the layout (the rest closes the gap); the template never changes.
  */
 export function FillPanel({ make, overflowKeys }: FillPanelProps) {
-  const { template, fields, values, imageSlots, swaps, hiddenImages, libraryImages, setValue, clearValues, swapImage, setImageHidden } = make
+  const { template, fields, values, imageSlots, swaps, toggles, libraryImages, setValue, clearValues, swapImage, setToggle } = make
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
   const hasContent =
-    Object.values(values).some((value) => value.trim()) || Object.keys(swaps).length > 0 || hiddenImages.length > 0
+    Object.values(values).some((value) => value.trim()) || Object.keys(swaps).length > 0 || Object.keys(toggles).length > 0
 
   if (!template) {
     return (
@@ -69,41 +89,48 @@ export function FillPanel({ make, overflowKeys }: FillPanelProps) {
           'aria-invalid': overflowing || undefined,
           onChange: (event: { target: { value: string } }) => setValue(field.key, event.target.value),
         }
+        const on = !field.optional || !template || isToggleOn(template.scene, toggles, fieldToggleKey(field.key))
         return (
-          <div key={field.key} className={`make-field ${overflowing ? 'make-field--overflow' : ''}`.trim()}>
-            <label className="make-field__label" htmlFor={inputId}>
-              {field.label}
-            </label>
-            {field.multiline ? <textarea rows={4} {...common} /> : <input type="text" {...common} />}
-            <div id={hintId} className="make-field__hint">
-              {overflowing ? (
-                <span className="make-field__warning">
-                  <AlertTriangle size={13} aria-hidden="true" />
-                  Too long to fit. Shorten it.
-                </span>
-              ) : (
-                <span>{value.trim() ? '' : 'Showing sample text'}</span>
-              )}
-              <span className="mono">{value.length}</span>
+          <div key={field.key} className={`make-field ${overflowing && on ? 'make-field--overflow' : ''}`.trim()}>
+            <div className="make-field__head">
+              <label className="make-field__label" htmlFor={inputId}>
+                {field.label}
+              </label>
+              {field.optional ? <OnOffSwitch label={field.label} on={on} onChange={(next) => setToggle(fieldToggleKey(field.key), next)} /> : null}
             </div>
+            {!on ? (
+              <p className="make-off-note">Off. Not in this graphic.</p>
+            ) : (
+              <>
+                {field.multiline ? <textarea rows={field.key === 'quote' ? 4 : 2} {...common} /> : <input type="text" {...common} />}
+                <div id={hintId} className="make-field__hint">
+                  {overflowing ? (
+                    <span className="make-field__warning">
+                      <AlertTriangle size={13} aria-hidden="true" />
+                      Too long to fit. Shorten it.
+                    </span>
+                  ) : (
+                    <span>{value.trim() ? '' : 'Showing sample text'}</span>
+                  )}
+                  <span className="mono">{value.length}</span>
+                </div>
+              </>
+            )}
           </div>
         )
       })}
 
       {imageSlots.map((slot) => {
         const current = swaps[slot.id] ?? slot.src
-        const isHidden = hiddenImages.includes(slot.id)
+        const on = isToggleOn(template.scene, toggles, slot.id)
         return (
           <div key={slot.id} className="make-image">
-            <div className="make-image__head">
+            <div className="make-field__head">
               <div className="make-field__label">{slot.name}</div>
-              <label className="make-image__hide">
-                <input type="checkbox" checked={isHidden} onChange={(event) => setImageHidden(slot.id, event.target.checked)} />
-                No {slot.name.toLowerCase()}
-              </label>
+              <OnOffSwitch label={slot.name} on={on} onChange={(next) => setToggle(slot.id, next)} />
             </div>
-            {isHidden ? (
-              <p className="make-image__hidden-note">Left out of this graphic. Untick to bring it back.</p>
+            {!on ? (
+              <p className="make-off-note">Off. Turn it on to add a {slot.name.toLowerCase()}.</p>
             ) : (
               <div className="make-image__row">
                 <img className="make-image__thumb" src={current} alt="" />

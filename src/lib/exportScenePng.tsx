@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client'
 import { toPng } from 'html-to-image'
 import { SceneRenderer } from '../components/SceneRenderer'
 import type { SceneDefinition, StoryState } from '../types/scene'
+import { loadSceneFonts } from './textMeasure'
 
 // A timer as well as a frame: animation frames pause in background tabs.
 const nextFrame = () =>
@@ -33,6 +34,8 @@ export async function renderScenePng(scene: SceneDefinition, story: StoryState):
   const root = createRoot(host)
 
   try {
+    // Auto layout measures text with the real fonts, so they must be loaded before drawing.
+    await loadSceneFonts(scene.layers)
     root.render(<SceneRenderer scene={scene} story={story} className="scene-renderer--export" />)
     // Wait until the renderer has measured itself and draws the stage at scale 1 (it starts at a
     // placeholder size), then for fonts and images.

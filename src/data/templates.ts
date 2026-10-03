@@ -1,32 +1,44 @@
-import type { SceneDefinition, SceneLayer, StoryState, TemplateDefinition } from '../types/scene'
+import type { ImageLayer, SceneDefinition, SceneFlow, SceneLayer, StoryState, TemplateDefinition, TextLayer } from '../types/scene'
 import { STORY_DEFAULTS } from './storySchema'
+import { BRAND, brandStyle, DEFAULT_STYLE_ID, type BrandStyle, type StyleId } from './brandStyles'
 
 export const DEFAULT_STORY_STATE: StoryState = STORY_DEFAULTS
-
-// Majority Democrats palette (brand/guidelines): #111111, Acid #E7EB94, Blue #3C77BB, Red #ED2426, Spilled Milk #F9FBED.
-const INK = '#111111'
-const ACID = '#E7EB94'
-const BLUE = '#3C77BB'
-const RED = '#ED2426'
-const MILK = '#F9FBED'
 
 const DRUK_WIDE = '"Druk Wide", "Archivo Expanded", "Arial Black", sans-serif'
 const DRUK = '"Druk", Oswald, "Arial Narrow", sans-serif'
 const RECOLETA = '"Recoleta", Georgia, serif'
 
-const rect = (id: string, name: string, x: number, y: number, width: number, height: number, fill: string, extra: Partial<SceneLayer> = {}): SceneLayer => ({
-  id,
-  kind: 'shape',
-  name,
-  x,
-  y,
-  width,
-  height,
-  fill,
+/** How a built-in template is drawn: a brand style, a layout, and layers the staffer turned off. */
+export interface TemplateLook {
+  style: StyleId
+  layout?: string
+  /** Layer ids left out (Make), so a layout can use the room (e.g. a wider headline without a photo). */
+  off?: ReadonlySet<string>
+}
+
+export interface TemplateLayoutOption {
+  id: string
+  label: string
+}
+
+/** A built-in template: a builder that draws it in any style and layout. */
+export interface SmartTemplate {
+  id: string
+  label: string
+  favorite?: boolean
+  layouts?: TemplateLayoutOption[]
+  build: (look: TemplateLook) => SceneDefinition
+}
+
+const rect = (id: string, name: string, x: number, y: number, width: number, height: number, fill: string, extra: Partial<SceneLayer> = {}): SceneLayer =>
+  ({ id, kind: 'shape', name, x, y, width, height, fill, opacity: 1, visible: true, ...extra }) as SceneLayer
+
+const text = (layer: Omit<TextLayer, 'kind' | 'opacity' | 'visible'> & Partial<Pick<TextLayer, 'visible'>>): TextLayer => ({
+  kind: 'text',
   opacity: 1,
   visible: true,
-  ...extra,
-} as SceneLayer)
+  ...layer,
+})
 
 /** A neutral head-and-shoulders placeholder; staffers replace it with a real photo in Make. */
 function photoPlaceholder(background: string, figure: string, width: number, height: number): string {
@@ -44,141 +56,178 @@ function photoPlaceholder(background: string, figure: string, width: number, hei
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
 
-const HEADSHOT_SIZE = 220
-const HEADSHOT_RING = 12
-
-/** Quote card with a broken frame and acid quote marks; `size` scales the vertical layout. */
-function quoteScene(id: string, name: string, height: number): SceneDefinition {
-  const width = 1080
-  const frameTop = Math.round(height * 0.13)
-  const frameBottom = Math.round(height * 0.87)
-  // Headshot, quote and author sit as one group in the middle of the frame (tall formats get no dead gap).
-  const quoteHeight = Math.min(440, frameBottom - frameTop - 640)
-  const groupHeight = HEADSHOT_SIZE + 30 + quoteHeight + 100
-  const headshotTop = Math.round((frameTop + frameBottom) / 2 - groupHeight / 2)
-  const quoteTop = headshotTop + HEADSHOT_SIZE + 30
-  const headshotLeft = (width - HEADSHOT_SIZE) / 2
+function photo(id: string, name: string, style: BrandStyle, x: number, y: number, width: number, height: number, extra: Partial<ImageLayer> = {}): ImageLayer {
   return {
     id,
+    kind: 'image',
     name,
+    x,
+    y,
     width,
     height,
-    background: BLUE,
-    layers: [
-      rect(`${id}-circle-a`, 'Circle Top', 640, -160, 620, 620, INK, { radius: 310, opacity: 0.16 } as Partial<SceneLayer>),
-      rect(`${id}-circle-b`, 'Circle Bottom', -220, height - 520, 560, 560, INK, { radius: 280, opacity: 0.16 } as Partial<SceneLayer>),
-      rect(`${id}-frame-top`, 'Frame Top', 250, frameTop, 690, 8, MILK),
-      rect(`${id}-frame-left`, 'Frame Left', 140, frameTop + 110, 8, frameBottom - frameTop - 110, MILK),
-      rect(`${id}-frame-bottom`, 'Frame Bottom', 140, frameBottom, 690, 8, MILK),
-      rect(`${id}-frame-right`, 'Frame Right', 932, frameTop, 8, frameBottom - frameTop - 110, MILK),
-      {
-        id: `${id}-mark-open`,
-        kind: 'text',
-        name: 'Quote Mark Open',
-        x: 110,
-        y: frameTop - 70,
-        width: 160,
-        height: 160,
-        text: '“',
-        color: ACID,
-        fontSize: 260,
-        fontFamily: RECOLETA,
-        fontWeight: 700,
-        opacity: 1,
-        visible: true,
-      },
-      {
-        id: `${id}-mark-close`,
-        kind: 'text',
-        name: 'Quote Mark Close',
-        x: 820,
-        y: frameBottom - 90,
-        width: 160,
-        height: 160,
-        text: '”',
-        color: ACID,
-        fontSize: 260,
-        fontFamily: RECOLETA,
-        fontWeight: 700,
-        opacity: 1,
-        visible: true,
-      },
-      rect(
-        `${id}-headshot-ring`,
-        'Headshot Ring',
-        headshotLeft - HEADSHOT_RING,
-        headshotTop - HEADSHOT_RING,
-        HEADSHOT_SIZE + HEADSHOT_RING * 2,
-        HEADSHOT_SIZE + HEADSHOT_RING * 2,
-        ACID,
-        { radius: HEADSHOT_SIZE / 2 + HEADSHOT_RING } as Partial<SceneLayer>,
-      ),
-      {
-        id: `${id}-headshot`,
-        kind: 'image',
-        name: 'Headshot',
-        x: headshotLeft,
-        y: headshotTop,
-        width: HEADSHOT_SIZE,
-        height: HEADSHOT_SIZE,
-        src: photoPlaceholder(INK, '#4A6F99', HEADSHOT_SIZE, HEADSHOT_SIZE),
-        fit: 'cover',
-        radius: HEADSHOT_SIZE / 2,
-        swappable: true,
-        opacity: 1,
-        visible: true,
-      },
-      {
-        id: `${id}-quote`,
-        kind: 'text',
-        name: 'Quote',
-        x: 210,
-        y: quoteTop,
-        width: 660,
-        height: quoteHeight,
-        text: 'Your quote goes here.',
-        binding: 'quote',
-        color: MILK,
-        fontSize: 64,
-        fontFamily: RECOLETA,
-        fontWeight: 700,
-        lineHeight: 1.15,
-        opacity: 1,
-        visible: true,
-      },
-      {
-        id: `${id}-author`,
-        kind: 'text',
-        name: 'Quote Author',
-        x: 210,
-        y: quoteTop + quoteHeight + 40,
-        width: 660,
-        height: 60,
-        text: 'Speaker Name',
-        binding: 'quote_author',
-        color: ACID,
-        fontSize: 44,
-        fontFamily: DRUK,
-        fontWeight: 700,
-        opacity: 1,
-        visible: true,
-      },
-    ],
+    src: photoPlaceholder(style.photo.bg, style.photo.figure, width, height),
+    fit: 'cover',
+    swappable: true,
+    opacity: 1,
+    visible: true,
+    ...(style.tone ? { tone: style.tone } : {}),
+    ...extra,
   }
 }
 
-const lowerThirdScene: SceneDefinition = {
-  id: 'scene-lower-third',
-  name: 'Lower Third',
-  width: 1920,
-  height: 1080,
-  background: 'transparent',
-  layers: [
-    rect('shape-lt-bg', 'Bar', 120, 820, 1080, 160, INK),
-    rect('shape-lt-accent', 'Accent', 120, 820, 16, 160, ACID),
+const rgba = (hex: string, alpha: number) => {
+  const [r, g, b] = [1, 3, 5].map((index) => parseInt(hex.slice(index, index + 2), 16))
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+/** Retro sportswear stripes: full-width bands (horizontal) or a short stack (vertical). */
+function stripes(prefix: string, colors: string[], x: number, y: number, length: number, thickness: number, gap: number, axis: 'x' | 'y'): SceneLayer[] {
+  return colors.map((color, index) => {
+    const offset = index * (thickness + gap)
+    return axis === 'x'
+      ? rect(`${prefix}-${index + 1}`, `Stripe ${index + 1}`, x, y + offset, length, thickness, color)
+      : rect(`${prefix}-${index + 1}`, `Stripe ${index + 1}`, x + offset, y, thickness, length, color)
+  })
+}
+
+// ---------- Quote cards (feed 4:5 and story 9:16) ----------
+
+function quoteScene(id: string, name: string, height: number, look: TemplateLook): SceneDefinition {
+  const style = brandStyle(look.style)
+  const width = 1080
+  const tall = height > 1600
+  const headshot = tall ? 300 : 240
+  const ring = 12
+  const top = Math.round(height * (tall ? 0.16 : 0.13))
+  const bottom = Math.round(height * (tall ? 0.86 : 0.88))
+  const headshotLeft = (width - headshot) / 2
+  // Short quotes run big; longer ones shrink until they fit the line limit.
+  const quoteSize = tall ? 96 : 84
+  const authorSize = tall ? 92 : 80
+
+  const decorations: SceneLayer[] =
+    style.id === 'retro'
+      ? [
+          ...stripes(`${id}-stripe-top`, style.stripes ?? [], 0, 56, width, 14, 8, 'x'),
+          ...stripes(`${id}-stripe-bottom`, [...(style.stripes ?? [])].reverse(), 0, height - 56 - 3 * 14 - 2 * 8, width, 14, 8, 'x'),
+        ]
+      : style.id === 'signal'
+        ? [rect(`${id}-band`, 'Band', 0, height - 28, width, 28, BRAND.ink)]
+        : []
+
+  const layers: SceneLayer[] = [
+    ...decorations,
+    text({
+      id: `${id}-mark-open`,
+      name: 'Quote Mark',
+      x: 70,
+      y: top + headshot + 40 - 170,
+      width: 220,
+      height: 220,
+      text: '“',
+      color: style.mark,
+      fontSize: tall ? 340 : 300,
+      fontFamily: RECOLETA,
+      fontWeight: 700,
+      align: 'left',
+      verticalAlign: 'top',
+    }),
+    rect(`${id}-headshot-ring`, 'Headshot Ring', headshotLeft - ring, top - ring, headshot + ring * 2, headshot + ring * 2, style.ring, {
+      radius: headshot / 2 + ring,
+    } as Partial<SceneLayer>),
+    photo(`${id}-headshot`, 'Headshot', style, headshotLeft, top, headshot, headshot, { radius: headshot / 2 }),
+    text({
+      id: `${id}-quote`,
+      name: 'Quote',
+      x: 100,
+      y: top + headshot + 40,
+      width: 880,
+      height: 400,
+      text: 'Your quote goes here.',
+      binding: 'quote',
+      color: style.text,
+      fontSize: quoteSize,
+      fontFamily: RECOLETA,
+      fontWeight: 700,
+      lineHeight: 1.12,
+      fit: { maxLines: tall ? 7 : 5, minFontSize: 36 },
+    }),
+    rect(`${id}-rule`, 'Rule', (width - 96) / 2, top + headshot + 470, 96, 8, style.rule),
+    text({
+      id: `${id}-author`,
+      name: 'Speaker',
+      x: 90,
+      y: top + headshot + 520,
+      width: 900,
+      height: authorSize + (style.tag ? 24 : 0),
+      text: 'Speaker Name',
+      binding: 'quote_author',
+      color: style.tag ? style.tag.text : style.display,
+      fontSize: authorSize,
+      fontFamily: DRUK,
+      fontWeight: 700,
+      fit: { maxLines: 1, minFontSize: 40 },
+      ...(style.tag
+        ? { box: { fill: style.tag.fill, paddingTop: 10, paddingRight: 34, paddingBottom: 6, paddingLeft: 34, radius: style.tag.radius } }
+        : {}),
+    }),
+    text({
+      id: `${id}-title`,
+      name: 'Speaker Title',
+      x: 140,
+      y: top + headshot + 640,
+      width: 800,
+      height: 90,
+      text: 'Title, Organization',
+      binding: 'title',
+      color: style.text,
+      fontSize: tall ? 40 : 34,
+      fontFamily: RECOLETA,
+      fontWeight: 500,
+      lineHeight: 1.2,
+      fit: { maxLines: 2, minFontSize: 24 },
+      optional: true,
+    }),
+  ]
+
+  const flows: SceneFlow[] = [
     {
+      id: `${id}-stack`,
+      axis: 'y',
+      start: top,
+      end: bottom,
+      justify: 'center',
+      items: [
+        { layerId: `${id}-headshot`, gap: 0, with: [`${id}-headshot-ring`] },
+        { layerId: `${id}-quote`, gap: 56, with: [`${id}-mark-open`] },
+        { layerId: `${id}-rule`, gap: 44 },
+        { layerId: `${id}-author`, gap: 28 },
+        { layerId: `${id}-title`, gap: 14 },
+      ],
+    },
+  ]
+
+  return { id, name, width, height, background: style.bg, layers, flows }
+}
+
+// ---------- Lower third (broadcast, transparent) ----------
+
+function lowerThirdScene(look: TemplateLook): SceneDefinition {
+  const style = brandStyle(look.style)
+  const barTop = 820
+  const barHeight = 160
+  // Retro trades the single accent bar for three sportswear stripes.
+  const accents: SceneLayer[] = style.stripes
+    ? stripes('shape-lt-stripe', style.stripes, 120, barTop, barHeight, 8, 0, 'y')
+    : [rect('shape-lt-accent', 'Accent', 120, barTop, 16, barHeight, style.id === 'signal' ? BRAND.red : style.rule)]
+  const accentIds = accents.map((layer) => layer.id)
+
+  const layers: SceneLayer[] = [
+    photo('image-lt-photo', 'Headshot', style, 120, barTop, barHeight, barHeight, { visible: false }),
+    rect('shape-lt-bg', 'Bar', 120, barTop, 1080, barHeight, style.bg),
+    ...accents,
+    text({
       id: 'text-lt-name',
-      kind: 'text',
       name: 'Name',
       x: 176,
       y: 842,
@@ -186,17 +235,15 @@ const lowerThirdScene: SceneDefinition = {
       height: 70,
       text: 'Name',
       binding: 'name',
-      color: MILK,
+      color: style.id === 'acid' ? BRAND.milk : style.display,
       fontSize: 54,
       fontFamily: DRUK_WIDE,
       fontWeight: 700,
       align: 'left',
-      opacity: 1,
-      visible: true,
-    },
-    {
+      fit: { maxLines: 1, minFontSize: 30 },
+    }),
+    text({
       id: 'text-lt-title',
-      kind: 'text',
       name: 'Title',
       x: 176,
       y: 920,
@@ -204,118 +251,195 @@ const lowerThirdScene: SceneDefinition = {
       height: 42,
       text: 'Title',
       binding: 'title',
-      color: ACID,
+      color: style.id === 'acid' ? BRAND.acid : style.text,
       fontSize: 34,
       fontFamily: RECOLETA,
       fontWeight: 500,
       align: 'left',
-      opacity: 1,
-      visible: true,
+      fit: { maxLines: 1, minFontSize: 22 },
+      optional: true,
+    }),
+  ]
+
+  const flows: SceneFlow[] = [
+    {
+      id: 'lt-text',
+      axis: 'y',
+      start: barTop,
+      end: barTop + barHeight,
+      justify: 'center',
+      items: [
+        { layerId: 'text-lt-name', gap: 0 },
+        { layerId: 'text-lt-title', gap: 6 },
+      ],
     },
-  ],
+    {
+      // With the headshot on, the bar and its text slide right to make room.
+      id: 'lt-row',
+      axis: 'x',
+      start: 120,
+      end: 1800,
+      justify: 'start',
+      items: [
+        { layerId: 'image-lt-photo', gap: 0 },
+        { layerId: 'shape-lt-bg', gap: 0, with: [...accentIds, 'text-lt-name', 'text-lt-title'] },
+      ],
+    },
+  ]
+
+  return { id: 'scene-lower-third', name: 'Lower Third', width: 1920, height: 1080, background: 'transparent', layers, flows }
 }
 
-const youtubeThumbnailScene: SceneDefinition = {
-  id: 'scene-youtube-thumbnail',
-  name: 'YouTube Thumbnail',
-  width: 1280,
-  height: 720,
-  background: INK,
-  layers: [
-    {
-      id: 'image-yt-photo',
-      kind: 'image',
-      name: 'Photo',
-      x: 700,
-      y: 0,
-      width: 580,
-      height: 720,
-      src: photoPlaceholder('#2A2A2A', '#3A3A3A', 580, 720),
-      fit: 'cover',
-      swappable: true,
-      opacity: 1,
-      visible: true,
-    },
-    rect('shape-yt-accent', 'Accent Bar', 60, 92, 120, 14, ACID),
-    {
+// ---------- YouTube thumbnail (three layouts) ----------
+
+const YOUTUBE_LAYOUTS: TemplateLayoutOption[] = [
+  { id: 'text-left', label: 'Text left' },
+  { id: 'text-right', label: 'Text right' },
+  { id: 'wide-photo', label: 'Wide photo' },
+]
+
+function youtubeScene(look: TemplateLook): SceneDefinition {
+  const style = brandStyle(look.style)
+  const layout = YOUTUBE_LAYOUTS.some((option) => option.id === look.layout) ? look.layout! : 'text-left'
+  const photoOff = look.off?.has('image-yt-photo') ?? false
+  const width = 1280
+  const height = 720
+  const wide = layout === 'wide-photo'
+  const photoLayer =
+    wide
+      ? photo('image-yt-photo', 'Photo', style, 0, 0, width, height)
+      : photo('image-yt-photo', 'Photo', style, layout === 'text-right' ? 0 : 640, 0, 640, height)
+  // Text column: beside the photo, across the whole frame when the photo is off, or along the bottom.
+  const column = wide || photoOff ? { x: 60, width: 1160 } : layout === 'text-right' ? { x: 700, width: 520 } : { x: 60, width: 540 }
+  const align = wide ? 'center' : 'left'
+  const accentWidth = 120
+  const accentX = align === 'center' ? (width - accentWidth) / 2 : column.x
+
+  const accents: SceneLayer[] = style.stripes
+    ? stripes('shape-yt-stripe', style.stripes, accentX, 92, accentWidth, 8, 4, 'x')
+    : [rect('shape-yt-accent', 'Accent Bar', accentX, 92, accentWidth, 14, style.id === 'signal' ? BRAND.white : style.rule)]
+
+  const scrim = wide
+    ? [
+        rect('shape-yt-scrim', 'Scrim', 0, 0, width, height, `linear-gradient(180deg, ${rgba(style.bg, 0)} 30%, ${rgba(style.bg, 0.94)} 80%)`, {
+          visible: !photoOff,
+        }),
+      ]
+    : []
+
+  const layers: SceneLayer[] = [
+    photoLayer,
+    ...scrim,
+    ...accents,
+    text({
       id: 'text-yt-headline',
-      kind: 'text',
       name: 'Headline',
-      x: 60,
+      x: column.x,
       y: 130,
-      width: 620,
+      width: column.width,
       height: 380,
       text: 'Headline',
       binding: 'headline',
-      color: ACID,
-      fontSize: 86,
+      color: style.display,
+      fontSize: wide || photoOff ? 96 : 86,
       fontFamily: DRUK_WIDE,
       fontWeight: 700,
       lineHeight: 1.02,
-      align: 'left',
-      verticalAlign: 'top',
-      opacity: 1,
-      visible: true,
-    },
-    {
+      align,
+      // Druk Wide is very wide: half-width columns stack up to four big lines before the type shrinks.
+      fit: { maxLines: wide || photoOff ? 2 : 4, minFontSize: 44 },
+    }),
+    text({
       id: 'text-yt-subhead',
-      kind: 'text',
       name: 'Subhead',
-      x: 60,
+      x: column.x,
       y: 560,
-      width: 620,
+      width: column.width,
       height: 80,
       text: 'Subhead',
       binding: 'subhead',
-      color: MILK,
+      color: style.subTag.text,
       fontSize: 38,
       fontFamily: RECOLETA,
       fontWeight: 700,
-      align: 'left',
-      box: { fill: RED, paddingTop: 14, paddingRight: 24, paddingBottom: 14, paddingLeft: 24, radius: 0 },
-      opacity: 1,
-      visible: true,
-    },
-  ],
+      align,
+      box: { fill: style.subTag.fill, paddingTop: 12, paddingRight: 26, paddingBottom: 14, paddingLeft: 26, radius: style.subTag.radius },
+      fit: { maxLines: 1, minFontSize: 22 },
+      optional: true,
+    }),
+  ]
+
+  const accentIds = accents.map((layer) => layer.id)
+  const [firstAccent, ...otherAccents] = accentIds
+  const flows: SceneFlow[] = [
+    wide
+      ? {
+          id: 'yt-stack',
+          axis: 'y',
+          start: 60,
+          end: photoOff ? height - 60 : height - 56,
+          justify: photoOff ? 'center' : 'end',
+          items: [
+            { layerId: firstAccent, gap: 0, with: otherAccents },
+            { layerId: 'text-yt-subhead', gap: 26 + (style.stripes ? 24 : 0) },
+            { layerId: 'text-yt-headline', gap: 18 },
+          ],
+        }
+      : {
+          id: 'yt-stack',
+          axis: 'y',
+          start: 60,
+          end: height - 60,
+          justify: 'center',
+          items: [
+            { layerId: firstAccent, gap: 0, with: otherAccents },
+            { layerId: 'text-yt-headline', gap: 28 + (style.stripes ? 24 : 0) },
+            { layerId: 'text-yt-subhead', gap: 30 },
+          ],
+        },
+  ]
+
+  return { id: 'scene-youtube-thumbnail', name: 'YouTube Thumbnail', width, height, background: style.bg, layers, flows }
 }
 
-export const TEMPLATE_LIBRARY: TemplateDefinition[] = [
+// ---------- Catalog ----------
+
+export const SMART_TEMPLATES: SmartTemplate[] = [
   {
     id: 'template-quote-card',
     label: 'Quote Card 4x5',
-    scene: quoteScene('scene-quote-card', 'Quote Card 4x5', 1350),
     favorite: true,
-    builtIn: true,
-    version: 1,
-    versions: [],
+    build: (look) => quoteScene('scene-quote-card', 'Quote Card 4x5', 1350, look),
   },
-  {
-    id: 'template-lower-third',
-    label: 'Lower Third',
-    scene: lowerThirdScene,
-    favorite: true,
-    builtIn: true,
-    version: 1,
-    versions: [],
-  },
-  {
-    id: 'template-youtube-thumbnail',
-    label: 'YouTube Thumbnail',
-    scene: youtubeThumbnailScene,
-    favorite: true,
-    builtIn: true,
-    version: 1,
-    versions: [],
-  },
+  { id: 'template-lower-third', label: 'Lower Third', favorite: true, build: lowerThirdScene },
+  { id: 'template-youtube-thumbnail', label: 'YouTube Thumbnail', favorite: true, layouts: YOUTUBE_LAYOUTS, build: youtubeScene },
   {
     id: 'template-quote-story',
     label: 'Quote Story 9x16',
-    scene: quoteScene('scene-quote-story', 'Quote Story 9x16', 1920),
-    builtIn: true,
-    version: 1,
-    versions: [],
+    build: (look) => quoteScene('scene-quote-story', 'Quote Story 9x16', 1920, look),
   },
 ]
+
+export const DEFAULT_LOOK: TemplateLook = { style: DEFAULT_STYLE_ID }
+
+export function smartTemplate(templateId: string): SmartTemplate | undefined {
+  return SMART_TEMPLATES.find((template) => template.id === templateId)
+}
+
+/** A built-in template drawn in a style and layout (null for templates people made). */
+export function buildSmartScene(templateId: string, look: TemplateLook): SceneDefinition | null {
+  return smartTemplate(templateId)?.build(look) ?? null
+}
+
+export const TEMPLATE_LIBRARY: TemplateDefinition[] = SMART_TEMPLATES.map((template) => ({
+  id: template.id,
+  label: template.label,
+  scene: template.build(DEFAULT_LOOK),
+  ...(template.favorite ? { favorite: true } : {}),
+  builtIn: true,
+  version: 1,
+  versions: [],
+}))
 
 export const CLEAR_SCENE: SceneDefinition = {
   id: 'scene-clear',

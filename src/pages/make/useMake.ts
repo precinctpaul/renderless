@@ -9,7 +9,9 @@ import {
   registerFontEntries,
   type MediaLibraryEntry,
 } from '../../lib/mediaLibrary'
-import { makeFieldsOf, swappableImagesOf, withHiddenImages, withImageSwaps } from '../../lib/makeFields'
+import { makeFieldsOf, swappableImagesOf, withImageSwaps, withVisibility } from '../../lib/makeFields'
+import { buildSmartScene, smartTemplate } from '../../data/templates'
+import { DEFAULT_STYLE_ID, isStyleId, type StyleId } from '../../data/brandStyles'
 import type { DataSheet } from '../../lib/dataSheet'
 import { matchSheet, readManualMapping, rowValues, withManualChoice, writeManualMapping, type ManualMapping } from '../../lib/sheetMatching'
 import type { StoryState } from '../../types/scene'
@@ -20,14 +22,27 @@ interface StoredMake {
   templateId?: string
   /** Typed values per template, so switching templates keeps each one's text. */
   values?: Record<string, Record<string, string>>
-  /** Photo slots left out, per template. */
+  /** On/off choices per template: photo slots by layer id, optional fields as `field:<key>`. */
+  toggles?: Record<string, Record<string, boolean>>
+  /** Brand style and layout per template (built-in templates only). */
+  looks?: Record<string, { style?: StyleId; layout?: string }>
+  /** Older saves: photo slots left out. Read once into `toggles`. */
   hidden?: Record<string, string[]>
 }
 
 function readStored(): StoredMake {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '{}') as StoredMake
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    if (!parsed || typeof parsed !== 'object') return {}
+    if (parsed.hidden) {
+      const toggles = { ...parsed.toggles }
+      Object.entries(parsed.hidden).forEach(([templateId, ids]) => {
+        toggles[templateId] = { ...Object.fromEntries(ids.map((id) => [id, false])), ...toggles[templateId] }
+      })
+      delete parsed.hidden
+      return { ...parsed, toggles }
+    }
+    return parsed
   } catch {
     return {}
   }
@@ -61,13 +76,29 @@ export function useMake() {
   const templateId = template?.id ?? ''
   const values = useMemo(() => stored.values?.[templateId] ?? {}, [stored.values, templateId])
   const templateSwaps = useMemo(() => swaps[templateId] ?? {}, [swaps, templateId])
-  const hiddenImages = useMemo(() => stored.hidden?.[templateId] ?? [], [stored.hidden, templateId])
+  const toggles = useMemo(() => stored.toggles?.[templateId] ?? {}, [stored.toggles, templateId])
+  const smart = template?.builtIn ? smartTemplate(templateId) : undefined
+  const layouts = useMemo(() => smart?.layouts ?? [], [smart])
+  const storedLook = stored.looks?.[templateId]
+  const styleId: StyleId = isStyleId(storedLook?.style) ? storedLook.style : DEFAULT_STYLE_ID
+  const layoutId = layouts.some((option) => option.id === storedLook?.layout) ? storedLook!.layout! : (layouts[0]?.id ?? '')
 
   const fields = useMemo(() => (template ? makeFieldsOf(template.scene) : []), [template])
   const imageSlots = useMemo(() => (template ? swappableImagesOf(template.scene) : []), [template])
-  const scene = useMemo(
-    () => (template ? withHiddenImages(withImageSwaps(template.scene, templateSwaps), hiddenImages) : null),
-    [template, templateSwaps, hiddenImages],
+  /** The graphic for a layout: built in the chosen style, with photos swapped and the on/off choices applied. */
+  const sceneFor = useCallback(
+    (layout: string) => {
+      if (!template) return null
+      const off = new Set(Object.entries(toggles).filter(([key, on]) => !on && !key.startsWith('field:')).map(([key]) => key))
+      const base = (smart && buildSmartScene(templateId, { style: styleId, layout, off })) || template.scene
+      return withVisibility(withImageSwaps(base, templateSwaps), toggles)
+    },
+    [template, smart, templateId, styleId, toggles, templateSwaps],
+  )
+  const scene = useMemo(() => sceneFor(layoutId), [sceneFor, layoutId])
+  const layoutScenes = useMemo(
+    () => layouts.map((option) => ({ ...option, scene: sceneFor(option.id)! })),
+    [layouts, sceneFor],
   )
   const story = useMemo<StoryState>(() => ({ bindings: { ...values } }), [values])
   const manual = useMemo(() => manualByTemplate[templateId] ?? readManualMapping(templateId), [manualByTemplate, templateId])
@@ -153,9 +184,9 @@ export function useMake() {
     update((current) => {
       const rest = { ...current.values }
       delete rest[templateId]
-      const hidden = { ...current.hidden }
-      delete hidden[templateId]
-      return { ...current, values: rest, hidden }
+      const nextToggles = { ...current.toggles }
+      delete nextToggles[templateId]
+      return { ...current, values: rest, toggles: nextToggles }
     })
     setSwaps((current) => {
       const rest = { ...current }
@@ -175,12 +206,21 @@ export function useMake() {
     [templateId],
   )
 
-  const setImageHidden = useCallback(
-    (layerId: string, hide: boolean) =>
-      update((current) => {
-        const others = (current.hidden?.[templateId] ?? []).filter((id) => id !== layerId)
-        return { ...current, hidden: { ...current.hidden, [templateId]: hide ? [...others, layerId] : others } }
-      }),
+  const setToggle = useCallback(
+    (key: string, on: boolean) =>
+      update((current) => ({
+        ...current,
+        toggles: { ...current.toggles, [templateId]: { ...current.toggles?.[templateId], [key]: on } },
+      })),
+    [templateId, update],
+  )
+
+  const setLook = useCallback(
+    (patch: { style?: StyleId; layout?: string }) =>
+      update((current) => ({
+        ...current,
+        looks: { ...current.looks, [templateId]: { ...current.looks?.[templateId], ...patch } },
+      })),
     [templateId, update],
   )
 
@@ -229,7 +269,11 @@ export function useMake() {
     values,
     imageSlots,
     swaps: templateSwaps,
-    hiddenImages,
+    toggles,
+    isSmart: Boolean(smart),
+    styleId,
+    layoutId,
+    layoutScenes,
     libraryImages,
     sheet,
     rowIndex,
@@ -242,7 +286,8 @@ export function useMake() {
     setValue,
     clearValues,
     swapImage,
-    setImageHidden,
+    setToggle,
+    setLook,
   }
 }
 

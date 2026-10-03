@@ -75,6 +75,15 @@ export interface TextLayer extends BaseLayer {
   lineHeight?: number
   box?: TextBoxStyle
   binding?: DataBindingKey
+  /** Shrink-to-fit: the largest size (up to fontSize) that fits in maxLines and the frame. */
+  fit?: TextFit
+  /** Staffers may turn this text off in Make (e.g. a subhead); the layout closes up. */
+  optional?: boolean
+}
+
+export interface TextFit {
+  maxLines: number
+  minFontSize: number
 }
 
 export interface ImageLayer extends BaseLayer {
@@ -85,6 +94,8 @@ export interface ImageLayer extends BaseLayer {
   radius?: number
   /** Staffers may replace this image in Make (e.g. a headshot); the layout stays put. */
   swappable?: boolean
+  /** Duotone: the photo in two colors, dark for shadows and light for highlights. */
+  tone?: { dark: string; light: string }
 }
 
 export type SceneLayer = ShapeLayer | TextLayer | ImageLayer
@@ -96,6 +107,29 @@ export interface SceneDefinition {
   height: number
   background: string
   layers: SceneLayer[]
+  /** Auto layout: layers that stack along one axis and close up when one is hidden or resizes. */
+  flows?: SceneFlow[]
+}
+
+/**
+ * A stack of layers along x or y between `start` and `end`. Each item takes its real size
+ * (text measured with its current words), hidden items take no room, and the stack sits at
+ * the start, center or end. Layers in `with` move along with their item and hide with it.
+ */
+export interface SceneFlow {
+  id: string
+  axis: 'x' | 'y'
+  start: number
+  end: number
+  justify: 'start' | 'center' | 'end'
+  items: SceneFlowItem[]
+}
+
+export interface SceneFlowItem {
+  layerId: string
+  /** Space before this item (ignored for the first visible item). */
+  gap: number
+  with?: string[]
 }
 
 export type TemplateVersionReason = 'save' | 'autosave' | 'restore'

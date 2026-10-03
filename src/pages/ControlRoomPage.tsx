@@ -7,6 +7,7 @@ import { buildDefaultTransportWsUrl, buildOutputUrl } from '../lib/outputUrls'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
 import { takeBlocker } from '../store/takeReadiness'
 import { previewHasUnpublishedEdits } from '../store/templateCatalog'
+import { StudioLookPicker } from '../components/StudioLookPicker'
 import { AirStatus } from '../components/AirStatus'
 
 /** How long C must be held to clear Program, so a stray keypress can't take a graphic off air. */
@@ -254,6 +255,11 @@ export function ControlRoomPage() {
               </article>
 
               <div className="transition-console">
+                <div className="console-section">
+                  <div className="panel-title">Look</div>
+                  <StudioLookPicker />
+                </div>
+
                 <div className="console-section">
                   <div className="panel-title">Transitions</div>
                   <div className="transition-group">

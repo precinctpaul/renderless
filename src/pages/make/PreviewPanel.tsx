@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { Download } from 'lucide-react'
 import { SceneRenderer } from '../../components/SceneRenderer'
 import { downloadDataUrl, renderScenePng } from '../../lib/exportScenePng'
-import { makeFileName } from '../../lib/makeFields'
+import { fieldToggleKey, isToggleOn, makeFileName } from '../../lib/makeFields'
+import { LookPicker } from '../../components/LookPicker'
+import { textThatWontFit } from '../../lib/sceneLayout'
 import type { MakeState } from './useMake'
 
 interface PreviewPanelProps {
@@ -21,7 +23,7 @@ function sameKeys(a: Set<string>, b: Set<string>) {
  * takes no clicks at all, so nothing here can select or move a layer.
  */
 export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
-  const { template, scene, story, fields, values, imageSlots, swaps, hiddenImages } = make
+  const { template, scene, story, fields, values, imageSlots, swaps, toggles, isSmart, styleId, layoutId, layoutScenes, setLook } = make
   const frameRef = useRef<HTMLDivElement>(null)
   const lastOverflow = useRef<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
@@ -32,14 +34,16 @@ export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
   useEffect(() => {
     let cancelled = false
     const measure = () => {
-      if (cancelled || !frameRef.current) return
+      if (cancelled || !frameRef.current || !scene) return
       const root = frameRef.current
       const stage = root.querySelector<HTMLElement>('.scene-renderer__stage')
       const stageRect = stage?.getBoundingClientRect()
       const layerNodes = new Map(
         [...root.querySelectorAll<HTMLElement>('[data-layer-id]')].map((node) => [node.dataset.layerId, node]),
       )
-      const found = new Set<string>()
+      // Text that auto layout couldn't shrink enough, plus anything drawn outside its box.
+      const tooLong = new Set(textThatWontFit(scene, story))
+      const found = new Set<string>(fields.filter((field) => field.layerIds.some((id) => tooLong.has(id))).map((field) => field.key))
       fields.forEach((field) =>
         field.layerIds.forEach((layerId) => {
           const layerNode = layerNodes.get(layerId)
@@ -78,8 +82,9 @@ export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
     return <section className="panel make-preview" aria-label="Preview" />
   }
 
-  const sampleFields = fields.filter((field) => !values[field.key]?.trim())
-  const placeholderImages = imageSlots.filter((slot) => !swaps[slot.id] && !hiddenImages.includes(slot.id))
+  const isOn = (key: string) => isToggleOn(template.scene, toggles, key)
+  const sampleFields = fields.filter((field) => !values[field.key]?.trim() && (!field.optional || isOn(fieldToggleKey(field.key))))
+  const placeholderImages = imageSlots.filter((slot) => !swaps[slot.id] && isOn(slot.id))
   const stillSample = [...sampleFields.map((field) => field.label), ...placeholderImages.map((slot) => slot.name)]
   const fileName = makeFileName(template, fields, values)
 
@@ -99,6 +104,15 @@ export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
   return (
     <section className="panel make-preview" aria-label="Preview">
       <div className="panel-title">3 · Preview &amp; export</div>
+      <LookPicker
+        styleId={styleId}
+        onStyleChange={(style) => setLook({ style })}
+        layouts={layoutScenes}
+        layoutId={layoutId}
+        onLayoutChange={(layout) => setLook({ layout })}
+        story={story}
+        unavailable={isSmart ? undefined : 'Styles work on the built-in templates.'}
+      />
       <div ref={frameRef} className="make-preview__frame" style={{ ['--make-aspect' as string]: `${scene.width} / ${scene.height}` }} aria-hidden="true">
         <SceneRenderer scene={scene} story={story} checkerboard />
       </div>

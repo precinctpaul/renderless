@@ -1,6 +1,7 @@
 /** Pure scene/layer editing helpers used by the playout store (no state, no storage). */
 
-import type { SceneDefinition } from '../types/scene'
+import type { SceneDefinition, SceneFlow, SceneLayer, StoryState } from '../types/scene'
+import { layoutScene } from '../lib/sceneLayout'
 import { alignByAnchor, distributeByAnchor } from '../lib/layerAnchor'
 import { cloneScene } from '../data/templates'
 
@@ -180,4 +181,37 @@ export function pushHistoryFrame(stack: SceneDefinition[], scene: SceneDefinitio
   }
 
   return nextStack.slice(nextStack.length - MAX_UNDO_DEPTH)
+}
+
+/**
+ * When an edit would move or resize a layer that auto layout places (Design), the flows it
+ * touches are frozen first, at the positions they're drawn at, and taken out of auto layout.
+ * Returns that frozen scene so the edit can be applied to what the user sees; null when the
+ * edit doesn't touch a flow.
+ */
+export function freezeFlowsTouchedBy(previous: SceneDefinition, next: SceneDefinition, story: StoryState): SceneDefinition | null {
+  if (!previous.flows?.length) return null
+  const after = new Map(next.layers.map((layer) => [layer.id, layer]))
+  const moved = new Set(
+    previous.layers
+      .filter((layer) => {
+        const changed = after.get(layer.id)
+        return changed && (changed.x !== layer.x || changed.y !== layer.y || changed.width !== layer.width || changed.height !== layer.height)
+      })
+      .map((layer) => layer.id),
+  )
+  const membersOf = (flow: SceneFlow) => [...flow.items.flatMap((item) => [item.layerId, ...(item.with ?? [])])]
+  const touched = previous.flows.filter((flow) => membersOf(flow).some((id) => moved.has(id)))
+  if (touched.length === 0) return null
+
+  const drawn = new Map(layoutScene(previous, story).layers.map((layer) => [layer.id, layer]))
+  const frozen = new Set(touched.flatMap(membersOf))
+  return {
+    ...previous,
+    flows: previous.flows.filter((flow) => !touched.includes(flow)),
+    layers: previous.layers.map((layer) => {
+      const shown = drawn.get(layer.id)
+      return frozen.has(layer.id) && shown ? ({ ...layer, x: shown.x, y: shown.y, height: shown.height } as SceneLayer) : layer
+    }),
+  }
 }

@@ -354,9 +354,9 @@ describe('Playout reliability and QA regression suite', () => {
     expect(getLayerPosition(store().previewScene, 'shape-lt-bg').x).toBe(120)
 
     // Editing back to exactly the published design leaves no draft behind.
-    store().updatePreviewLayerTransform('shape-lt-bg', { x: 200 })
+    store().updatePreviewLayerTransform('shape-lt-bg', { opacity: 0.5 })
     store().autosavePreviewTemplate()
-    store().updatePreviewLayerTransform('shape-lt-bg', { x: 120 })
+    store().updatePreviewLayerTransform('shape-lt-bg', { opacity: 1 })
     store().autosavePreviewTemplate()
     expect(store().drafts[templateId]).toBeUndefined()
 
@@ -620,5 +620,43 @@ describe('Playout reliability and QA regression suite', () => {
     expect(state.previewTemplateId).toBe(copyId)
     expect(state.templates.find((template) => template.id === originalId)?.scene.layers).toHaveLength(1)
     expect(state.templates.find((template) => template.id === copyId)?.scene.layers).toHaveLength(2)
+  })
+
+  test('the studio style restyles Preview at once; Program follows on TAKE', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const store = () => usePlayoutStore.getState()
+    store().cuePreview('template-quote-card')
+    store().take()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const programBefore = store().programScene
+    expect(programBefore.background).toBe('#111111')
+
+    store().setStudioStyle('signal')
+    expect(store().previewScene.background).toBe('#3C77BB')
+    expect(store().programScene).toBe(programBefore)
+    expect(window.localStorage.getItem('renderless.studio.look.v1')).toContain('signal')
+
+    // Cueing any built-in now uses the studio style; layouts are remembered per template.
+    store().setStudioLayout('template-youtube-thumbnail', 'text-right')
+    store().cuePreview('template-youtube-thumbnail')
+    expect(store().previewScene.background).toBe('#3C77BB')
+    expect(store().previewScene.layers.find((layer) => layer.id === 'image-yt-photo')?.x).toBe(0)
+    store().setStudioStyle('acid')
+  })
+
+  test('dragging an auto-layout layer freezes its flow where it is drawn', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const store = () => usePlayoutStore.getState()
+    store().cuePreview('template-lower-third')
+    expect(store().previewScene.flows?.map((flow) => flow.id)).toEqual(['lt-text', 'lt-row'])
+    store().movePreviewLayersByDelta(['text-lt-name'], { x: 0, y: -40 })
+    const scene = store().previewScene
+    // The name stack and the row are frozen; the dragged layer moved 40px from where it was drawn.
+    expect(scene.flows ?? []).toEqual([])
+    const name = scene.layers.find((layer) => layer.id === 'text-lt-name')!
+    expect(name.y).toBeLessThan(842)
+    expect(store().canUndo).toBe(true)
+    store().undoPreviewScene()
+    expect(store().previewScene.flows?.length).toBe(2)
   })
 })

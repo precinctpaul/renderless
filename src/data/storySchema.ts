@@ -18,7 +18,7 @@ export const STORY_FIELD_DEFS: StoryFieldDef[] = [
   { key: 'name', label: 'Name', group: 'People', kind: 'string', quickControl: true },
   { key: 'title', label: 'Title', group: 'People', kind: 'string', quickControl: true },
   { key: 'quote', label: 'Quote', group: 'Quote', kind: 'string', quickControl: true },
-  { key: 'quote_author', label: 'Quote Author', group: 'Quote', kind: 'string', quickControl: true },
+  { key: 'quote_author', label: 'Speaker', group: 'Quote', kind: 'string', quickControl: true },
   { key: 'headline', label: 'Headline', group: 'Thumbnail', kind: 'string', quickControl: true },
   { key: 'subhead', label: 'Subhead', group: 'Thumbnail', kind: 'string', quickControl: true },
 ]

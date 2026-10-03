@@ -11,7 +11,8 @@ import type {
   TransportConnectionStatus,
   TransportMode,
 } from './types'
-import { CLEAR_SCENE, DEFAULT_STORY_STATE, cloneScene } from '../data/templates'
+import { CLEAR_SCENE, DEFAULT_STORY_STATE, buildSmartScene, cloneScene, smartTemplate } from '../data/templates'
+import { DEFAULT_STYLE_ID, isStyleId, type StyleId } from '../data/brandStyles'
 import {
   CLEAR_TEMPLATE_ID,
   buildTemplateCatalog,
@@ -46,6 +47,7 @@ import type { TemplatePackage } from '../lib/templatePackages'
 import {
   alignLayersByMode,
   applyTransformPatchToLayer,
+  freezeFlowsTouchedBy,
   distributeLayers,
   moveLayerByDelta,
   moveLayerToIndex,
@@ -120,6 +122,12 @@ export interface PlayoutStore {
   dataRowIndex: number | null
   /** Bumped when a sheet column is matched by hand, so views re-read the remembered choices. */
   dataMappingRevision: number
+  /** Studio look: the brand style built-in templates are drawn in, and each one's layout. */
+  studioStyle: StyleId
+  studioLayouts: Record<string, string>
+  /** Restyles Preview right away (built-in templates); Program follows on the next TAKE. */
+  setStudioStyle: (style: StyleId) => void
+  setStudioLayout: (templateId: string, layout: string) => void
   cuePreview: (templateId: string) => void
   take: () => void
   clearProgram: () => void
@@ -192,6 +200,35 @@ export interface PlayoutStore {
 const initialTransportConfig = readTransportConfig()
 const initialPackageSigningState = readPackageSigningState()
 const initialDataSheet = readDataSheet()
+const STUDIO_LOOK_KEY = 'renderless.studio.look.v1'
+
+function readStudioLook(): { style: StyleId; layouts: Record<string, string> } {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(STUDIO_LOOK_KEY) ?? '{}') as { style?: unknown; layouts?: Record<string, string> }
+    return { style: isStyleId(parsed.style) ? parsed.style : DEFAULT_STYLE_ID, layouts: parsed.layouts ?? {} }
+  } catch {
+    return { style: DEFAULT_STYLE_ID, layouts: {} }
+  }
+}
+
+function persistStudioLook(look: { style: StyleId; layouts: Record<string, string> }) {
+  try {
+    window.localStorage.setItem(STUDIO_LOOK_KEY, JSON.stringify(look))
+  } catch {
+    // The look then lasts for this visit only.
+  }
+}
+
+/** What Preview shows when a template is cued: built-ins in the studio look, others as saved. */
+function cueSceneFor(state: Pick<PlayoutStore, 'templates' | 'studioStyle' | 'studioLayouts'>, templateId: string) {
+  const template = state.templates.find((entry) => entry.id === templateId)
+  const built = template?.builtIn
+    ? buildSmartScene(templateId, { style: state.studioStyle, layout: state.studioLayouts[templateId] })
+    : null
+  return built ?? resolveSceneForTemplate(state.templates, templateId)
+}
+
+const initialStudioLook = typeof window === 'undefined' ? { style: DEFAULT_STYLE_ID, layouts: {} } : readStudioLook()
 const initialTemplates = buildTemplateCatalog()
 const defaultTemplateId = initialTemplates[0]?.id ?? ''
 const hydratedSnapshot = normalizeSnapshot(readStoredSnapshot(), initialTemplates, defaultTemplateId)
@@ -204,7 +241,10 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
   let pendingTakeHandle: ReturnType<typeof setTimeout> | null = null
   const commitPreviewScene = (producer: (scene: SceneDefinition) => SceneDefinition) => {
     set((state) => {
-      const nextScene = producer(state.previewScene)
+      const firstTry = producer(state.previewScene)
+      // Moving auto-laid-out layers by hand: freeze those flows where they're drawn, then edit that.
+      const frozen = freezeFlowsTouchedBy(state.previewScene, firstTry, state.story)
+      const nextScene = frozen ? producer(frozen) : firstTry
       if (scenesEqual(nextScene, state.previewScene)) {
         return {}
       }
@@ -254,6 +294,24 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     dataSheet: initialDataSheet,
     dataRowIndex: null,
     dataMappingRevision: 0,
+    studioStyle: initialStudioLook.style,
+    studioLayouts: initialStudioLook.layouts,
+    setStudioStyle: (style) => {
+      set({ studioStyle: style })
+      persistStudioLook({ style, layouts: get().studioLayouts })
+      const state = get()
+      if (smartTemplate(state.previewTemplateId) && state.templates.find((entry) => entry.id === state.previewTemplateId)?.builtIn) {
+        commitPreviewScene(() => cueSceneFor(get(), state.previewTemplateId))
+      }
+    },
+    setStudioLayout: (templateId, layout) => {
+      const layouts = { ...get().studioLayouts, [templateId]: layout }
+      set({ studioLayouts: layouts })
+      persistStudioLook({ style: get().studioStyle, layouts })
+      if (get().previewTemplateId === templateId && get().templates.find((entry) => entry.id === templateId)?.builtIn) {
+        commitPreviewScene(() => cueSceneFor(get(), templateId))
+      }
+    },
     cuePreview: (templateId) => {
       // Switching templates never drops edits: the outgoing custom template is saved first.
       get().autosavePreviewTemplate()
@@ -264,7 +322,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
         return {
           previewTemplateId: templateId,
-          previewScene: resolveSceneForTemplate(state.templates, templateId),
+          previewScene: cueSceneFor(state, templateId),
           previewDirty: false,
           undoStack: [],
           redoStack: [],
@@ -565,6 +623,13 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
                       paddingLeft: Math.max(0, patch.box.paddingLeft),
                     }
                   : layer.box,
+            fit:
+              patch.fit === null
+                ? undefined
+                : patch.fit
+                  ? { maxLines: Math.min(Math.max(Math.round(patch.fit.maxLines), 1), 20), minFontSize: Math.max(8, Math.round(patch.fit.minFontSize)) }
+                  : layer.fit,
+            optional: patch.optional === undefined ? layer.optional : patch.optional || undefined,
           }
         }),
       }))
@@ -1370,7 +1435,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         return {
           previewTemplateId: primaryTemplateId,
           programTemplateId: CLEAR_TEMPLATE_ID,
-          previewScene: primaryTemplateId ? resolveSceneForTemplate(state.templates, primaryTemplateId) : cloneScene(CLEAR_SCENE),
+          previewScene: primaryTemplateId ? cueSceneFor(state, primaryTemplateId) : cloneScene(CLEAR_SCENE),
           previewDirty: false,
           programScene: cloneScene(CLEAR_SCENE),
           transitionType: 'cut',

@@ -17,6 +17,7 @@ import { LayerList } from './design/LayerList'
 import { CanvasSizeSelect, NewTemplateDialog } from '../components/CanvasSizeControls'
 import { VersionHistoryDialog } from '../components/VersionHistoryDialog'
 import { PublishDialog } from './design/PublishDialog'
+import { StudioLookPicker } from '../components/StudioLookPicker'
 import { previewHasUnpublishedEdits } from '../store/templateCatalog'
 import { downloadDataUrl, renderScenePng } from '../lib/exportScenePng'
 import { usePlayoutStore } from '../store/playoutStore'
@@ -596,6 +597,9 @@ export function DesignPage() {
                 {isExportingPng ? 'Exporting…' : 'Export PNG'}
               </button>
             </div>
+          </div>
+          <div className="stage-toolbar stage-toolbar--subtle stage-toolbar--look">
+            <StudioLookPicker />
           </div>
           <div className="stage-toolbar stage-toolbar--subtle">
             <button type="button" className="btn btn--small btn--ghost" onClick={() => handleAlign('left')}><AlignJustify size={14} />Left</button>

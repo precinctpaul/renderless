@@ -1,6 +1,6 @@
 /** Types shared by the playout store and its helper modules. */
 
-import type { SceneDefinition, StoryState, TextBoxStyle } from '../types/scene'
+import type { SceneDefinition, StoryState, TextBoxStyle, TextFit } from '../types/scene'
 import type { StoryFieldDef } from '../data/storySchema'
 
 export type TransitionType = 'cut' | 'fade' | 'lumaWipe'
@@ -27,6 +27,10 @@ export type TextStylePatch = Partial<
 > & {
   /** A box style to set, or null to remove the text box. */
   box?: TextBoxStyle | null
+  /** Shrink-to-fit settings, or null to turn it off. */
+  fit?: TextFit | null
+  /** Whether staffers can turn this text off in Make. */
+  optional?: boolean
 }
 
 export type TransportMode = 'local' | 'ws'

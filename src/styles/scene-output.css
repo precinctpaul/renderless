@@ -157,3 +157,11 @@ html.renderless-output-embed #root,
   padding: 5px 8px;
   font-size: 10px;
 }
+
+/* Holds a layer's duotone filter definition; takes no space. */
+.scene-renderer__filter {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
