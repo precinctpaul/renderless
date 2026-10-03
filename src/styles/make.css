@@ -18,7 +18,7 @@
   font: inherit;
   font-family: var(--font-body);
   font-weight: 700;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 1px;
   text-transform: uppercase;
 }
@@ -44,7 +44,7 @@
 
 .nav-studio__note {
   padding: 6px 10px 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -225,7 +225,7 @@
 }
 
 .make-template__size {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -726,7 +726,7 @@
   background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   cursor: pointer;
@@ -803,7 +803,7 @@
 
 .look-picker__label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
@@ -889,4 +889,89 @@
 
 .look-picker--compact {
   margin-bottom: 0;
+}
+
+/* Look (style + layout) at the foot of the Fill column */
+.make-look {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.make-look__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--milk);
+}
+
+.make-look .look-picker {
+  margin-bottom: 0;
+}
+
+/* Export confirmation */
+.make-done {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-field);
+  border: 1px solid var(--zinc-200);
+  color: var(--milk);
+}
+
+.make-done__icon {
+  flex: none;
+  color: var(--milk);
+}
+
+.make-done__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+}
+
+.make-done__text .mono {
+  font-size: 12px;
+  color: var(--zinc-200);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.make-done__close {
+  flex: none;
+  display: inline-flex;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--zinc-200);
+  cursor: pointer;
+}
+
+.make-done__close:hover {
+  color: var(--milk);
+}
+
+/* Phones: the preview stays pinned (smaller) while the fields scroll under it. */
+@media (max-width: 760px) {
+  .make-preview {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding-bottom: 8px;
+    box-shadow: 0 10px 14px -6px rgba(0, 0, 0, 0.7);
+  }
+
+  .make-preview__frame {
+    max-height: 32vh;
+  }
+
+  .make-preview__meta {
+    display: none;
+  }
 }

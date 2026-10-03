@@ -37,6 +37,8 @@ export function AppShell() {
   const studioRef = useRef<HTMLDivElement>(null)
   const studioPage = STUDIO_ITEMS.find((item) => pathname.startsWith(item.to))
   const inStudio = Boolean(studioPage)
+  // A live trigger only where going live is the job: never while designing or managing files.
+  const showTake = pathname.startsWith('/control-room') || pathname.startsWith('/data')
 
   useEffect(() => {
     const handle = window.setInterval(() => {
@@ -125,15 +127,17 @@ export function AppShell() {
                 Reset Demo
               </button>
 
-              <button
-                type="button"
-                className="btn btn--take"
-                onClick={take}
-                disabled={Boolean(takeBlockedBy)}
-                title={takeBlockedBy ?? 'Put Preview on air'}
-              >
-                TAKE
-              </button>
+              {showTake ? (
+                <button
+                  type="button"
+                  className="btn btn--take"
+                  onClick={take}
+                  disabled={Boolean(takeBlockedBy)}
+                  title={takeBlockedBy ?? 'Put Preview on air'}
+                >
+                  TAKE
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>

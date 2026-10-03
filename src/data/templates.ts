@@ -42,19 +42,31 @@ const text = (layer: Omit<TextLayer, 'kind' | 'opacity' | 'visible'> & Partial<P
   ...layer,
 })
 
-/** A neutral head-and-shoulders placeholder; staffers replace it with a real photo in Make. */
+/**
+ * The empty photo slot: a crossed-out frame with a camera and "ADD PHOTO", so a draft can never
+ * pass for a finished graphic. Staffers replace it in Make (or turn the photo off).
+ */
 function photoPlaceholder(background: string, figure: string, width: number, height: number): string {
   const size = Math.min(width, height)
+  const inset = Math.max(6, Math.round(size * 0.05))
+  const stroke = Math.max(2, Math.round(size * 0.012))
+  const icon = size * 0.26
   const cx = width / 2
-  const head = size * 0.2
-  const headY = height * 0.4
-  const shoulderY = headY + head * 1.25
+  const cy = height / 2 - size * 0.06
+  const bodyW = icon
+  const bodyH = icon * 0.7
+  const label = Math.max(10, Math.round(size * 0.075))
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
     `<rect width="100%" height="100%" fill="${background}"/>` +
-    `<circle cx="${cx}" cy="${headY}" r="${head}" fill="${figure}"/>` +
-    `<path d="M${cx - size * 0.42} ${height}C${cx - size * 0.42} ${shoulderY + head * 0.2} ${cx - size * 0.2} ${shoulderY} ${cx} ${shoulderY}` +
-    `S${cx + size * 0.42} ${shoulderY + head * 0.2} ${cx + size * 0.42} ${height}Z" fill="${figure}"/></svg>`
+    `<path d="M${inset} ${inset}L${width - inset} ${height - inset}M${width - inset} ${inset}L${inset} ${height - inset}" stroke="${figure}" stroke-width="${stroke}" opacity="0.45"/>` +
+    `<rect x="${inset}" y="${inset}" width="${width - inset * 2}" height="${height - inset * 2}" fill="none" stroke="${figure}" stroke-width="${stroke}" stroke-dasharray="${stroke * 5} ${stroke * 4}"/>` +
+    `<rect x="${cx - bodyW * 0.62}" y="${cy - bodyH * 0.72}" width="${bodyW * 1.24}" height="${bodyH * 1.44 + label * 1.9}" rx="${size * 0.03}" fill="${background}"/>` +
+    `<rect x="${cx - bodyW / 2}" y="${cy - bodyH / 2}" width="${bodyW}" height="${bodyH}" rx="${bodyH * 0.16}" fill="none" stroke="${figure}" stroke-width="${stroke * 1.6}"/>` +
+    `<rect x="${cx - bodyW * 0.18}" y="${cy - bodyH / 2 - bodyH * 0.18}" width="${bodyW * 0.36}" height="${bodyH * 0.18}" fill="${figure}"/>` +
+    `<circle cx="${cx}" cy="${cy + bodyH * 0.04}" r="${bodyH * 0.26}" fill="none" stroke="${figure}" stroke-width="${stroke * 1.6}"/>` +
+    `<text x="${cx}" y="${cy + bodyH / 2 + label * 1.5}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="${label}" letter-spacing="${label * 0.12}" fill="${figure}">ADD PHOTO</text>` +
+    `</svg>`
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
 

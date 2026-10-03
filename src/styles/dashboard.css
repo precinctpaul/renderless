@@ -96,14 +96,14 @@
 
 .table-toolbar__status {
   margin-bottom: 10px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--zinc-200);
 }
 
 .table-toolbar__field {
   display: grid;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   min-width: 180px;
 }
@@ -135,7 +135,7 @@
 
 .dashboard-filter-row__meta {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   margin-left: auto;
 }
 
@@ -195,7 +195,7 @@
 
 .global-search-panel__header {
   color: #c8c9bf;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .global-search-panel__columns {
@@ -249,7 +249,7 @@
 
 .import-wizard__meta {
   color: #c8c9bf;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .import-wizard__grid {
@@ -286,7 +286,7 @@
   border-radius: 0;
   background: #181818;
   color: var(--amber);
-  font-size: 10px;
+  font-size: 12px;
   padding: 6px 8px;
   max-height: 110px;
   overflow: auto;
@@ -341,7 +341,7 @@
 
 .import-wizard__binding-token {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .import-wizard__actions {
@@ -460,11 +460,11 @@
 }
 
 .library-card--media-small .library-card__title {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .library-card--media-small .library-card__meta {
-  font-size: 9px;
+  font-size: 12px;
   gap: 4px;
 }
 
@@ -481,7 +481,7 @@
   border: 1px solid rgba(153, 153, 153, 0.45);
   background: rgba(24, 24, 24, 0.72);
   color: #f9fbed;
-  font-size: 9px;
+  font-size: 12px;
   letter-spacing: 0.06em;
 }
 
@@ -496,7 +496,7 @@
 
 .library-card__fallback {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .library-card__title {
@@ -509,7 +509,7 @@
 }
 
 .library-card__meta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   display: flex;
   align-items: center;
@@ -556,7 +556,7 @@
   border-radius: 0;
   background: #222222;
   color: #f9fbed;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -673,7 +673,7 @@
 .library-list__sub {
   min-width: 0;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -682,7 +682,7 @@
 .library-list__type,
 .library-list__size,
 .library-list__modified {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 

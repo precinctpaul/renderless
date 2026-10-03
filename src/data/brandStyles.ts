@@ -64,7 +64,7 @@ export const BRAND_STYLES: BrandStyle[] = [
     subTag: { fill: BRAND.milk, text: BRAND.ink, radius: 0 },
     mark: BRAND.acid,
     ring: BRAND.acid,
-    photo: { bg: '#2A2A2A', figure: '#444444' },
+    photo: { bg: '#2A2A2A', figure: '#9A9A9A' },
   },
   {
     id: 'signal',
@@ -79,7 +79,7 @@ export const BRAND_STYLES: BrandStyle[] = [
     subTag: { fill: BRAND.ink, text: BRAND.white, radius: 0 },
     mark: BRAND.ink,
     ring: BRAND.white,
-    photo: { bg: '#2D5A8E', figure: '#5B8FCB' },
+    photo: { bg: '#2D5A8E', figure: '#C9DCF2' },
   },
   {
     id: 'retro',
@@ -94,7 +94,7 @@ export const BRAND_STYLES: BrandStyle[] = [
     subTag: { fill: BRAND.orange, text: BRAND.ink, radius: 999 },
     mark: BRAND.orange,
     ring: BRAND.orange,
-    photo: { bg: '#D9DDCB', figure: '#9DAA97' },
+    photo: { bg: '#D9DDCB', figure: '#4F5C4B' },
     tone: { dark: BRAND.green, light: BRAND.milk },
     stripes: [BRAND.yellow, BRAND.orange, BRAND.pepper],
   },

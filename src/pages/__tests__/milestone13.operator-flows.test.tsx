@@ -43,10 +43,14 @@ describe('Milestone 13 operator click-path regressions', () => {
     expect(screen.queryByRole('link', { name: 'Design' })).toBeNull()
     await user.click(screen.getByRole('button', { name: /^Studio/ }))
     await user.click(screen.getByRole('link', { name: 'Design' }))
+    // No live trigger while designing: the header TAKE is only on Control Room and Data.
+    expect(screen.queryByRole('button', { name: 'TAKE' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^Studio/ }))
+    await user.click(screen.getByRole('link', { name: 'Data' }))
     expect(screen.getByRole('button', { name: 'TAKE' })).toBeTruthy()
   })
 
-  test('dashboard mode/filter/dev/load interactions are all live', async () => {
+  test('dashboard mode/filter/load interactions are all live', async () => {
     const user = userEvent.setup()
     renderRoute('/dashboard')
 
@@ -62,9 +66,9 @@ describe('Milestone 13 operator click-path regressions', () => {
     await user.click(screen.getByRole('button', { name: 'Templates' }))
     expect(screen.getByRole('button', { name: 'Built-In' })).toBeTruthy()
 
-    await user.click(screen.getByRole('button', { name: 'DEV TOOLS' }))
-    expect(screen.getByRole('button', { name: 'Export persisted state' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Reset dashboard uploads' })).toBeTruthy()
+    // Old developer tools and package signing are gone from the Library.
+    expect(screen.queryByRole('button', { name: 'DEV TOOLS' })).toBeNull()
+    expect(screen.queryByText('Package Signing')).toBeNull()
 
     await user.click(screen.getByRole('button', { name: 'Custom' }))
     expect(screen.getByText('No templates match the current query/filter.')).toBeTruthy()
@@ -80,7 +84,7 @@ describe('Milestone 13 operator click-path regressions', () => {
 
     const loadButton = within(lowerThirdCard as HTMLElement).getByRole('button', { name: 'Load' })
     await user.click(loadButton)
-    expect(await screen.findByText('STAGE PRO')).toBeTruthy()
+    expect(await screen.findByText('Template editor')).toBeTruthy()
   })
 
   test('data page edits fields and fills them from pasted spreadsheet rows', async () => {

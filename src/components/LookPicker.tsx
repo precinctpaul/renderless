@@ -53,6 +53,7 @@ export function LookPicker({ styleId, onStyleChange, layouts = [], layoutId, onL
             ))}
           </div>
         )}
+        {styleId === 'retro' && !unavailable && !compact ? <span className="look-picker__note">Retro turns photos into two-color (duotone) images.</span> : null}
       </div>
       {layouts.length > 1 && onLayoutChange ? (
         <div className="look-picker__group" role="group" aria-label="Layout">

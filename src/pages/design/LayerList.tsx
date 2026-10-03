@@ -14,7 +14,7 @@ interface LayerListProps {
   onStatus: (message: string, timeoutMs?: number) => void
 }
 
-/** Stage Pro layer list: select, rename, show/hide, lock, duplicate, delete, and reorder by drag or step. */
+/** Design layer list: select, rename, show/hide, lock, duplicate, delete, and reorder by drag or step. */
 export function LayerList({ layers, sceneLayers, selectedLayerIds, onSelect, onDuplicate, onStatus }: LayerListProps) {
   const reorderPreviewLayerToIndex = usePlayoutStore((state) => state.reorderPreviewLayerToIndex)
   const deletePreviewLayer = usePlayoutStore((state) => state.deletePreviewLayer)

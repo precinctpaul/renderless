@@ -29,8 +29,6 @@ import {
   ENTRY_DRAG_MIME,
   ASSET_ROOT,
   FONT_ROOT,
-  DEFAULT_ASSET_FOLDERS,
-  DEFAULT_FONT_FOLDERS,
   DEFAULT_FONT_SPECIMEN,
   SYSTEM_FONT_FAMILIES,
   normalizeFolderPath,
@@ -105,7 +103,6 @@ export function useDashboard() {
   const [mediaSortDirection, setMediaSortDirection] = useState<'asc' | 'desc'>('asc')
   const [showUnusedOnly, setShowUnusedOnly] = useState(false)
   const [searchAll, setSearchAll] = useState(true)
-  const [showDevTools, setShowDevTools] = useState(false)
   const [query, setQuery] = useState('')
   const [batchTagDraft, setBatchTagDraft] = useState('')
   const [selectedSmartTag, setSelectedSmartTag] = useState<string>('all')
@@ -539,7 +536,7 @@ export function useDashboard() {
     cuePreview(templateId)
     setSelectedTemplateCardId(templateId)
     const template = templates.find((entry) => entry.id === templateId)
-    setTransientStatus(`Loaded ${template?.label ?? 'template'} into Stage Pro.`)
+    setTransientStatus(`Loaded ${template?.label ?? 'template'} into Design.`)
     void navigate('/design')
   }
 
@@ -588,40 +585,6 @@ export function useDashboard() {
     }
 
     setTransientStatus(`Deleted ${entry.name}`)
-  }
-
-  const handleExportPersistedState = async () => {
-    try {
-      const payload = JSON.stringify(
-        {
-          playout: window.localStorage.getItem('renderless.playout.snapshot.v1'),
-          templates: window.localStorage.getItem('renderless.templates.v1'),
-          transport: window.localStorage.getItem('renderless.playout.transport.v1'),
-          dashboardAssets: window.localStorage.getItem(ASSET_STORAGE_KEY),
-          dashboardFonts: window.localStorage.getItem(FONT_STORAGE_KEY),
-          dashboardFolders: window.localStorage.getItem(DASHBOARD_FOLDER_STORAGE_KEY),
-        },
-        null,
-        2,
-      )
-      await navigator.clipboard.writeText(payload)
-      setTransientStatus('Persisted state copied to clipboard.')
-    } catch {
-      setTransientStatus('Clipboard unavailable for state export.')
-    }
-  }
-
-  const handleResetDashboardStorage = () => {
-    persistAssets([])
-    persistFonts([])
-    persistFolders({
-      assets: DEFAULT_ASSET_FOLDERS,
-      fonts: DEFAULT_FONT_FOLDERS,
-    })
-    setSelectedAssetFolder(ASSET_ROOT)
-    setSelectedFontFolder(FONT_ROOT)
-    setSelectedEntryId('')
-    setTransientStatus('Dashboard uploaded assets/fonts reset.')
   }
 
   const createSubfolder = (kind: ExplorerKind) => {
@@ -1176,8 +1139,6 @@ export function useDashboard() {
     setShowUnusedOnly,
     searchAll,
     setSearchAll,
-    showDevTools,
-    setShowDevTools,
     query,
     setQuery,
     batchTagDraft,
@@ -1209,8 +1170,6 @@ export function useDashboard() {
     handleTemplateRowClick,
     handleDeleteTemplate,
     handleDeleteExplorerEntry,
-    handleExportPersistedState,
-    handleResetDashboardStorage,
     handleDropOnFolder,
     uploadLabel,
     uploadAccept,

@@ -56,7 +56,7 @@
 }
 
 .layer-item__main {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
 }
 
@@ -104,7 +104,7 @@ input[type='range'] {
   accent-color: var(--acid);
 }
 
-/* ---------- Stage Pro sidebar: labelled groups on one consistent grid ---------- */
+/* ---------- Design sidebar: labelled groups on one consistent grid ---------- */
 .sidebar-head {
   display: flex;
   align-items: flex-start;
@@ -131,7 +131,7 @@ input[type='range'] {
 
 .sidebar-group__label {
   font-family: var(--font-body);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -156,7 +156,7 @@ input[type='range'] {
 
 .creation-btn {
   min-height: 32px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* Layers / Assets: a real tab strip that separates the tools from the list. */
@@ -364,7 +364,7 @@ input[type='range'] {
   left: 24px;
   top: 6px;
   padding: 2px 6px;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
   background: var(--ink);
   color: var(--acid);
@@ -397,7 +397,7 @@ input[type='range'] {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -607,7 +607,7 @@ span.scene-renderer__text:not(.scene-renderer__text-box) {
 .data-field__key {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -653,7 +653,7 @@ span.scene-renderer__text:not(.scene-renderer__text-box) {
 
 .data-sheet__source {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -729,7 +729,7 @@ span.scene-renderer__text:not(.scene-renderer__text-box) {
 }
 
 .canvas-size-select__label {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -804,7 +804,7 @@ span.scene-renderer__text:not(.scene-renderer__text-box) {
 }
 
 .new-template-dialog__size-px {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -881,7 +881,7 @@ span.scene-renderer__text:not(.scene-renderer__text-box) {
 
 /* ---------- Autosave status + version history ---------- */
 .autosave-status {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -950,11 +950,11 @@ span.scene-renderer__text:not(.scene-renderer__text-box) {
 }
 
 .version-history__when {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 
 .version-history__badge {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--milk);
 }

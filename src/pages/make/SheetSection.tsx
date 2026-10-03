@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, X } from 'lucide-react'
-import { CopyHeaderRowButton, SheetMatchReport } from '../../components/SheetMatchReport'
+import { CopyHeaderRowButton, DownloadCsvTemplateButton, SheetMatchReport } from '../../components/SheetMatchReport'
 import { SheetPasteBox } from '../../components/SheetPasteBox'
 import { rowLabel } from '../../lib/dataSheet'
 import type { MakeState } from './useMake'
@@ -19,7 +19,12 @@ export function SheetSection({ make }: { make: MakeState }) {
             {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             Fill from a spreadsheet
           </button>
-          {open ? <CopyHeaderRowButton targets={fields} /> : null}
+          {open ? (
+            <>
+              <CopyHeaderRowButton targets={fields} />
+              <DownloadCsvTemplateButton targets={fields} templateLabel={template.label} />
+            </>
+          ) : null}
         </div>
         {open ? <SheetPasteBox onSheet={loadSheet} /> : null}
       </div>

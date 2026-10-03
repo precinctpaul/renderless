@@ -1,4 +1,4 @@
-/* Design: Stage Pro sidebar, stage, inspector. */
+/* Design: sidebar, stage, inspector. */
 
 .screen--design,
 .screen--control-room {
@@ -47,7 +47,7 @@
 
 .sidebar-heading .subtitle {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.16em;
 }
 
@@ -256,12 +256,12 @@
 .stage-toolbar__save-status {
   color: var(--zinc-200);
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .stage-toolbar__hint {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.03em;
   margin-right: 4px;
 }
@@ -300,13 +300,13 @@
 }
 
 .asset-row__meta {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 
 .asset-list__section-title {
   color: #c8c9bf;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.08em;
   margin: 2px 0 8px;
 }
@@ -510,7 +510,7 @@
   border-radius: 0;
   background: #1e1e1e;
   color: #f9fbed;
-  font-size: 11px;
+  font-size: 12px;
   padding: 6px 8px;
 }
 

@@ -305,7 +305,7 @@ export function LibraryPanel({ d }: { d: DashboardState }) {
                 </div>
               ) : (
                 <div className="inspector-empty">
-                  No auto-detected binding tokens. You can still import this template and bind text in Stage Pro.
+                  No auto-detected binding tokens. You can still import this template and bind text in Studio → Design.
                 </div>
               )}
             </div>

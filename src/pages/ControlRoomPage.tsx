@@ -8,6 +8,8 @@ import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
 import { takeBlocker } from '../store/takeReadiness'
 import { previewHasUnpublishedEdits } from '../store/templateCatalog'
 import { StudioLookPicker } from '../components/StudioLookPicker'
+import { CheckerToggle } from '../components/CheckerToggle'
+import { useChecker } from '../lib/checkerPreference'
 import { AirStatus } from '../components/AirStatus'
 
 /** How long C must be held to clear Program, so a stray keypress can't take a graphic off air. */
@@ -55,6 +57,7 @@ export function ControlRoomPage() {
   const [copiedFollow, setCopiedFollow] = useState<'preview' | 'program' | null>(null)
   const [confirmingNewRoom, setConfirmingNewRoom] = useState(false)
   const takeBlockedBy = usePlayoutStore(takeBlocker)
+  const checker = useChecker()
   // Your unpublished draft is in Preview (from Design): offer the team's version instead. The draft is kept.
   const previewIsDraft = usePlayoutStore(previewHasUnpublishedEdits)
   const [clearArming, setClearArming] = useState(false)
@@ -237,11 +240,12 @@ export function ControlRoomPage() {
                   <span>Preview</span>
                   <span className="monitor-tile__meta">
                     <span className="mono monitor-tile__scene">{previewScene.name}</span>
+                    <CheckerToggle iconOnly />
                     {renderCopyButton('preview')}
                   </span>
                 </header>
                 <div className="monitor-fit">
-                  <div className="monitor-surface">
+                  <div className={`monitor-surface ${checker ? 'monitor-surface--checker' : ''}`.trim()}>
                     <SceneRenderer
                       scene={previewScene}
                       story={story}
@@ -362,6 +366,7 @@ export function ControlRoomPage() {
                   <span>Program</span>
                   <span className="monitor-tile__meta">
                     <AirStatus className="air-status--compact" />
+                    <CheckerToggle iconOnly />
                     {renderCopyButton('program')}
                     <button
                       type="button"
@@ -375,7 +380,7 @@ export function ControlRoomPage() {
                   </span>
                 </header>
                 <div className="monitor-fit">
-                  <div className="monitor-surface">
+                  <div className={`monitor-surface ${checker ? 'monitor-surface--checker' : ''}`.trim()}>
                     <ProgramTransitionSurface
                       scene={programScene}
                       story={story}

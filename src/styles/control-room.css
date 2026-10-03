@@ -29,7 +29,7 @@
   align-items: center;
   gap: 5px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .rundown-empty {
@@ -54,11 +54,11 @@
   flex-direction: column;
   gap: 6px;
   color: #f9fbed;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .transition-status {
-  font-size: 11px;
+  font-size: 12px;
   color: #c8c9bf;
 }
 
@@ -102,7 +102,7 @@
 }
 
 .template-thumb__label {
-  font-size: 11px;
+  font-size: 12px;
   color: #f9fbed;
 }
 
@@ -117,11 +117,11 @@
 
 .binding-panel__meta {
   color: #c8c9bf;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .transport-status {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: #c8c9bf;
 }

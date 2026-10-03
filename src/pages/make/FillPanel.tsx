@@ -3,6 +3,7 @@ import { AlertTriangle, ImageUp, RotateCcw } from 'lucide-react'
 import { SheetSection } from './SheetSection'
 import type { MakeState } from './useMake'
 import { fieldToggleKey, isToggleOn } from '../../lib/makeFields'
+import { LookPicker } from '../../components/LookPicker'
 
 interface FillPanelProps {
   make: MakeState
@@ -181,6 +182,18 @@ export function FillPanel({ make, overflowKeys }: FillPanelProps) {
           </div>
         )
       })}
+      <div className="make-look">
+        <div className="make-look__title">Look</div>
+        <LookPicker
+          styleId={make.styleId}
+          onStyleChange={(style) => make.setLook({ style })}
+          layouts={make.layoutScenes}
+          layoutId={make.layoutId}
+          onLayoutChange={(layout) => make.setLook({ layout })}
+          story={make.story}
+          unavailable={make.isSmart ? undefined : 'Styles work on the built-in templates.'}
+        />
+      </div>
     </section>
   )
 }

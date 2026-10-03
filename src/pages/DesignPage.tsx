@@ -35,8 +35,8 @@ import {
   type MediaLibraryEntry,
 } from '../lib/mediaLibrary'
 
-type CreationItem = 'TEXT' | 'SHAPE' | 'FIGMA' | 'RIVE'
-const CREATION_ITEMS: CreationItem[] = ['TEXT', 'SHAPE', 'FIGMA', 'RIVE']
+type CreationItem = 'TEXT' | 'SHAPE'
+const CREATION_ITEMS: CreationItem[] = ['TEXT', 'SHAPE']
 
 interface SelectionModifiers {
   shiftKey: boolean
@@ -314,17 +314,12 @@ export function DesignPage() {
   }
 
   const handleCreateLayer = (item: CreationItem) => {
-    if (item === 'TEXT' || item === 'SHAPE') {
-      const layerId = createPreviewLayer(item === 'TEXT' ? 'text' : 'shape')
-      if (layerId) {
-        setSelectedLayerIds([layerId])
-        setSelectionAnchorId(layerId)
-        setInteractionMode('select')
-        setTransientStatus(`${item} layer created.`, 1400)
-      }
-      return
-    }
-    setTransientStatus(`${item} layer import is not wired yet.`)
+    const layerId = createPreviewLayer(item === 'TEXT' ? 'text' : 'shape')
+    if (!layerId) return
+    setSelectedLayerIds([layerId])
+    setSelectionAnchorId(layerId)
+    setInteractionMode('select')
+    setTransientStatus(`${item === 'TEXT' ? 'Text' : 'Shape'} layer created.`, 1400)
   }
 
   // Aligns anchor points: one layer to the canvas, several to each other.
@@ -461,7 +456,7 @@ export function DesignPage() {
       <div className="design-layout">
         <aside className="panel stage-sidebar">
           <div className="sidebar-head">
-            <div className="sidebar-heading"><div className="title">STAGE PRO</div><div className="subtitle">STUDIO EDITOR</div></div>
+            <div className="sidebar-heading"><div className="title">Design</div><div className="subtitle">Template editor</div></div>
             <div className="icon-row">
               <button type="button" className="icon-btn" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!canUndo} onClick={undoPreviewScene}><Undo2 size={15} /></button>
               <button type="button" className="icon-btn" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" disabled={!canRedo} onClick={redoPreviewScene}><Redo2 size={15} /></button>

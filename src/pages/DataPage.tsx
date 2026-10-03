@@ -4,7 +4,7 @@ import { usePlayoutStore } from '../store/playoutStore'
 import { fieldKeyFromHeader, rowLabel, type DataSheet } from '../lib/dataSheet'
 import { makeFieldsOf } from '../lib/makeFields'
 import { matchSheet, readManualMapping } from '../lib/sheetMatching'
-import { CopyHeaderRowButton, SheetMatchReport } from '../components/SheetMatchReport'
+import { CopyHeaderRowButton, DownloadCsvTemplateButton, SheetMatchReport } from '../components/SheetMatchReport'
 import { SheetPasteBox } from '../components/SheetPasteBox'
 
 /**
@@ -119,6 +119,7 @@ export function DataPage() {
             </div>
             <div className="data-sheet__actions">
               <CopyHeaderRowButton targets={targets} />
+              <DownloadCsvTemplateButton targets={targets} templateLabel={previewLabel} />
               {sheet ? (
                 <button type="button" className="btn btn--small btn--ghost" onClick={clearDataSheet}>
                   <X size={14} />

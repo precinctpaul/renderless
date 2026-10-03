@@ -1,15 +1,11 @@
-import { Eye, FileText, Puzzle, Tag, Trash2 } from 'lucide-react'
+import { Eye, Tag, Trash2 } from 'lucide-react'
 import { SceneRenderer } from '../../components/SceneRenderer'
 import { DEFAULT_FONT_SPECIMEN, formatTemplateDate, formatDate, formatBytes, mediaTypeForEntry } from './dashboardModel'
 import type { DashboardState } from './useDashboard'
 
-/** Right column: details for the selected template or file, package signing. */
+/** Right column: details for the selected template or file. */
 export function DetailsPanel({ d }: { d: DashboardState }) {
   const {
-    packageSigningEnabled,
-    packageSigningKeyId,
-    packageSigningSecret,
-    setPackageSigningConfig,
     story,
     activeMode,
     setSelectedAssetFolder,
@@ -140,45 +136,6 @@ export function DetailsPanel({ d }: { d: DashboardState }) {
         )
       ) : null}
 
-      <div className="protocol-item">
-        <FileText size={16} />
-        <span>Package contract: scenegraph + bindings + metadata + integrity</span>
-      </div>
-      <div className="protocol-item">
-        <Puzzle size={16} />
-        <span>Import/export uses renderless.template-package v2</span>
-      </div>
-
-      <div className="inspector-section signing-panel">
-        <div className="inspector-section__label">Package Signing</div>
-        <div className="story-actions">
-          <button
-            type="button"
-            className={`btn btn--small ${packageSigningEnabled ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
-            aria-pressed={packageSigningEnabled}
-            onClick={() => setPackageSigningConfig({ enabled: !packageSigningEnabled })}
-          >
-            {packageSigningEnabled ? 'Enabled' : 'Disabled'}
-          </button>
-        </div>
-        <label className="field-label">
-          Key ID
-          <input
-            className="mono"
-            value={packageSigningKeyId}
-            onChange={(event) => setPackageSigningConfig({ keyId: event.target.value })}
-          />
-        </label>
-        <label className="field-label">
-          Shared Secret
-          <input
-            className="mono"
-            type="password"
-            value={packageSigningSecret}
-            onChange={(event) => setPackageSigningConfig({ secret: event.target.value })}
-          />
-        </label>
-      </div>
     </aside>
   )
 }

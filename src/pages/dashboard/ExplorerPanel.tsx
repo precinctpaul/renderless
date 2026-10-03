@@ -8,18 +8,15 @@ import {
 } from './dashboardModel'
 import type { DashboardState } from './useDashboard'
 
-/** Left column: Media / Typography / Templates folder trees and dev tools. */
+/** Left column: Media / Typography / Templates folder trees. */
 export function ExplorerPanel({ d }: { d: DashboardState }) {
   const {
-    resetDemo,
     activeMode,
     openSections,
     setSelectedAssetFolder,
     setSelectedFontFolder,
     templateFolderFilter,
     setTemplateFolderFilter,
-    showDevTools,
-    setShowDevTools,
     setDraggedEntryId,
     setDraggedFolderPath,
     folderDropTarget,
@@ -28,8 +25,6 @@ export function ExplorerPanel({ d }: { d: DashboardState }) {
     effectiveSelectedFontFolder,
     assetFolderRows,
     fontFolderRows,
-    handleExportPersistedState,
-    handleResetDashboardStorage,
     handleDropOnFolder,
     setExplorerMode,
     toggleSectionOpen,
@@ -377,28 +372,6 @@ export function ExplorerPanel({ d }: { d: DashboardState }) {
           ) : null}
         </section>
 
-        <section className="explorer-section explorer-section--dev">
-          <button
-            type="button"
-            className={`mode-item mode-item--dev ${showDevTools ? 'mode-item--active' : ''}`.trim()}
-            onClick={() => setShowDevTools((previous) => !previous)}
-          >
-            DEV TOOLS
-          </button>
-          {showDevTools ? (
-            <div className="dev-tools-panel">
-              <button type="button" className="btn btn--small btn--ghost" onClick={handleExportPersistedState}>
-                Export persisted state
-              </button>
-              <button type="button" className="btn btn--small btn--ghost" onClick={handleResetDashboardStorage}>
-                Reset dashboard uploads
-              </button>
-              <button type="button" className="btn btn--small btn--ghost" onClick={resetDemo}>
-                Reset playout state
-              </button>
-            </div>
-          ) : null}
-        </section>
       </div>
     </aside>
   )

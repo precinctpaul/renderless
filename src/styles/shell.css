@@ -79,7 +79,7 @@
   border-radius: 0;
   border: 1px solid var(--zinc-800);
   padding: 0 10px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.06em;
 }
@@ -137,7 +137,7 @@
 
 .btn--small {
   min-height: 30px;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.03em;
 }
 

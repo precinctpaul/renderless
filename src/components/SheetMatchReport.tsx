@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { AlertTriangle, Check, ClipboardCopy, Minus } from 'lucide-react'
+import { AlertTriangle, Check, ClipboardCopy, FileDown, Minus } from 'lucide-react'
+import { DEFAULT_FIELD_VALUES } from '../data/storySchema'
 import { IGNORE_COLUMN, headerRowFor, type MatchTarget, type SheetMatch } from '../lib/sheetMatching'
 
 /** Copies the template's field names as a tab-separated header row, ready to paste into row 1 of a sheet. */
@@ -32,6 +33,34 @@ export function CopyHeaderRowButton({ targets }: { targets: MatchTarget[] }) {
             ? `Copy blocked. Headers: ${readable}`
             : 'Copy header row'}
       </span>
+    </button>
+  )
+}
+
+const csvCell = (value: string) => (/[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value)
+
+/**
+ * Downloads a ready-to-fill CSV for the template: its field names as the header row and the
+ * template's sample text as an example row, so the sheet matches with no guesswork.
+ */
+export function DownloadCsvTemplateButton({ targets, templateLabel }: { targets: Array<MatchTarget & { sample?: string }>; templateLabel: string }) {
+  if (targets.length === 0) return null
+  const download = () => {
+    // An example row: a realistic value where we have one, else the template's own sample text.
+    const example = (target: MatchTarget & { sample?: string }) => String(DEFAULT_FIELD_VALUES[target.key] ?? target.sample ?? '')
+    const rows = [targets.map((target) => target.label), targets.map(example)]
+    const csv = rows.map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n'
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${templateLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'graphic'}-sheet.csv`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+  return (
+    <button type="button" className="btn btn--small btn--ghost" onClick={download} title="A spreadsheet with this template's columns and an example row">
+      <FileDown size={14} />
+      CSV template
     </button>
   )
 }
