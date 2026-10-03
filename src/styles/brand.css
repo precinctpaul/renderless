@@ -29,8 +29,14 @@
   --acid: #e7eb94;
   --red: #ed2426;
   --blue: #3c77bb;
-  --muted: #777777;
+  /* Text colors are checked for 4.5:1 (WCAG AA) on every UI background, #111 to #333. */
+  --muted: #a6a6a6;
   --muted-dim: #555555;
+  /* Brand red/blue fail as small text on dark: red text uses this tint; text on blue is white. */
+  --red-text: #ff7072;
+  --text-on-blue: #ffffff;
+  /* Warnings (not a brand color; approved for UI warnings). */
+  --amber: #f0a03c;
   --border: #333333;
   --ink: #111111;
   --acid-hover: #f2f6a8;
@@ -59,7 +65,25 @@ body {
 
 ::selection {
   background: var(--blue);
-  color: #ffffff;
+  color: var(--text-on-blue);
+}
+
+/* Selected rows and items on brand blue: only white text reaches 4.5:1 there. */
+.tree-row--active,
+.tree-row--active *,
+.tree-row--drop-target,
+.tree-row--drop-target *,
+.library-list__row--active,
+.library-list__row--active *,
+.mode-item--active,
+.mode-item--active *,
+.layer-item--active,
+.layer-item--active *,
+.rundown-item--preview,
+.rundown-item--preview *,
+.dashboard-breadcrumbs__btn--active,
+.data-sheet__table tbody tr.data-sheet__row--active td {
+  color: var(--text-on-blue);
 }
 
 /* ---------- Header ---------- */
@@ -116,7 +140,7 @@ body {
 }
 
 .nav-tab--active {
-  color: var(--acid);
+  color: var(--milk);
   background: transparent;
   border-bottom-color: var(--acid);
 }
@@ -126,11 +150,6 @@ body {
   background: var(--bg-field);
   border: none;
   color: var(--milk);
-}
-
-.badge--ready {
-  color: var(--acid);
-  background: var(--bg-field);
 }
 
 .badge--air {
@@ -161,7 +180,7 @@ body {
 .btn:disabled {
   opacity: 1;
   background: #262626;
-  color: var(--muted-dim);
+  color: var(--muted);
 }
 
 .btn--ghost {
@@ -179,11 +198,12 @@ body {
   background: transparent;
 }
 
-/* Toggled-on toolbar buttons (Rulers, Grid, Snap...): basIQ's checked ghost. */
+/* Toggled-on toolbar buttons (Rulers, Grid, Snap...): an acid bar marks "on"; acid text is for CTAs only. */
 .btn--accent-soft {
   background: var(--bg-button);
   border-color: transparent;
-  color: var(--acid);
+  color: var(--milk);
+  box-shadow: inset 0 -2px 0 var(--acid);
 }
 
 .btn--accent,
@@ -217,7 +237,7 @@ body {
 .btn--warning {
   background: transparent;
   border-color: var(--red);
-  color: var(--red);
+  color: var(--red-text);
 }
 
 .btn--warning:hover {

@@ -88,7 +88,8 @@ export function LibraryPanel({ d }: { d: DashboardState }) {
         />
         <button
           type="button"
-          className={`btn btn--small ${searchAll ? 'btn--accent' : 'btn--ghost'}`.trim()}
+          className={`btn btn--small ${searchAll ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+          aria-pressed={searchAll}
           onClick={() => setSearchAll((previous) => !previous)}
         >
           {searchAll ? 'Global Search' : 'Current View'}
@@ -122,7 +123,8 @@ export function LibraryPanel({ d }: { d: DashboardState }) {
               <button
                 key={filterValue}
                 type="button"
-                className={`btn btn--small ${mediaTypeFilter === filterValue ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                className={`btn btn--small ${mediaTypeFilter === filterValue ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+                aria-pressed={mediaTypeFilter === filterValue}
                 onClick={() => setMediaTypeFilter(filterValue)}
               >
                 {filterValue.toUpperCase()}
@@ -130,7 +132,8 @@ export function LibraryPanel({ d }: { d: DashboardState }) {
             ))}
             <button
               type="button"
-              className={`btn btn--small ${showUnusedOnly ? 'btn--accent' : 'btn--ghost'}`.trim()}
+              className={`btn btn--small ${showUnusedOnly ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+              aria-pressed={showUnusedOnly}
               onClick={() => setShowUnusedOnly((previous) => !previous)}
             >
               {showUnusedOnly ? 'Unused Only: On' : 'Unused Only: Off'}
@@ -151,21 +154,24 @@ export function LibraryPanel({ d }: { d: DashboardState }) {
               <div className="table-toolbar__toggle-row">
                 <button
                   type="button"
-                  className={`btn btn--small ${mediaViewMode === 'gridLarge' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                  className={`btn btn--small ${mediaViewMode === 'gridLarge' ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+                  aria-pressed={mediaViewMode === 'gridLarge'}
                   onClick={() => handleMediaViewModeChange('gridLarge')}
                 >
                   Grid Large
                 </button>
                 <button
                   type="button"
-                  className={`btn btn--small ${mediaViewMode === 'gridSmall' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                  className={`btn btn--small ${mediaViewMode === 'gridSmall' ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+                  aria-pressed={mediaViewMode === 'gridSmall'}
                   onClick={() => handleMediaViewModeChange('gridSmall')}
                 >
                   Grid Small
                 </button>
                 <button
                   type="button"
-                  className={`btn btn--small ${mediaViewMode === 'list' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                  className={`btn btn--small ${mediaViewMode === 'list' ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+                  aria-pressed={mediaViewMode === 'list'}
                   onClick={() => handleMediaViewModeChange('list')}
                 >
                   List

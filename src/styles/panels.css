@@ -19,7 +19,7 @@
 .panel-subtitle {
   margin: 6px 0 10px;
   font-size: 13px;
-  color: var(--zinc-400);
+  color: var(--muted);
 }
 
 .panel--explorer {

@@ -62,7 +62,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--zinc-400);
+  color: var(--muted);
   border-radius: 0;
   flex: 0 0 16px;
 }
@@ -97,14 +97,14 @@
 .table-toolbar__status {
   margin-bottom: 10px;
   font-size: 11px;
-  color: #e7eb94;
+  color: var(--zinc-200);
 }
 
 .table-toolbar__field {
   display: grid;
   gap: 4px;
   font-size: 11px;
-  color: var(--zinc-400);
+  color: var(--muted);
   min-width: 180px;
 }
 
@@ -134,7 +134,7 @@
 }
 
 .dashboard-filter-row__meta {
-  color: var(--zinc-400);
+  color: var(--muted);
   font-size: 11px;
   margin-left: auto;
 }
@@ -155,7 +155,7 @@
 }
 
 .dashboard-breadcrumbs__sep {
-  color: var(--zinc-500);
+  color: var(--muted);
   font-size: 14px;
 }
 
@@ -282,10 +282,10 @@
 }
 
 .import-wizard__warnings {
-  border: 1px solid #e7eb94;
+  border: 1px solid var(--amber);
   border-radius: 0;
   background: #181818;
-  color: #e7eb94;
+  color: var(--amber);
   font-size: 10px;
   padding: 6px 8px;
   max-height: 110px;
@@ -340,7 +340,7 @@
 }
 
 .import-wizard__binding-token {
-  color: var(--zinc-400);
+  color: var(--muted);
   font-size: 10px;
 }
 
@@ -495,7 +495,7 @@
 }
 
 .library-card__fallback {
-  color: var(--zinc-400);
+  color: var(--muted);
   font-size: 11px;
 }
 
@@ -510,7 +510,7 @@
 
 .library-card__meta {
   font-size: 11px;
-  color: var(--zinc-300);
+  color: var(--muted);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -672,7 +672,7 @@
 
 .library-list__sub {
   min-width: 0;
-  color: var(--zinc-400);
+  color: var(--muted);
   font-size: 10px;
   white-space: nowrap;
   overflow: hidden;
@@ -683,7 +683,7 @@
 .library-list__size,
 .library-list__modified {
   font-size: 11px;
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 .dev-tools-panel {

@@ -261,7 +261,8 @@ export function ControlRoomPage() {
                       <button
                         key={transition.id}
                         type="button"
-                        className={`btn btn--small ${transitionType === transition.id ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                        className={`btn btn--small ${transitionType === transition.id ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+                        aria-pressed={transitionType === transition.id}
                         onClick={() => setTransition(transition.id)}
                         disabled={transitionInProgress}
                       >
@@ -309,14 +310,16 @@ export function ControlRoomPage() {
                   <div className="story-actions">
                     <button
                       type="button"
-                      className={`btn btn--small ${transportMode === 'local' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                      className={`btn btn--small ${transportMode === 'local' ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+                      aria-pressed={transportMode === 'local'}
                       onClick={() => setTransportMode('local')}
                     >
                       Local
                     </button>
                     <button
                       type="button"
-                      className={`btn btn--small ${transportMode === 'ws' ? 'btn--accent' : 'btn--ghost'}`.trim()}
+                      className={`btn btn--small ${transportMode === 'ws' ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+                      aria-pressed={transportMode === 'ws'}
                       onClick={() => setTransportMode('ws')}
                     >
                       WebSocket

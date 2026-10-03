@@ -45,7 +45,7 @@
 .nav-studio__note {
   padding: 6px 10px 8px;
   font-size: 11px;
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 .nav-studio__item {
@@ -106,7 +106,7 @@
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 /* Template list */
@@ -122,7 +122,7 @@
   gap: 8px;
   padding-left: 10px;
   background: var(--bg-field);
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 .make-search input {
@@ -226,7 +226,7 @@
 
 .make-template__size {
   font-size: 11px;
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 /* Fill-in fields */
@@ -274,7 +274,7 @@
   gap: 8px;
   min-height: 16px;
   font-size: 12px;
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 .make-field__warning {
@@ -286,7 +286,7 @@
 }
 
 .make-field__warning svg {
-  color: var(--red);
+  color: var(--red-text);
 }
 
 .make-image__row {
@@ -325,7 +325,7 @@
 
 .make-preview__meta {
   font-size: 12px;
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 .make-export {
@@ -510,7 +510,7 @@
 
 .sheet-paste__help {
   font-size: 12px;
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 .sheet-paste__problem {
@@ -554,11 +554,11 @@
 }
 
 .sheet-match__summary--partial {
-  border-left-color: #f0a03c;
+  border-left-color: var(--amber);
 }
 
 .sheet-match__summary--partial svg {
-  color: #f0a03c;
+  color: var(--amber);
 }
 
 .sheet-match__columns {
@@ -589,11 +589,11 @@
 }
 
 .sheet-chip--unmatched {
-  border-left-color: #f0a03c;
+  border-left-color: var(--amber);
 }
 
 .sheet-chip--unmatched .sheet-chip__icon {
-  color: #f0a03c;
+  color: var(--amber);
 }
 
 .sheet-chip--ignored {
@@ -602,7 +602,7 @@
 
 .sheet-chip--ignored .sheet-chip__icon,
 .sheet-chip--ignored .sheet-chip__name {
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 .sheet-chip__icon {
@@ -649,7 +649,7 @@
 }
 
 .data-sheet__table th.data-sheet__th--unmatched {
-  box-shadow: inset 0 -3px 0 #f0a03c;
+  box-shadow: inset 0 -3px 0 var(--amber);
 }
 
 /* Make's spreadsheet section */
@@ -688,7 +688,7 @@
 }
 
 .make-sheet__toggle:hover {
-  color: var(--acid);
+  color: var(--milk);
 }
 
 .make-sheet__title {

@@ -154,7 +154,8 @@ export function DetailsPanel({ d }: { d: DashboardState }) {
         <div className="story-actions">
           <button
             type="button"
-            className={`btn btn--small ${packageSigningEnabled ? 'btn--accent' : 'btn--ghost'}`.trim()}
+            className={`btn btn--small ${packageSigningEnabled ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
+            aria-pressed={packageSigningEnabled}
             onClick={() => setPackageSigningConfig({ enabled: !packageSigningEnabled })}
           >
             {packageSigningEnabled ? 'Enabled' : 'Disabled'}

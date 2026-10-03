@@ -57,7 +57,7 @@
 .btn--take:disabled {
   background: var(--bg-button);
   border-color: var(--bg-button);
-  color: var(--zinc-300);
+  color: var(--muted);
   cursor: not-allowed;
 }
 
@@ -78,7 +78,7 @@
 
 .clear-button:disabled {
   border-color: var(--zinc-700);
-  color: var(--zinc-300);
+  color: var(--muted);
 }
 
 /* While C is held: the button fills red over the hold time. */
@@ -118,7 +118,7 @@
 
 /* ---------- Drafts + Publish ---------- */
 .autosave-status--draft {
-  color: #f0a03c;
+  color: var(--amber);
 }
 
 .publish-dialog {
@@ -167,7 +167,7 @@
 
 .publish-dialog__warning {
   padding: 8px 10px;
-  border-left: 3px solid #f0a03c;
+  border-left: 3px solid var(--amber);
   background: rgba(240, 160, 60, 0.1);
 }
 

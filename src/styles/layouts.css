@@ -209,7 +209,7 @@
 
 .copy-button--copied {
   border-color: #e7eb94;
-  color: #e7eb94;
+  color: var(--milk);
 }
 
 .transport-status {
@@ -230,7 +230,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 10px;
-  color: var(--zinc-300);
+  color: var(--muted);
   font-size: 11px;
   letter-spacing: 0.03em;
 }
@@ -708,9 +708,9 @@
 }
 
 .new-room-button--confirm {
-  border-color: #e7eb94;
+  border-color: var(--amber);
   background: rgba(231, 235, 148, 0.14);
-  color: #e7eb94;
+  color: var(--amber);
 }
 
 /* Checkbox rows in the inspector: label beside the box, not stacked full-width. */
@@ -736,7 +736,7 @@
 .anchor-row__hint {
   font-size: 11px;
   line-height: 1.35;
-  color: #777777;
+  color: var(--muted);
 }
 
 .anchor-picker {
