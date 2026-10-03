@@ -1,4 +1,4 @@
-/** Template catalog: built-in + custom templates, ids, storage, versions and autosave. */
+/** Template catalog: built-in + custom templates, ids, storage, versions and private drafts. */
 
 import { CLEAR_SCENE, TEMPLATE_LIBRARY, cloneScene } from '../data/templates'
 import type { DataBindingKey, SceneDefinition, TemplateDefinition, TemplateVersion } from '../types/scene'
@@ -76,9 +76,6 @@ export function createUniqueSceneId(templates: TemplateDefinition[], preferredId
 }
 
 export const MAX_TEMPLATE_VERSIONS = 30
-/** While editing, autosave also keeps a restorable checkpoint at least this often. */
-export const AUTOSAVE_CHECKPOINT_MS = 10 * 60 * 1000
-
 export function clampVersionHistory(versions: TemplateVersion[]): TemplateVersion[] {
   if (versions.length <= MAX_TEMPLATE_VERSIONS) {
     return versions
@@ -101,41 +98,102 @@ export function versionSnapshotOf(template: TemplateDefinition, now: number): Te
 }
 
 /**
- * Writes the Preview edits into its custom template (no-op for built-ins or when nothing changed).
- * The content being replaced becomes a version when it was a manual save/restore, or when the
- * last checkpoint is older than AUTOSAVE_CHECKPOINT_MS, so history keeps useful restore points
- * without one entry per keystroke.
+ * A private, unpublished edit of a custom template. Design autosaves here (this browser only);
+ * the team template changes only when the draft is published.
  */
-export function autosavedTemplates(state: Pick<PlayoutStore, 'templates' | 'previewTemplateId' | 'previewScene'>, author: string, now: number) {
+export interface TemplateDraft {
+  scene: SceneDefinition
+  /** The published version the draft started from (to spot a teammate publishing meanwhile). */
+  baseVersion: number
+  updatedAt: number
+}
+
+export type TemplateDrafts = Record<string, TemplateDraft>
+
+export const DRAFT_STORAGE_KEY = 'renderless.drafts.v1'
+
+export function readDrafts(): TemplateDrafts {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(DRAFT_STORAGE_KEY) ?? '{}') as Record<string, unknown>
+    const drafts: TemplateDrafts = {}
+    Object.entries(parsed ?? {}).forEach(([templateId, raw]) => {
+      const record = raw as Record<string, unknown> | null
+      const scene = sceneFromUnknown(record?.scene)
+      if (!scene) return
+      drafts[templateId] = {
+        scene,
+        baseVersion: Number(record?.baseVersion) || 1,
+        updatedAt: Number(record?.updatedAt) || Date.now(),
+      }
+    })
+    return drafts
+  } catch {
+    return {}
+  }
+}
+
+export function persistDrafts(drafts: TemplateDrafts) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(drafts))
+  } catch {
+    // Drafts then live only in memory until the next successful write.
+  }
+}
+
+export function withoutDrafts(drafts: TemplateDrafts, templateIds: string[]): TemplateDrafts {
+  if (!templateIds.some((templateId) => templateId in drafts)) {
+    return drafts
+  }
+  const next = { ...drafts }
+  templateIds.forEach((templateId) => delete next[templateId])
+  return next
+}
+
+/** Same design, ignoring the scene id and name (those follow the template). */
+export function sameDesign(a: SceneDefinition, b: SceneDefinition): boolean {
+  return scenesEqual(cloneScene({ ...a, id: '', name: '' }), cloneScene({ ...b, id: '', name: '' }))
+}
+
+/** Drafts after saving `scene` as the template's draft (a design equal to the published one drops the draft). */
+export function draftsWithScene(drafts: TemplateDrafts, template: TemplateDefinition, scene: SceneDefinition, now: number): TemplateDrafts {
+  if (sameDesign(scene, template.scene)) {
+    return withoutDrafts(drafts, [template.id])
+  }
+  return {
+    ...drafts,
+    [template.id]: {
+      scene: cloneScene({ ...scene, id: template.scene.id, name: template.label }),
+      baseVersion: drafts[template.id]?.baseVersion ?? template.version ?? 1,
+      updatedAt: now,
+    },
+  }
+}
+
+let unpublishedMemo: { preview: SceneDefinition; published: SceneDefinition; result: boolean } | null = null
+
+/**
+ * Preview shows a custom template with edits that aren't published (a draft). Built-ins can't
+ * be published, so their Preview edits never count. Memoized: TAKE controls ask on every update.
+ */
+export function previewHasUnpublishedEdits(state: Pick<PlayoutStore, 'templates' | 'previewTemplateId' | 'previewScene'>): boolean {
   const template = findTemplateById(state.templates, state.previewTemplateId)
   if (!template || template.builtIn) {
-    return null
+    return false
   }
-
-  const scene = cloneScene({ ...state.previewScene, id: template.scene.id, name: template.label })
-  if (scenesEqual(scene, template.scene)) {
-    return null
+  if (unpublishedMemo && unpublishedMemo.preview === state.previewScene && unpublishedMemo.published === template.scene) {
+    return unpublishedMemo.result
   }
-
-  const isEmptyStart = template.scene.layers.length === 0 && !template.versionReason
-  const needsCheckpoint =
-    !isEmptyStart && (template.versionReason !== 'autosave' || now - (template.checkpointAt ?? 0) > AUTOSAVE_CHECKPOINT_MS)
-  const next: TemplateDefinition = {
-    ...template,
-    scene,
-    bindings: extractBindingKeys(scene),
-    updatedAt: now,
-    ...(author ? { updatedBy: author } : {}),
-    versionReason: 'autosave',
-    ...(needsCheckpoint
-      ? {
-          version: (template.version ?? 1) + 1,
-          versions: clampVersionHistory([...(template.versions ?? []), versionSnapshotOf(template, now)]),
-          checkpointAt: now,
-        }
-      : {}),
-  }
-  return state.templates.map((entry) => (entry.id === template.id ? next : entry))
+  const result = !sameDesign(state.previewScene, template.scene)
+  unpublishedMemo = { preview: state.previewScene, published: template.scene, result }
+  return result
 }
 
 export function sceneFromUnknown(value: unknown): SceneDefinition | null {

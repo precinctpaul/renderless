@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
+import type { SceneDefinition } from '../../types/scene'
 
 const SNAPSHOT_KEY = 'renderless.playout.snapshot.v1'
 const TEMPLATE_STORAGE_KEY = 'renderless.templates.v1'
@@ -290,34 +291,32 @@ describe('Playout reliability and QA regression suite', () => {
     expect(overwrittenTemplate?.versions?.some((entry) => entry.bindings.includes('headline'))).toBe(true)
   })
 
-  test('autosave writes edits into a custom template and keeps checkpoints', async () => {
+  test('autosave keeps edits in a private draft until they are published', async () => {
     const { usePlayoutStore } = await loadStoreModule()
     const store = () => usePlayoutStore.getState()
+    const bgX = (scene: SceneDefinition) => getLayerPosition(scene, 'shape-lt-bg').x
 
     store().cuePreview('template-lower-third')
-    const templateId = store().savePreviewTemplate('Autosave QA')
-    const versionAfterSave = store().templates.find((template) => template.id === templateId)?.version ?? 0
+    const templateId = store().savePreviewTemplate('Draft QA') ?? ''
+    const published = () => store().templates.find((template) => template.id === templateId)!
+    const versionBefore = published().version ?? 1
 
-    // First edit after a manual save: the saved design becomes a restore point.
     store().updatePreviewLayerTransform('shape-lt-bg', { x: 300 })
     expect(store().autosavePreviewTemplate()).toBe(true)
-    let saved = store().templates.find((template) => template.id === templateId)
-    expect(saved?.scene.layers.find((layer) => layer.id === 'shape-lt-bg')?.x).toBe(300)
-    expect(saved?.version).toBe(versionAfterSave + 1)
-    expect(saved?.versions?.at(-1)?.reason).toBe('save')
-
-    // More edits within the checkpoint window update in place: no extra versions.
-    store().updatePreviewLayerTransform('shape-lt-bg', { x: 320 })
-    store().autosavePreviewTemplate()
-    saved = store().templates.find((template) => template.id === templateId)
-    expect(saved?.version).toBe(versionAfterSave + 1)
-    expect(saved?.scene.layers.find((layer) => layer.id === 'shape-lt-bg')?.x).toBe(320)
-
-    // Nothing changed: no-op.
+    expect(bgX(published().scene)).toBe(120)
+    expect(store().drafts[templateId] && bgX(store().drafts[templateId].scene)).toBe(300)
+    expect(window.localStorage.getItem('renderless.drafts.v1')).toContain(templateId)
     expect(store().autosavePreviewTemplate()).toBe(false)
+
+    expect(store().publishPreviewTemplate()).toBe(templateId)
+    expect(bgX(published().scene)).toBe(300)
+    expect(published().version).toBe(versionBefore + 1)
+    expect(published().versions?.some((entry) => bgX(entry.scene) === 120)).toBe(true)
+    expect(store().drafts[templateId]).toBeUndefined()
+    expect(store().publishPreviewTemplate()).toBeNull()
   })
 
-  test('switching templates saves the outgoing edits; built-ins are never overwritten', async () => {
+  test('switching templates keeps the outgoing draft; built-ins are never overwritten', async () => {
     const { usePlayoutStore } = await loadStoreModule()
     const store = () => usePlayoutStore.getState()
 
@@ -325,12 +324,69 @@ describe('Playout reliability and QA regression suite', () => {
     const templateId = store().savePreviewTemplate('Switch QA') ?? ''
     store().updatePreviewLayerTransform('shape-lt-bg', { x: 444 })
     store().cuePreview('template-quote-card')
-    expect(store().templates.find((template) => template.id === templateId)?.scene.layers.find((layer) => layer.id === 'shape-lt-bg')?.x).toBe(444)
+    expect(getLayerPosition(store().drafts[templateId].scene, 'shape-lt-bg').x).toBe(444)
+    expect(store().templates.find((template) => template.id === templateId)?.scene.layers.find((layer) => layer.id === 'shape-lt-bg')?.x).toBe(120)
+
+    // Cueing shows the published design; Design reopens the draft.
+    store().cuePreview(templateId)
+    expect(getLayerPosition(store().previewScene, 'shape-lt-bg').x).toBe(120)
+    expect(store().openPreviewDraft()).toBe(true)
+    expect(getLayerPosition(store().previewScene, 'shape-lt-bg').x).toBe(444)
 
     const builtInBefore = JSON.stringify(store().templates.find((template) => template.id === 'template-quote-card')?.scene)
+    store().cuePreview('template-quote-card')
     store().updatePreviewLayerTransform('scene-quote-card-frame-top', { x: 10 })
     expect(store().autosavePreviewTemplate()).toBe(false)
+    expect(store().drafts['template-quote-card']).toBeUndefined()
     expect(JSON.stringify(store().templates.find((template) => template.id === 'template-quote-card')?.scene)).toBe(builtInBefore)
+  })
+
+  test('discarding a draft, editing back to the published design, and loading a version into the draft', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const store = () => usePlayoutStore.getState()
+
+    store().cuePreview('template-lower-third')
+    const templateId = store().savePreviewTemplate('Discard QA') ?? ''
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 500 })
+    store().autosavePreviewTemplate()
+    store().discardPreviewDraft()
+    expect(store().drafts[templateId]).toBeUndefined()
+    expect(getLayerPosition(store().previewScene, 'shape-lt-bg').x).toBe(120)
+
+    // Editing back to exactly the published design leaves no draft behind.
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 200 })
+    store().autosavePreviewTemplate()
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 120 })
+    store().autosavePreviewTemplate()
+    expect(store().drafts[templateId]).toBeUndefined()
+
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 640 })
+    store().autosavePreviewTemplate()
+    store().publishPreviewTemplate()
+    const published = store().templates.find((template) => template.id === templateId)!
+    const oldVersion = published.versions!.find((entry) => getLayerPosition(entry.scene, 'shape-lt-bg').x === 120)!.version
+    expect(store().loadVersionIntoDraft(templateId, oldVersion)).toBe(true)
+    expect(getLayerPosition(store().drafts[templateId].scene, 'shape-lt-bg').x).toBe(120)
+    expect(getLayerPosition(store().templates.find((template) => template.id === templateId)!.scene, 'shape-lt-bg').x).toBe(640)
+  })
+
+  test('Save As New takes the draft along; deleting a template drops its draft', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const store = () => usePlayoutStore.getState()
+
+    store().cuePreview('template-lower-third')
+    const originalId = store().savePreviewTemplate('Fork QA') ?? ''
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 333 })
+    store().autosavePreviewTemplate()
+    const copyId = store().savePreviewTemplate('Fork QA copy', { asNew: true }) ?? ''
+    expect(store().drafts[originalId]).toBeUndefined()
+    expect(getLayerPosition(store().templates.find((template) => template.id === copyId)!.scene, 'shape-lt-bg').x).toBe(333)
+
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 99 })
+    store().autosavePreviewTemplate()
+    expect(store().drafts[copyId]).toBeDefined()
+    store().deleteTemplate(copyId)
+    expect(store().drafts[copyId]).toBeUndefined()
   })
 
   test('a teammate update shows in an untouched preview and is not overwritten by switching away', async () => {
@@ -352,6 +408,27 @@ describe('Playout reliability and QA regression suite', () => {
     store().cuePreview('template-quote-card')
     const kept = store().templates.find((template) => template.id === templateId)
     expect(kept && getLayerPosition(kept.scene, 'shape-lt-bg').x).toBe(777)
+  })
+
+  test('a teammate update does not replace your draft in Preview', async () => {
+    const { usePlayoutStore } = await loadStoreModule()
+    const store = () => usePlayoutStore.getState()
+
+    store().cuePreview('template-lower-third')
+    const templateId = store().savePreviewTemplate('Team Draft QA') ?? ''
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 555 })
+    store().autosavePreviewTemplate()
+    const mine = store().templates.find((template) => template.id === templateId)!
+    const theirs = {
+      ...mine,
+      scene: { ...mine.scene, layers: mine.scene.layers.map((layer) => (layer.id === 'shape-lt-bg' ? { ...layer, x: 777 } : layer)) },
+      version: (mine.version ?? 1) + 1,
+      updatedAt: (mine.updatedAt ?? 0) + 1000,
+    }
+
+    store().mergeLibraryTemplates([theirs], [])
+    expect(getLayerPosition(store().previewScene, 'shape-lt-bg').x).toBe(555)
+    expect(store().drafts[templateId].baseVersion).toBe(mine.version)
   })
 
   test('field values can be set, added and removed', async () => {

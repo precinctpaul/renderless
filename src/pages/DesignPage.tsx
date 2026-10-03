@@ -16,6 +16,8 @@ import { LayerInspector } from './design/LayerInspector'
 import { LayerList } from './design/LayerList'
 import { CanvasSizeSelect, NewTemplateDialog } from '../components/CanvasSizeControls'
 import { VersionHistoryDialog } from '../components/VersionHistoryDialog'
+import { PublishDialog } from './design/PublishDialog'
+import { previewHasUnpublishedEdits } from '../store/templateCatalog'
 import { downloadDataUrl, renderScenePng } from '../lib/exportScenePng'
 import { usePlayoutStore } from '../store/playoutStore'
 import type { TemplatePackage } from '../lib/templatePackages'
@@ -84,8 +86,12 @@ export function DesignPage() {
   const createBlankTemplate = usePlayoutStore((state) => state.createBlankTemplate)
   const setPreviewCanvasSize = usePlayoutStore((state) => state.setPreviewCanvasSize)
   const exportPreviewTemplatePackage = usePlayoutStore((state) => state.exportPreviewTemplatePackage)
-  const restoreTemplateVersion = usePlayoutStore((state) => state.restoreTemplateVersion)
   const autosavePreviewTemplate = usePlayoutStore((state) => state.autosavePreviewTemplate)
+  const drafts = usePlayoutStore((state) => state.drafts)
+  const previewDirty = usePlayoutStore((state) => state.previewDirty)
+  const publishPreviewTemplate = usePlayoutStore((state) => state.publishPreviewTemplate)
+  const discardPreviewDraft = usePlayoutStore((state) => state.discardPreviewDraft)
+  const loadVersionIntoDraft = usePlayoutStore((state) => state.loadVersionIntoDraft)
 
   const [selectedLayerIds, setSelectedLayerIds] = useState<string[]>([])
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(null)
@@ -93,7 +99,7 @@ export function DesignPage() {
   const [isNewTemplateOpen, setIsNewTemplateOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState('')
   const [isHistoryOpen, setIsHistoryOpen] = useState(false)
-  const [autosavePending, setAutosavePending] = useState(false)
+  const [isPublishOpen, setIsPublishOpen] = useState(false)
   const [interactionMode, setInteractionMode] = useState<'select' | 'pan'>('select')
   const [sidebarTab, setSidebarTab] = useState<'layers' | 'assets'>('layers')
   const [showGrid, setShowGrid] = useState(false)
@@ -252,16 +258,21 @@ export function DesignPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [activeSelectedLayerIds, interactionMode, movePreviewLayersByDelta, redoPreviewScene, undoPreviewScene])
 
-  // Autosave: your own templates save themselves shortly after edits stop (built-ins never change).
+  // Design edits your draft: opening a template that has one shows the draft, not the published design.
+  useEffect(() => {
+    const state = usePlayoutStore.getState()
+    if (state.drafts[previewTemplateId] && !previewHasUnpublishedEdits(state)) state.openPreviewDraft()
+  }, [previewTemplateId])
+
+  // Autosave: edits to your own templates save to your private draft shortly after they stop
+  // (built-ins never change). Teammates see them only after Publish.
   const activeTemplateId = activeTemplate?.id
   const activeIsBuiltIn = Boolean(activeTemplate?.builtIn)
+  const activeDraft = activeTemplate && !activeTemplate.builtIn ? drafts[activeTemplate.id] : undefined
+  const hasUnpublishedEdits = Boolean(activeDraft) || (previewDirty && !activeIsBuiltIn)
   useEffect(() => {
     if (!activeTemplateId || activeIsBuiltIn) return
-    setAutosavePending(true)
-    const handle = window.setTimeout(() => {
-      autosavePreviewTemplate()
-      setAutosavePending(false)
-    }, 1500)
+    const handle = window.setTimeout(autosavePreviewTemplate, 1500)
     return () => window.clearTimeout(handle)
   }, [scene, activeTemplateId, activeIsBuiltIn, autosavePreviewTemplate])
 
@@ -332,15 +343,24 @@ export function DesignPage() {
     setTransientStatus(`Distributed ${selectedLayers.length} layer(s).`, 1200)
   }
 
-  /**
-   * Edits to your own templates already autosave; this marks a named restore point in History.
-   * Built-ins can't be changed, only saved as new.
-   */
-  const handleSaveVersion = () => {
+  /** Publishing replaces the team's version, so it always asks first (PublishDialog). */
+  const handleOpenPublish = () => {
     if (!activeTemplate || activeTemplate.builtIn) return
-    const savedId = savePreviewTemplate(activeTemplate.label)
-    if (!savedId) return setTransientStatus('Template name is required.')
-    setTransientStatus(`Saved a version of ${activeTemplate.label} (see History).`, 2600)
+    autosavePreviewTemplate()
+    if (!usePlayoutStore.getState().drafts[activeTemplate.id]) return setTransientStatus('No unpublished changes.')
+    setIsPublishOpen(true)
+  }
+  const handlePublish = () => {
+    setIsPublishOpen(false)
+    if (!activeTemplate) return
+    if (!publishPreviewTemplate()) return setTransientStatus('Publish failed. Your draft is kept.', 3000)
+    setTransientStatus(`Published ${activeTemplate.label}. The team has it now.`, 2600)
+  }
+  const handleDiscardDraft = () => {
+    if (!activeTemplate || !activeDraft) return
+    if (!window.confirm(`Throw away your unpublished changes to ${activeTemplate.label}? This can't be undone.`)) return
+    discardPreviewDraft()
+    setTransientStatus('Draft discarded. Showing the published version.', 2200)
   }
   const handleSaveAsNewTemplate = () => {
     const requested = window.prompt('Save as a new template', `${activeTemplate?.label ?? scene.name} copy`)
@@ -377,11 +397,10 @@ export function DesignPage() {
   }
   const handleRestoreVersion = (version: number) => {
     if (!activeTemplate) return
-    // Save any pending edits first so they become a version rather than being overwritten.
-    autosavePreviewTemplate()
-    if (!restoreTemplateVersion(activeTemplate.id, version)) return setTransientStatus('Restore failed.')
+    // Restoring goes into your draft, so it reaches the team only when you publish it.
+    if (!loadVersionIntoDraft(activeTemplate.id, version)) return setTransientStatus('Restore failed.')
     setIsHistoryOpen(false)
-    setTransientStatus(`Restored v${version}. The previous design is kept in History.`, 2600)
+    setTransientStatus(`Loaded v${version} into your draft. Publish to share it.`, 3000)
   }
   const handleDropAssetOnCanvas = (entryId: string, position: { x: number; y: number }) => {
     const entry = assetEntries.find((asset) => asset.id === entryId)
@@ -425,6 +444,9 @@ export function DesignPage() {
 
   return (
     <section className="screen screen--design">
+      {isPublishOpen && activeTemplate && activeDraft ? (
+        <PublishDialog template={activeTemplate} draft={activeDraft} story={story} onPublish={handlePublish} onCancel={() => setIsPublishOpen(false)} />
+      ) : null}
       {isHistoryOpen && activeTemplate ? (
         <VersionHistoryDialog template={activeTemplate} story={story} onRestore={handleRestoreVersion} onClose={() => setIsHistoryOpen(false)} />
       ) : null}
@@ -515,22 +537,25 @@ export function DesignPage() {
             />
             <div className="stage-toolbar__actions">
               <span className="mono stage-toolbar__template-name">{activeTemplate?.label ?? scene.name} | v{activeTemplate?.version ?? 1}</span>
-              <span className={`mono autosave-status ${activeTemplate?.builtIn ? 'autosave-status--builtin' : ''}`.trim()}>
+              <span
+                className={`mono autosave-status ${activeTemplate?.builtIn ? 'autosave-status--builtin' : ''} ${hasUnpublishedEdits ? 'autosave-status--draft' : ''}`.trim()}
+                role="status"
+              >
                 {!activeTemplate
                   ? ''
                   : activeTemplate.builtIn
                     ? 'Built-in: Save As New to keep changes'
-                    : autosavePending
-                      ? 'Saving…'
-                      : activeTemplate.updatedAt
-                        ? `Saved ${new Date(activeTemplate.updatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
-                        : 'Saved'}
+                    : previewDirty
+                      ? 'Saving draft…'
+                      : activeDraft
+                        ? `Draft saved ${new Date(activeDraft.updatedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · not published`
+                        : 'Published · no changes'}
               </span>
               <button
                 type="button"
                 className="btn btn--small btn--ghost"
                 disabled={!activeTemplate || activeTemplate.builtIn}
-                title={activeTemplate?.builtIn ? 'Built-in templates have no history. Save As New first.' : 'See and restore earlier versions'}
+                title={activeTemplate?.builtIn ? 'Built-in templates have no history. Save As New first.' : 'See published versions and load one into your draft'}
                 onClick={() => {
                   autosavePreviewTemplate()
                   setIsHistoryOpen(true)
@@ -540,16 +565,30 @@ export function DesignPage() {
                 History
               </button>
               <button type="button" className="btn btn--small btn--ghost" onClick={handleNewTemplate}>New Template</button>
-              <button type="button" className="btn btn--small btn--accent" onClick={handleSaveAsNewTemplate}>Save As New</button>
+              <button
+                type="button"
+                className={`btn btn--small ${hasUnpublishedEdits ? 'btn--ghost' : 'btn--accent'}`}
+                onClick={handleSaveAsNewTemplate}
+              >
+                Save As New
+              </button>
               {activeTemplate && !activeTemplate.builtIn ? (
-                <button
-                  type="button"
-                  className="btn btn--small btn--ghost"
-                  onClick={handleSaveVersion}
-                  title="Changes already autosave. This adds a restore point to History."
-                >
-                  Save Version
-                </button>
+                <>
+                  {activeDraft ? (
+                    <button type="button" className="btn btn--small btn--ghost" onClick={handleDiscardDraft}>
+                      Discard Draft
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    className={`btn btn--small ${hasUnpublishedEdits ? 'btn--accent' : 'btn--ghost'}`}
+                    disabled={!hasUnpublishedEdits}
+                    onClick={handleOpenPublish}
+                    title={hasUnpublishedEdits ? 'Share your draft with the team (asks first)' : 'No unpublished changes'}
+                  >
+                    Publish…
+                  </button>
+                </>
               ) : null}
               <button type="button" className="btn btn--small btn--ghost" onClick={handleExportPackage}>Export Package</button>
               <button type="button" className="btn btn--small btn--ghost" disabled={isExportingPng} onClick={() => void handleExportPng()} title={`Download a ${scene.width}×${scene.height} PNG of the canvas`}>

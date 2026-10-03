@@ -6,6 +6,7 @@ import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface
 import { buildDefaultTransportWsUrl, buildOutputUrl } from '../lib/outputUrls'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
 import { takeBlocker } from '../store/takeReadiness'
+import { previewHasUnpublishedEdits } from '../store/templateCatalog'
 import { AirStatus } from '../components/AirStatus'
 
 /** How long C must be held to clear Program, so a stray keypress can't take a graphic off air. */
@@ -53,6 +54,8 @@ export function ControlRoomPage() {
   const [copiedFollow, setCopiedFollow] = useState<'preview' | 'program' | null>(null)
   const [confirmingNewRoom, setConfirmingNewRoom] = useState(false)
   const takeBlockedBy = usePlayoutStore(takeBlocker)
+  // Your unpublished draft is in Preview (from Design): offer the team's version instead. The draft is kept.
+  const previewIsDraft = usePlayoutStore(previewHasUnpublishedEdits)
   const [clearArming, setClearArming] = useState(false)
   const [clearHint, setClearHint] = useState('')
   const clearTimer = useRef<number | null>(null)
@@ -294,6 +297,11 @@ export function ControlRoomPage() {
                   <p id="take-reason" className="take-reason">
                     {takeBlockedBy && !transitionInProgress ? takeBlockedBy : ''}
                   </p>
+                  {previewIsDraft && !transitionInProgress ? (
+                    <button type="button" className="btn btn--small btn--ghost" onClick={() => cuePreview(previewTemplateId)}>
+                      Use published version
+                    </button>
+                  ) : null}
                 </div>
 
                 <div className="console-section console-section--outputs">

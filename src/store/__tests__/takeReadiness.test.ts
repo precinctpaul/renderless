@@ -27,3 +27,35 @@ describe('takeBlocker', () => {
     expect(usePlayoutStore.getState().programScene).toBe(before)
   })
 })
+
+describe('takeBlocker with drafts', () => {
+  beforeEach(() => usePlayoutStore.getState().resetDemo())
+
+  it('blocks TAKE while Preview shows unpublished edits to a custom template', () => {
+    const store = () => usePlayoutStore.getState()
+    store().cuePreview('template-lower-third')
+    store().savePreviewTemplate('Take Draft QA')
+    expect(takeBlocker(store())).toBeNull()
+
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 410 })
+    expect(takeBlocker(store())).toMatch(/unpublished/)
+    store().autosavePreviewTemplate()
+    expect(takeBlocker(store())).toMatch(/unpublished/)
+
+    // "Use published version": cue it again. The draft stays for Design.
+    store().cuePreview(store().previewTemplateId)
+    expect(takeBlocker(store())).toBeNull()
+    expect(store().drafts[store().previewTemplateId]).toBeDefined()
+
+    store().openPreviewDraft()
+    store().publishPreviewTemplate()
+    expect(takeBlocker(store())).toBeNull()
+  })
+
+  it('never blocks quick edits to a built-in in Preview', () => {
+    const store = () => usePlayoutStore.getState()
+    store().cuePreview('template-lower-third')
+    store().updatePreviewLayerTransform('shape-lt-bg', { x: 410 })
+    expect(takeBlocker(store())).toBeNull()
+  })
+})

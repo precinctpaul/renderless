@@ -14,7 +14,6 @@ import type {
 import { CLEAR_SCENE, DEFAULT_STORY_STATE, cloneScene } from '../data/templates'
 import {
   CLEAR_TEMPLATE_ID,
-  autosavedTemplates,
   buildTemplateCatalog,
   clampVersionHistory,
   createLayerId,
@@ -22,11 +21,16 @@ import {
   createTemplateId,
   createUniqueSceneId,
   createUniqueTemplateId,
+  draftsWithScene,
   findTemplateById,
+  persistDrafts,
+  readDrafts,
+  withoutDrafts,
   persistCustomTemplates,
   resolveSceneForTemplate,
   versionSnapshotOf,
 } from './templateCatalog'
+import type { TemplateDrafts } from './templateCatalog'
 import type {
   DataBindingKey,
   LayerBlendMode,
@@ -88,6 +92,8 @@ export interface PlayoutStore {
   previewScene: SceneDefinition
   /** Preview has edits since it was loaded/saved; only then may autosave write it back. */
   previewDirty: boolean
+  /** Your unpublished edits to custom templates, by template id (this browser only). */
+  drafts: TemplateDrafts
   programScene: SceneDefinition
   transitionType: TransitionType
   transitionDurationMs: number
@@ -154,8 +160,16 @@ export interface PlayoutStore {
   undoPreviewScene: () => void
   redoPreviewScene: () => void
   savePreviewTemplate: (name: string, options?: { asNew?: boolean }) => string | null
-  /** Saves Preview edits into the current custom template in place (autosave). Returns whether it saved. */
+  /** Saves Preview edits to a custom template as your private draft (autosave). Returns whether it saved. */
   autosavePreviewTemplate: () => boolean
+  /** Shows your draft of the Preview template in Preview (Design opens drafts). Returns whether there was one. */
+  openPreviewDraft: () => boolean
+  /** Throws away your draft of the Preview template and shows the published design. */
+  discardPreviewDraft: () => void
+  /** Makes your draft the team's version of the template (a new version; the old one stays in History). */
+  publishPreviewTemplate: () => string | null
+  /** Puts an earlier version into your draft, to check and then publish. */
+  loadVersionIntoDraft: (templateId: string, version: number) => boolean
   createBlankTemplate: (name: string, size?: { width: number; height: number }) => string | null
   /** Resizes the design canvas; layers keep their positions. Undoable. */
   setPreviewCanvasSize: (size: { width: number; height: number }) => void
@@ -215,6 +229,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     programTemplateId: hydratedSnapshot.programTemplateId,
     previewScene: cloneScene(hydratedSnapshot.previewScene),
     previewDirty: false,
+    drafts: readDrafts(),
     programScene: initialProgramScene,
     transitionType: hydratedSnapshot.transitionType,
     transitionDurationMs: hydratedSnapshot.transitionDurationMs,
@@ -827,17 +842,76 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       return template.id
     },
     autosavePreviewTemplate: () => {
-      if (!get().previewDirty) {
+      const state = get()
+      if (!state.previewDirty) {
         return false
       }
 
-      const templates = autosavedTemplates(get(), getLibraryAuthor(), Date.now())
-      if (!templates) {
+      const template = findTemplateById(state.templates, state.previewTemplateId)
+      if (!template || template.builtIn) {
         return false
       }
 
-      set({ templates, previewDirty: false })
-      persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
+      const drafts = draftsWithScene(state.drafts, template, state.previewScene, Date.now())
+      set({ drafts, previewDirty: false })
+      persistDrafts(drafts)
+      return true
+    },
+    openPreviewDraft: () => {
+      const draft = get().drafts[get().previewTemplateId]
+      if (!draft) {
+        return false
+      }
+
+      set({
+        previewScene: cloneScene(draft.scene),
+        previewDirty: false,
+        undoStack: [],
+        redoStack: [],
+        canUndo: false,
+        canRedo: false,
+        updatedAt: Date.now(),
+      })
+      return true
+    },
+    discardPreviewDraft: () => {
+      const { drafts, previewTemplateId, templates } = get()
+      const nextDrafts = withoutDrafts(drafts, [previewTemplateId])
+      set({
+        drafts: nextDrafts,
+        previewScene: resolveSceneForTemplate(templates, previewTemplateId),
+        previewDirty: false,
+        undoStack: [],
+        redoStack: [],
+        canUndo: false,
+        canRedo: false,
+        updatedAt: Date.now(),
+      })
+      persistDrafts(nextDrafts)
+    },
+    publishPreviewTemplate: () => {
+      get().autosavePreviewTemplate()
+      const state = get()
+      const template = findTemplateById(state.templates, state.previewTemplateId)
+      const draft = state.drafts[state.previewTemplateId]
+      if (!template || template.builtIn || !draft) {
+        return null
+      }
+
+      // Publish exactly what the draft holds, even if Preview is showing something else.
+      set({ previewScene: cloneScene(draft.scene) })
+      return get().savePreviewTemplate(template.label)
+    },
+    loadVersionIntoDraft: (templateId, version) => {
+      const state = get()
+      const template = findTemplateById(state.templates, templateId)
+      const entry = template?.versions?.find((candidate) => candidate.version === version)
+      if (!template || template.builtIn || !entry || state.previewTemplateId !== templateId) {
+        return false
+      }
+
+      commitPreviewScene(() => cloneScene({ ...entry.scene, id: template.scene.id, name: template.label }))
+      get().autosavePreviewTemplate()
       return true
     },
     savePreviewTemplate: (name, options) => {
@@ -885,11 +959,14 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
         checkpointAt: now,
       }
 
+      // The edits now live in the saved template, so the draft they came from is done.
+      const nextDrafts = withoutDrafts(state.drafts, [templateId, ...(activeTemplate && !activeTemplate.builtIn ? [activeTemplate.id] : [])])
       set((currentState) => {
         const nextTemplates = [...currentState.templates.filter((template) => template.id !== templateId), savedTemplate]
 
         return {
           templates: nextTemplates,
+          drafts: nextDrafts,
           previewTemplateId: templateId,
           previewScene: cloneScene(savedScene),
           previewDirty: false,
@@ -902,6 +979,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       })
 
       persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
+      persistDrafts(nextDrafts)
       return templateId
     },
     exportTemplatePackage: (templateId) => {
@@ -1230,6 +1308,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
 
         return {
           templates: nextTemplates,
+          drafts: withoutDrafts(state.drafts, [templateId]),
           previewTemplateId: nextPreviewTemplateId,
           programTemplateId: nextProgramTemplateId || CLEAR_TEMPLATE_ID,
           previewScene: nextPreviewScene,
@@ -1245,6 +1324,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
       })
 
       persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
+      persistDrafts(get().drafts)
     },
     mergeLibraryTemplates: (upserts, removedIds) => {
       if (upserts.length === 0 && removedIds.length === 0) {
@@ -1265,17 +1345,19 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           .map((template) => (!template.builtIn && byId.has(template.id) ? byId.get(template.id)! : template))
         const known = new Set(kept.map((template) => template.id))
         const added = [...byId.values()].filter((template) => !known.has(template.id))
-        // A teammate changed the template that's open here: show it, unless there are local edits.
+        // A teammate changed the template that's open here: show it, unless you're editing it (edits or a draft).
         const openUpdate = byId.get(state.previewTemplateId)
-        const refreshPreview = openUpdate && !state.previewDirty
+        const refreshPreview = openUpdate && !state.previewDirty && !state.drafts[state.previewTemplateId]
         return {
           templates: [...kept, ...added],
+          drafts: withoutDrafts(state.drafts, removedIds),
           ...(refreshPreview
             ? { previewScene: cloneScene(openUpdate.scene), undoStack: [], redoStack: [], canUndo: false, canRedo: false }
             : {}),
         }
       })
       persistCustomTemplates(get().templates, getSigningConfigFromState(get()))
+      persistDrafts(get().drafts)
     },
     resetDemo: () => {
       set((state) => {

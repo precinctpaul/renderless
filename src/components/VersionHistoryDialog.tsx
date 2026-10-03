@@ -2,7 +2,7 @@ import { SceneRenderer } from './SceneRenderer'
 import type { StoryState, TemplateDefinition, TemplateVersionReason } from '../types/scene'
 
 const REASON_LABEL: Record<TemplateVersionReason | 'updated', string> = {
-  save: 'Saved',
+  save: 'Published',
   autosave: 'Autosaved',
   restore: 'Restored',
   updated: 'Updated',
@@ -50,8 +50,8 @@ export function VersionHistoryDialog({ template, story, onRestore, onClose }: Ve
           </button>
         </div>
         <p className="panel-subtitle">
-          Kept automatically: every Save, every Restore, and a checkpoint at least every 10 minutes while editing. Restoring
-          keeps the current design as a version too, so nothing is lost.
+          Every version the team has had: each Publish and Restore, plus older autosave checkpoints. Load into draft
+          puts a version in your draft; the team gets it only when you publish.
         </p>
         <ul className="version-history__list">
           {[current, ...versions].map((entry, index) => (
@@ -70,7 +70,7 @@ export function VersionHistoryDialog({ template, story, onRestore, onClose }: Ve
                 <span className="mono version-history__badge">CURRENT</span>
               ) : (
                 <button type="button" className="btn btn--small" onClick={() => onRestore(entry.version)}>
-                  Restore
+                  Load into draft
                 </button>
               )}
             </li>
