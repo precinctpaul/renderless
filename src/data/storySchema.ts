@@ -17,6 +17,8 @@ export interface StoryFieldDef<K extends DataBindingKey = DataBindingKey> {
 export const STORY_FIELD_DEFS: StoryFieldDef[] = [
   { key: 'name', label: 'Name', group: 'People', kind: 'string', quickControl: true },
   { key: 'title', label: 'Title', group: 'People', kind: 'string', quickControl: true },
+  { key: 'name_2', label: 'Second Name', group: 'People', kind: 'string', quickControl: true },
+  { key: 'title_2', label: 'Second Title', group: 'People', kind: 'string', quickControl: true },
   { key: 'quote', label: 'Quote', group: 'Quote', kind: 'string', quickControl: true },
   { key: 'quote_author', label: 'Speaker', group: 'Quote', kind: 'string', quickControl: true },
   { key: 'headline', label: 'Headline', group: 'Thumbnail', kind: 'string', quickControl: true },
@@ -26,6 +28,8 @@ export const STORY_FIELD_DEFS: StoryFieldDef[] = [
 export const DEFAULT_FIELD_VALUES: Record<string, BindingPrimitive> = {
   name: 'Jane Doe',
   title: 'State Senator, District 12',
+  name_2: 'Sam Lee',
+  title_2: 'Co-host',
   quote: 'Democracy works when everyone has a seat at the table.',
   quote_author: 'Jane Doe',
   headline: 'Big News This Week',

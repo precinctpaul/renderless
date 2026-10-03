@@ -43,7 +43,7 @@ function OnOffSwitch({ label, on, onChange }: { label: string; on: boolean; onCh
  * the only thing that moves the layout (the rest closes the gap); the template never changes.
  */
 export function FillPanel({ make, overflowKeys }: FillPanelProps) {
-  const { template, fields, values, imageSlots, swaps, toggles, libraryImages, setValue, clearValues, swapImage, setToggle } = make
+  const { template, baseScene, fields, values, imageSlots, swaps, toggles, libraryImages, setValue, clearValues, swapImage, setToggle } = make
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
   const hasContent =
     Object.values(values).some((value) => value.trim()) || Object.keys(swaps).length > 0 || Object.keys(toggles).length > 0
@@ -89,7 +89,7 @@ export function FillPanel({ make, overflowKeys }: FillPanelProps) {
           'aria-invalid': overflowing || undefined,
           onChange: (event: { target: { value: string } }) => setValue(field.key, event.target.value),
         }
-        const on = !field.optional || !template || isToggleOn(template.scene, toggles, fieldToggleKey(field.key))
+        const on = !field.optional || !template || isToggleOn(baseScene ?? template.scene, toggles, fieldToggleKey(field.key))
         return (
           <div key={field.key} className={`make-field ${overflowing && on ? 'make-field--overflow' : ''}`.trim()}>
             <div className="make-field__head">
@@ -122,7 +122,7 @@ export function FillPanel({ make, overflowKeys }: FillPanelProps) {
 
       {imageSlots.map((slot) => {
         const current = swaps[slot.id] ?? slot.src
-        const on = isToggleOn(template.scene, toggles, slot.id)
+        const on = isToggleOn(baseScene ?? template.scene, toggles, slot.id)
         return (
           <div key={slot.id} className="make-image">
             <div className="make-field__head">

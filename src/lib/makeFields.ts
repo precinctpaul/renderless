@@ -19,11 +19,30 @@ export type CanvasShape = 'feed' | 'story' | 'wide'
 
 const KNOWN_LABELS = new Map(STORY_FIELD_DEFS.map((field) => [field.key, field.label]))
 
-/** Fields a template fills, top to bottom as they appear on the canvas. */
+/**
+ * Reading order: text side by side in separate columns (e.g. two people in a lower third) is
+ * grouped by column, left to right; within a column, top to bottom.
+ */
+function readingOrder<T extends SceneLayer>(layers: T[]): T[] {
+  const columns: Array<{ left: number; right: number; layers: T[] }> = []
+  for (const layer of [...layers].sort((a, b) => a.x - b.x)) {
+    const column = columns.find((entry) => layer.x < entry.right && layer.x + layer.width > entry.left)
+    if (column) {
+      column.layers.push(layer)
+      column.left = Math.min(column.left, layer.x)
+      column.right = Math.max(column.right, layer.x + layer.width)
+    } else {
+      columns.push({ left: layer.x, right: layer.x + layer.width, layers: [layer] })
+    }
+  }
+  return columns.flatMap((column) => column.layers.sort((a, b) => a.y - b.y || a.x - b.x))
+}
+
+/** Fields a template fills, in reading order on the canvas. */
 export function makeFieldsOf(scene: SceneDefinition): MakeField[] {
-  const bound = scene.layers
-    .filter((layer): layer is TextLayer & { binding: string } => layer.kind === 'text' && Boolean(layer.binding?.trim()))
-    .sort((a, b) => a.y - b.y || a.x - b.x)
+  const bound = readingOrder(
+    scene.layers.filter((layer): layer is TextLayer & { binding: string } => layer.kind === 'text' && Boolean(layer.binding?.trim())),
+  )
   const byKey = new Map<string, MakeField>()
   bound.forEach((layer) => {
     const lineHeightPx = layer.fontSize * (layer.lineHeight ?? 1)

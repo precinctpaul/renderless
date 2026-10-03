@@ -23,7 +23,7 @@ function sameKeys(a: Set<string>, b: Set<string>) {
  * takes no clicks at all, so nothing here can select or move a layer.
  */
 export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
-  const { template, scene, story, fields, values, imageSlots, swaps, toggles, isSmart, styleId, layoutId, layoutScenes, setLook } = make
+  const { template, baseScene, scene, story, fields, values, imageSlots, swaps, toggles, isSmart, styleId, layoutId, layoutScenes, setLook } = make
   const frameRef = useRef<HTMLDivElement>(null)
   const lastOverflow = useRef<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
@@ -82,7 +82,7 @@ export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
     return <section className="panel make-preview" aria-label="Preview" />
   }
 
-  const isOn = (key: string) => isToggleOn(template.scene, toggles, key)
+  const isOn = (key: string) => isToggleOn(baseScene ?? template.scene, toggles, key)
   const sampleFields = fields.filter((field) => !values[field.key]?.trim() && (!field.optional || isOn(fieldToggleKey(field.key))))
   const placeholderImages = imageSlots.filter((slot) => !swaps[slot.id] && isOn(slot.id))
   const stillSample = [...sampleFields.map((field) => field.label), ...placeholderImages.map((slot) => slot.name)]

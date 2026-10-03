@@ -14,6 +14,8 @@ export interface TemplateLook {
   layout?: string
   /** Layer ids left out (Make), so a layout can use the room (e.g. a wider headline without a photo). */
   off?: ReadonlySet<string>
+  /** Layer ids turned on that ship off (e.g. the lower third headshot), so a layout can make room. */
+  on?: ReadonlySet<string>
 }
 
 export interface TemplateLayoutOption {
@@ -90,17 +92,128 @@ function stripes(prefix: string, colors: string[], x: number, y: number, length:
   })
 }
 
-// ---------- Quote cards (feed 4:5 and story 9:16) ----------
+// ---------- Quote cards (feed 4:5 and story 9:16; three layouts) ----------
+
+const QUOTE_LAYOUTS: TemplateLayoutOption[] = [
+  { id: 'centered', label: 'Centered' },
+  { id: 'byline', label: 'Byline' },
+  { id: 'photo-top', label: 'Big photo' },
+]
+
+type Align = 'left' | 'center'
+
+const quoteMark = (id: string, style: BrandStyle, x: number, y: number, size: number) =>
+  text({
+    id: `${id}-mark-open`,
+    name: 'Quote Mark',
+    x,
+    y,
+    width: 220,
+    height: 220,
+    text: '“',
+    color: style.mark,
+    fontSize: size,
+    fontFamily: RECOLETA,
+    fontWeight: 700,
+    align: 'left',
+    verticalAlign: 'top',
+  })
+
+const quoteBody = (id: string, style: BrandStyle, x: number, y: number, width: number, size: number, maxLines: number, align: Align) =>
+  text({
+    id: `${id}-quote`,
+    name: 'Quote',
+    x,
+    y,
+    width,
+    height: 400,
+    text: 'Your quote goes here.',
+    binding: 'quote',
+    color: style.text,
+    fontSize: size,
+    fontFamily: RECOLETA,
+    fontWeight: 700,
+    lineHeight: 1.12,
+    align,
+    fit: { maxLines, minFontSize: 36 },
+  })
+
+const quoteAuthor = (id: string, style: BrandStyle, x: number, y: number, width: number, size: number, align: Align) =>
+  text({
+    id: `${id}-author`,
+    name: 'Speaker',
+    x,
+    y,
+    width,
+    height: size + (style.tag ? 24 : 0),
+    text: 'Speaker Name',
+    binding: 'quote_author',
+    color: style.tag ? style.tag.text : style.display,
+    fontSize: size,
+    fontFamily: DRUK,
+    fontWeight: 700,
+    align,
+    fit: { maxLines: 1, minFontSize: 40 },
+    // Druk's letters sit low in their line: a taller line and more padding below keep them inside the tag.
+    ...(style.tag
+      ? {
+          lineHeight: 1.12,
+          box: { fill: style.tag.fill, paddingTop: 12, paddingRight: 34, paddingBottom: 14, paddingLeft: 34, radius: style.tag.radius },
+        }
+      : {}),
+  })
+
+const quoteTitle = (id: string, style: BrandStyle, x: number, y: number, width: number, size: number, align: Align) =>
+  text({
+    id: `${id}-title`,
+    name: 'Speaker Title',
+    x,
+    y,
+    width,
+    height: 90,
+    text: 'Title, Organization',
+    binding: 'title',
+    color: style.text,
+    fontSize: size,
+    fontFamily: RECOLETA,
+    fontWeight: 500,
+    lineHeight: 1.2,
+    align,
+    fit: { maxLines: 2, minFontSize: 24 },
+    optional: true,
+  })
+
+function roundHeadshot(id: string, style: BrandStyle, x: number, y: number, size: number, ring = 12): SceneLayer[] {
+  return [
+    rect(`${id}-headshot-ring`, 'Headshot Ring', x - ring, y - ring, size + ring * 2, size + ring * 2, style.ring, {
+      radius: size / 2 + ring,
+    } as Partial<SceneLayer>),
+    photo(`${id}-headshot`, 'Headshot', style, x, y, size, size, { radius: size / 2 }),
+  ]
+}
+
+function retroStripes(id: string, style: BrandStyle, width: number, height: number): SceneLayer[] {
+  return [
+    ...stripes(`${id}-stripe-top`, style.stripes ?? [], 0, 56, width, 14, 8, 'x'),
+    ...stripes(`${id}-stripe-bottom`, [...(style.stripes ?? [])].reverse(), 0, height - 56 - 3 * 14 - 2 * 8, width, 14, 8, 'x'),
+  ]
+}
 
 function quoteScene(id: string, name: string, height: number, look: TemplateLook): SceneDefinition {
+  const layout = QUOTE_LAYOUTS.some((option) => option.id === look.layout) ? look.layout! : 'centered'
+  if (layout === 'byline') return quoteBylineScene(id, name, height, look)
+  if (layout === 'photo-top') return quotePhotoTopScene(id, name, height, look)
+  return quoteCenteredScene(id, name, height, look)
+}
+
+/** Centered: headshot, quote, rule, name and title in one centered stack. */
+function quoteCenteredScene(id: string, name: string, height: number, look: TemplateLook): SceneDefinition {
   const style = brandStyle(look.style)
   const width = 1080
   const tall = height > 1600
   const headshot = tall ? 300 : 240
-  const ring = 12
   const top = Math.round(height * (tall ? 0.16 : 0.13))
   const bottom = Math.round(height * (tall ? 0.86 : 0.88))
-  const headshotLeft = (width - headshot) / 2
   // Short quotes run big; longer ones shrink until they fit the line limit.
   const quoteSize = tall ? 96 : 84
   const authorSize = tall ? 92 : 80
@@ -111,93 +224,17 @@ function quoteScene(id: string, name: string, height: number, look: TemplateLook
   const seam = Math.round(height * (tall ? 0.84 : 0.82))
 
   const decorations: SceneLayer[] =
-    style.id === 'retro'
-      ? [
-          ...stripes(`${id}-stripe-top`, style.stripes ?? [], 0, 56, width, 14, 8, 'x'),
-          ...stripes(`${id}-stripe-bottom`, [...(style.stripes ?? [])].reverse(), 0, height - 56 - 3 * 14 - 2 * 8, width, 14, 8, 'x'),
-        ]
-      : style.id === 'signal'
-        ? [rect(`${id}-panel`, 'Lower Panel', 0, seam, width, height - seam, BRAND.ink)]
-        : []
+    style.id === 'retro' ? retroStripes(id, style, width, height) : signal ? [rect(`${id}-panel`, 'Lower Panel', 0, seam, width, height - seam, BRAND.ink)] : []
 
   const layers: SceneLayer[] = [
     ...decorations,
-    text({
-      id: `${id}-mark-open`,
-      name: 'Quote Mark',
-      x: 70,
-      y: top + headshot + 40 - 170,
-      width: 220,
-      height: 220,
-      text: '“',
-      color: style.mark,
-      fontSize: tall ? 340 : 300,
-      fontFamily: RECOLETA,
-      fontWeight: 700,
-      align: 'left',
-      verticalAlign: 'top',
-    }),
-    rect(`${id}-headshot-ring`, 'Headshot Ring', headshotLeft - ring, top - ring, headshot + ring * 2, headshot + ring * 2, style.ring, {
-      radius: headshot / 2 + ring,
-    } as Partial<SceneLayer>),
-    photo(`${id}-headshot`, 'Headshot', style, headshotLeft, top, headshot, headshot, { radius: headshot / 2 }),
-    text({
-      id: `${id}-quote`,
-      name: 'Quote',
-      x: 100,
-      y: top + headshot + 40,
-      width: 880,
-      height: 400,
-      text: 'Your quote goes here.',
-      binding: 'quote',
-      color: style.text,
-      fontSize: quoteSize,
-      fontFamily: RECOLETA,
-      fontWeight: 700,
-      lineHeight: 1.12,
-      fit: { maxLines: tall ? 7 : 5, minFontSize: 36 },
-    }),
+    quoteMark(id, style, 70, top + headshot + 40 - 170, tall ? 340 : 300),
+    ...roundHeadshot(id, style, (width - headshot) / 2, top, headshot),
+    quoteBody(id, style, 100, top + headshot + 40, 880, quoteSize, tall ? 7 : 5, 'center'),
     // Signal's tag on the seam does the rule's job.
-    rect(`${id}-rule`, 'Rule', (width - 96) / 2, top + headshot + 470, 96, 8, style.rule, { visible: style.id !== 'signal' }),
-    text({
-      id: `${id}-author`,
-      name: 'Speaker',
-      x: 90,
-      y: top + headshot + 520,
-      width: 900,
-      height: authorSize + (style.tag ? 24 : 0),
-      text: 'Speaker Name',
-      binding: 'quote_author',
-      color: style.tag ? style.tag.text : style.display,
-      fontSize: authorSize,
-      fontFamily: DRUK,
-      fontWeight: 700,
-      fit: { maxLines: 1, minFontSize: 40 },
-      // Druk's letters sit low in their line: a taller line and more padding below keep them inside the tag.
-      ...(style.tag
-        ? {
-            lineHeight: 1.12,
-            box: { fill: style.tag.fill, paddingTop: 12, paddingRight: 34, paddingBottom: 14, paddingLeft: 34, radius: style.tag.radius },
-          }
-        : {}),
-    }),
-    text({
-      id: `${id}-title`,
-      name: 'Speaker Title',
-      x: 140,
-      y: top + headshot + 640,
-      width: 800,
-      height: 90,
-      text: 'Title, Organization',
-      binding: 'title',
-      color: style.text,
-      fontSize: tall ? 40 : 34,
-      fontFamily: RECOLETA,
-      fontWeight: 500,
-      lineHeight: 1.2,
-      fit: { maxLines: 2, minFontSize: 24 },
-      optional: true,
-    }),
+    rect(`${id}-rule`, 'Rule', (width - 96) / 2, top + headshot + 470, 96, 8, style.rule, { visible: !signal }),
+    quoteAuthor(id, style, 90, top + headshot + 520, 900, authorSize, 'center'),
+    quoteTitle(id, style, 140, top + headshot + 640, 800, tall ? 40 : 34, 'center'),
   ]
 
   const flows: SceneFlow[] = signal
@@ -245,84 +282,266 @@ function quoteScene(id: string, name: string, height: number, look: TemplateLook
   return { id, name, width, height, background: style.bg, layers, flows }
 }
 
-// ---------- Lower third (broadcast, transparent) ----------
-
-function lowerThirdScene(look: TemplateLook): SceneDefinition {
+/** Byline: an editorial, left-aligned quote with a small headshot beside the name at the foot. */
+function quoteBylineScene(id: string, name: string, height: number, look: TemplateLook): SceneDefinition {
   const style = brandStyle(look.style)
-  const barTop = 820
-  const barHeight = 160
-  // Retro trades the single accent bar for three sportswear stripes.
-  const accents: SceneLayer[] = style.stripes
-    ? stripes('shape-lt-stripe', style.stripes, 120, barTop, barHeight, 8, 0, 'y')
-    : [rect('shape-lt-accent', 'Accent', 120, barTop, 16, barHeight, style.id === 'signal' ? BRAND.red : style.rule)]
-  const accentIds = accents.map((layer) => layer.id)
+  const width = 1080
+  const tall = height > 1600
+  const margin = 90
+  const signal = style.id === 'signal'
+  const headshot = tall ? 200 : 170
+  // The byline sits above the foot (and above Retro's bottom stripes).
+  const bylineMiddle = height - (tall ? 300 : 236)
+  const bylineTop = bylineMiddle - headshot / 2
+  // Signal: the byline lives in an ink footer; Acid and Retro get a full-width rule above it.
+  const seam = bylineTop - 56
+  const authorX = margin + headshot + 40
+  const quoteTop = Math.round(height * 0.12) + 130
+
+  const decorations: SceneLayer[] =
+    style.id === 'retro' ? retroStripes(id, style, width, height) : signal ? [rect(`${id}-panel`, 'Lower Panel', 0, seam, width, height - seam, BRAND.ink)] : []
 
   const layers: SceneLayer[] = [
-    photo('image-lt-photo', 'Headshot', style, 120, barTop, barHeight, barHeight, { visible: false }),
-    rect('shape-lt-bg', 'Bar', 120, barTop, 1080, barHeight, style.bg),
+    ...decorations,
+    quoteMark(id, style, margin - 20, quoteTop - 170, tall ? 340 : 300),
+    quoteBody(id, style, margin, quoteTop, width - margin * 2, tall ? 100 : 88, tall ? 8 : 6, 'left'),
+    rect(`${id}-rule`, 'Rule', margin, seam, width - margin * 2, 6, style.rule, { visible: !signal }),
+    ...roundHeadshot(id, style, margin, bylineTop, headshot, 8),
+    quoteAuthor(id, style, authorX, bylineMiddle - 50, width - authorX - margin, tall ? 84 : 72, 'left'),
+    quoteTitle(id, style, authorX, bylineMiddle + 40, width - authorX - margin, tall ? 38 : 32, 'left'),
+  ]
+
+  const flows: SceneFlow[] = [
+    {
+      id: `${id}-stack`,
+      axis: 'y',
+      start: quoteTop,
+      end: seam - 64,
+      justify: 'center',
+      items: [{ layerId: `${id}-quote`, gap: 0, with: [`${id}-mark-open`] }],
+    },
+    {
+      id: `${id}-byline`,
+      axis: 'y',
+      start: bylineTop - 20,
+      end: bylineTop + headshot + 20,
+      justify: 'center',
+      items: [
+        { layerId: `${id}-author`, gap: 0 },
+        { layerId: `${id}-title`, gap: 10 },
+      ],
+    },
+    {
+      // No headshot: the name moves over to the margin.
+      id: `${id}-byline-row`,
+      axis: 'x',
+      start: margin,
+      end: width - margin,
+      justify: 'start',
+      items: [
+        { layerId: `${id}-headshot`, gap: 0, with: [`${id}-headshot-ring`] },
+        { layerId: `${id}-author`, gap: 40, with: [`${id}-title`] },
+      ],
+    },
+  ]
+
+  return { id, name, width, height, background: style.bg, layers, flows }
+}
+
+/** Big photo: a full-width photo across the top, the quote and name below it. */
+function quotePhotoTopScene(id: string, name: string, height: number, look: TemplateLook): SceneDefinition {
+  const style = brandStyle(look.style)
+  const width = 1080
+  const tall = height > 1600
+  const photoOff = look.off?.has(`${id}-headshot`) ?? false
+  const photoHeight = Math.round(height * (tall ? 0.38 : 0.36))
+  const bandHeight = style.stripes ? 3 * 14 + 2 * 8 : 14
+  const textTop = photoOff ? Math.round(height * 0.14) : photoHeight + bandHeight + 96
+  const bottom = Math.round(height * (tall ? 0.9 : 0.92)) - (style.stripes ? 60 : 0)
+
+  // A band along the photo's bottom edge in the style's accent (Retro: its stripes).
+  const band: SceneLayer[] = style.stripes
+    ? stripes(`${id}-band`, style.stripes, 0, photoHeight, width, 14, 8, 'x').map((layer) => ({ ...layer, visible: !photoOff }))
+    : [rect(`${id}-band`, 'Photo Band', 0, photoHeight, width, bandHeight, style.id === 'signal' ? BRAND.red : style.rule, { visible: !photoOff })]
+  const bottomStripes = style.stripes
+    ? stripes(`${id}-stripe-bottom`, [...style.stripes].reverse(), 0, height - 56 - 3 * 14 - 2 * 8, width, 14, 8, 'x')
+    : []
+
+  const layers: SceneLayer[] = [
+    photo(`${id}-headshot`, 'Headshot', style, 0, 0, width, photoHeight),
+    ...band,
+    ...bottomStripes,
+    // The mark straddles the photo's edge; with no photo it rides above the quote.
+    quoteMark(id, style, 70, photoOff ? textTop - 170 : photoHeight - 120, tall ? 320 : 280),
+    quoteBody(id, style, 100, textTop, 880, tall ? 88 : 76, tall ? 7 : 5, 'center'),
+    rect(`${id}-rule`, 'Rule', (width - 96) / 2, textTop + 380, 96, 8, style.rule, { visible: style.id !== 'signal' }),
+    quoteAuthor(id, style, 90, textTop + 420, 900, tall ? 84 : 70, 'center'),
+    quoteTitle(id, style, 140, textTop + 520, 800, tall ? 38 : 32, 'center'),
+  ]
+
+  const flows: SceneFlow[] = [
+    {
+      id: `${id}-stack`,
+      axis: 'y',
+      start: textTop,
+      end: bottom,
+      justify: 'center',
+      items: [
+        { layerId: `${id}-quote`, gap: 0, ...(photoOff ? { with: [`${id}-mark-open`] } : {}) },
+        { layerId: `${id}-rule`, gap: 40 },
+        { layerId: `${id}-author`, gap: style.id === 'signal' ? 40 : 26 },
+        { layerId: `${id}-title`, gap: 14 },
+      ],
+    },
+  ]
+
+  return { id, name, width, height, background: style.bg, layers, flows }
+}
+
+// ---------- Lower third (broadcast, transparent; three layouts) ----------
+
+const LOWER_THIRD_LAYOUTS: TemplateLayoutOption[] = [
+  { id: 'left', label: 'Left' },
+  { id: 'center', label: 'Centered' },
+  { id: 'two-up', label: 'Two people' },
+]
+
+const LT_TOP = 820
+const LT_HEIGHT = 160
+const LT_PHOTO = 160
+
+interface LowerThirdPerson {
+  suffix: string
+  label: string
+  bindings: { name: string; title: string }
+  /** Where this person's row may sit, and how wide the bar is with no headshot. */
+  start: number
+  end: number
+  slot: number
+  justify: 'start' | 'center'
+  nameSize: number
+  titleSize: number
+}
+
+/** One person's row: optional headshot tile, the bar, an accent, name and title. */
+function lowerThirdPerson(style: BrandStyle, look: TemplateLook, person: LowerThirdPerson): { layers: SceneLayer[]; flows: SceneFlow[] } {
+  const id = (base: string) => `${base}${person.suffix}`
+  const photoId = id('image-lt-photo')
+  const photoOn = look.on?.has(photoId) ?? false
+  // Two people share the width, so a headshot takes its room from the bar.
+  const barWidth = person.slot - (photoOn && person.slot < 1080 ? LT_PHOTO : 0)
+  const x = person.start
+  const accents: SceneLayer[] = style.stripes
+    ? stripes(id('shape-lt-stripe'), style.stripes, x, LT_TOP, LT_HEIGHT, 8, 0, 'y')
+    : [rect(id('shape-lt-accent'), `${person.label}Accent`, x, LT_TOP, 16, LT_HEIGHT, style.id === 'signal' ? BRAND.red : style.rule)]
+  const textX = x + 56
+  const textWidth = barWidth - 56 - 34
+
+  const layers: SceneLayer[] = [
+    photo(photoId, `${person.label}Headshot`, style, x, LT_TOP, LT_PHOTO, LT_HEIGHT, { visible: photoOn }),
+    rect(id('shape-lt-bg'), `${person.label}Bar`, x, LT_TOP, barWidth, LT_HEIGHT, style.bg),
     ...accents,
     text({
-      id: 'text-lt-name',
-      name: 'Name',
-      x: 176,
+      id: id('text-lt-name'),
+      name: `${person.label}Name`,
+      x: textX,
       y: 842,
-      width: 990,
+      width: textWidth,
       height: 70,
-      text: 'Name',
-      binding: 'name',
+      text: person.suffix ? 'Second Name' : 'Name',
+      binding: person.bindings.name,
       color: style.id === 'acid' ? BRAND.milk : style.display,
-      fontSize: 54,
+      fontSize: person.nameSize,
       fontFamily: DRUK_WIDE,
       fontWeight: 700,
       align: 'left',
-      fit: { maxLines: 1, minFontSize: 30 },
+      fit: { maxLines: 1, minFontSize: 26 },
     }),
     text({
-      id: 'text-lt-title',
-      name: 'Title',
-      x: 176,
+      id: id('text-lt-title'),
+      name: `${person.label}Title`,
+      x: textX,
       y: 920,
-      width: 990,
+      width: textWidth,
       height: 42,
-      text: 'Title',
-      binding: 'title',
+      text: person.suffix ? 'Second Title' : 'Title',
+      binding: person.bindings.title,
       color: style.id === 'acid' ? BRAND.acid : style.text,
-      fontSize: 34,
+      fontSize: person.titleSize,
       fontFamily: RECOLETA,
       fontWeight: 500,
       align: 'left',
-      fit: { maxLines: 1, minFontSize: 22 },
+      fit: { maxLines: 1, minFontSize: 20 },
       optional: true,
     }),
   ]
 
   const flows: SceneFlow[] = [
     {
-      id: 'lt-text',
+      id: id('lt-text'),
       axis: 'y',
-      start: barTop,
-      end: barTop + barHeight,
+      start: LT_TOP,
+      end: LT_TOP + LT_HEIGHT,
       justify: 'center',
       items: [
-        { layerId: 'text-lt-name', gap: 0 },
-        { layerId: 'text-lt-title', gap: 6 },
+        { layerId: id('text-lt-name'), gap: 0 },
+        { layerId: id('text-lt-title'), gap: 6 },
       ],
     },
     {
-      // With the headshot on, the bar and its text slide right to make room.
-      id: 'lt-row',
+      // With the headshot on, the bar and its text slide over to make room.
+      id: id('lt-row'),
       axis: 'x',
-      start: 120,
-      end: 1800,
-      justify: 'start',
+      start: person.start,
+      end: person.end,
+      justify: person.justify,
       items: [
-        { layerId: 'image-lt-photo', gap: 0 },
-        { layerId: 'shape-lt-bg', gap: 0, with: [...accentIds, 'text-lt-name', 'text-lt-title'] },
+        { layerId: photoId, gap: 0 },
+        { layerId: id('shape-lt-bg'), gap: 0, with: [...accents.map((layer) => layer.id), id('text-lt-name'), id('text-lt-title')] },
       ],
     },
   ]
+  return { layers, flows }
+}
 
-  return { id: 'scene-lower-third', name: 'Lower Third', width: 1920, height: 1080, background: 'transparent', layers, flows }
+function lowerThirdScene(look: TemplateLook): SceneDefinition {
+  const style = brandStyle(look.style)
+  const layout = LOWER_THIRD_LAYOUTS.some((option) => option.id === look.layout) ? look.layout! : 'left'
+  const first = { suffix: '', label: '', bindings: { name: 'name', title: 'title' } }
+  const people: LowerThirdPerson[] =
+    layout === 'two-up'
+      ? [
+          { ...first, start: 120, end: 940, slot: 820, justify: 'start', nameSize: 44, titleSize: 30 },
+          {
+            suffix: '-2',
+            label: 'Second ',
+            bindings: { name: 'name_2', title: 'title_2' },
+            start: 980,
+            end: 1800,
+            slot: 820,
+            justify: 'start',
+            nameSize: 44,
+            titleSize: 30,
+          },
+        ]
+      : layout === 'center'
+        ? // The row (headshot + bar) centers on the frame.
+          [{ ...first, start: 420, end: 1500, slot: 1080, justify: 'center', nameSize: 54, titleSize: 34 }]
+        : [{ ...first, start: 120, end: 1800, slot: 1080, justify: 'start', nameSize: 54, titleSize: 34 }]
+
+  const rows = people.map((person) => lowerThirdPerson(style, look, person))
+  const flows = rows
+    .flatMap((row) => row.flows)
+    .map((flow) => (layout === 'center' && flow.axis === 'x' ? { ...flow, start: 120, end: 1800 } : flow))
+  return {
+    id: 'scene-lower-third',
+    name: 'Lower Third',
+    width: 1920,
+    height: 1080,
+    background: 'transparent',
+    layers: rows.flatMap((row) => row.layers),
+    flows,
+  }
 }
 
 // ---------- YouTube thumbnail (three layouts) ----------
@@ -445,13 +664,15 @@ export const SMART_TEMPLATES: SmartTemplate[] = [
     id: 'template-quote-card',
     label: 'Quote Card 4x5',
     favorite: true,
+    layouts: QUOTE_LAYOUTS,
     build: (look) => quoteScene('scene-quote-card', 'Quote Card 4x5', 1350, look),
   },
-  { id: 'template-lower-third', label: 'Lower Third', favorite: true, build: lowerThirdScene },
+  { id: 'template-lower-third', label: 'Lower Third', favorite: true, layouts: LOWER_THIRD_LAYOUTS, build: lowerThirdScene },
   { id: 'template-youtube-thumbnail', label: 'YouTube Thumbnail', favorite: true, layouts: YOUTUBE_LAYOUTS, build: youtubeScene },
   {
     id: 'template-quote-story',
     label: 'Quote Story 9x16',
+    layouts: QUOTE_LAYOUTS,
     build: (look) => quoteScene('scene-quote-story', 'Quote Story 9x16', 1920, look),
   },
 ]

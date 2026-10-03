@@ -83,17 +83,37 @@ describe('built-in templates in every style', () => {
     }
   })
 
-  it('every style and layout keeps the same fields and photo slots, so switching never loses work', () => {
+  it('styles never change fields or photo slots, and layouts only add to the first one, so switching never loses work', () => {
+    const signature = (scene: SceneDefinition) =>
+      scene.layers
+        .filter((layer) => (layer.kind === 'text' && layer.binding) || (layer.kind === 'image' && layer.swappable))
+        .map((layer) => `${layer.id}:${layer.kind === 'text' ? layer.binding : 'photo'}`)
+        .sort()
     for (const template of SMART_TEMPLATES) {
-      const signature = (scene: SceneDefinition) =>
-        scene.layers
-          .filter((layer) => (layer.kind === 'text' && layer.binding) || (layer.kind === 'image' && layer.swappable))
-          .map((layer) => `${layer.id}:${layer.kind === 'text' ? layer.binding : 'photo'}`)
-          .sort()
-      const reference = signature(template.build({ style: 'acid' }))
-      for (const { style, layout } of cases.filter((entry) => entry.template === template)) {
-        expect(signature(template.build({ style: style.id, layout }))).toEqual(reference)
+      const layouts = template.layouts?.map((layout) => layout.id) ?? [undefined]
+      const first = signature(template.build({ style: 'acid', layout: layouts[0] }))
+      for (const layout of layouts) {
+        const reference = signature(template.build({ style: 'acid', layout }))
+        expect(reference).toEqual(expect.arrayContaining(first))
+        for (const style of BRAND_STYLES) {
+          expect(signature(template.build({ style: style.id, layout }))).toEqual(reference)
+        }
       }
+    }
+  })
+
+  it('the two-person lower third has a second name, title and headshot', () => {
+    const scene = SMART_TEMPLATES.find((template) => template.id === 'template-lower-third')!.build({ style: 'acid', layout: 'two-up' })
+    const bindings = scene.layers.flatMap((layer) => (layer.kind === 'text' && layer.binding ? [layer.binding] : []))
+    expect(bindings).toEqual(['name', 'title', 'name_2', 'title_2'])
+    expect(scene.layers.filter((layer) => layer.kind === 'image' && layer.swappable).map((layer) => layer.id)).toEqual(['image-lt-photo', 'image-lt-photo-2'])
+    // Both bars fit side by side, with or without headshots.
+    for (const on of [undefined, new Set(['image-lt-photo', 'image-lt-photo-2'])]) {
+      const shown = { ...SMART_TEMPLATES.find((t) => t.id === 'template-lower-third')!.build({ style: 'acid', layout: 'two-up', on }) }
+      const laid = layoutScene(shown, STORY_DEFAULTS)
+      const bar = (id: string) => laid.layers.find((layer) => layer.id === id)!
+      expect(bar('shape-lt-bg').x + bar('shape-lt-bg').width).toBeLessThanOrEqual(bar('shape-lt-bg-2').x - (on ? 160 : 0))
+      expect(bar('shape-lt-bg-2').x + bar('shape-lt-bg-2').width).toBeLessThanOrEqual(1800)
     }
   })
 })

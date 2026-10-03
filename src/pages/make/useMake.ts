@@ -83,14 +83,20 @@ export function useMake() {
   const styleId: StyleId = isStyleId(storedLook?.style) ? storedLook.style : DEFAULT_STYLE_ID
   const layoutId = layouts.some((option) => option.id === storedLook?.layout) ? storedLook!.layout! : (layouts[0]?.id ?? '')
 
-  const fields = useMemo(() => (template ? makeFieldsOf(template.scene) : []), [template])
-  const imageSlots = useMemo(() => (template ? swappableImagesOf(template.scene) : []), [template])
+  // The chosen layout as it ships (no on/off choices): its fields, photo slots and defaults.
+  // Layouts can add fields (e.g. the lower third's second person).
+  const baseScene = useMemo(
+    () => (template ? (smart && buildSmartScene(templateId, { style: styleId, layout: layoutId })) || template.scene : null),
+    [template, smart, templateId, styleId, layoutId],
+  )
+  const fields = useMemo(() => (baseScene ? makeFieldsOf(baseScene) : []), [baseScene])
+  const imageSlots = useMemo(() => (baseScene ? swappableImagesOf(baseScene) : []), [baseScene])
   /** The graphic for a layout: built in the chosen style, with photos swapped and the on/off choices applied. */
   const sceneFor = useCallback(
     (layout: string) => {
       if (!template) return null
-      const off = new Set(Object.entries(toggles).filter(([key, on]) => !on && !key.startsWith('field:')).map(([key]) => key))
-      const base = (smart && buildSmartScene(templateId, { style: styleId, layout, off })) || template.scene
+      const chosen = (on: boolean) => new Set(Object.entries(toggles).filter(([key, value]) => value === on && !key.startsWith('field:')).map(([key]) => key))
+      const base = (smart && buildSmartScene(templateId, { style: styleId, layout, off: chosen(false), on: chosen(true) })) || template.scene
       return withVisibility(withImageSwaps(base, templateSwaps), toggles)
     },
     [template, smart, templateId, styleId, toggles, templateSwaps],
@@ -270,6 +276,7 @@ export function useMake() {
     imageSlots,
     swaps: templateSwaps,
     toggles,
+    baseScene,
     isSmart: Boolean(smart),
     styleId,
     layoutId,
