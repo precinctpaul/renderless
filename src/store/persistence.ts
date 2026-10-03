@@ -7,7 +7,7 @@ import type { StoryFieldDef } from '../data/storySchema'
 import type { StoryState } from '../types/scene'
 import type { TemplatePackageSigningConfig } from '../lib/templatePackages'
 import { buildDefaultTransportWsUrl, buildHostRelayUrl, hasConfiguredRelay } from '../lib/outputUrls'
-import { fieldDefsFor } from '../data/storySchema'
+import { DEFAULT_FIELD_VALUES, fieldDefsFor } from '../data/storySchema'
 
 export const TRANSPORT_STORAGE_KEY = 'renderless.playout.transport.v1'
 
@@ -23,8 +23,17 @@ export function cloneStory(story: StoryState): StoryState {
 export const LEGACY_FIELD_KEYS = new Set(['homeScore', 'awayScore', 'clock', 'possession', 'period', 'shotClock', 'homeFouls', 'awayFouls'])
 export const LEGACY_FIELD_PREFIX = /^(Game|Teams|Players|Context|Analytics|Graphics|Stories|RecentEvents)\./
 
+// Text the old basketball simulation wrote into fields that still exist (e.g. headline "Defensive rebound").
+const LEGACY_VALUE = /rebound|simulation live|momentum currently|hot streak|defensive pressure|pace indicators|record watch|shot clock|turnover|fast break|hits a [23] from|free throw|timeout called|[A-Z]{2,4} [0-9]{1,3} - [A-Z]{2,4} [0-9]{1,3}/i
+
 export function withoutLegacyFields(values: Record<string, string | number | boolean | null>) {
-  return Object.fromEntries(Object.entries(values).filter(([key]) => !LEGACY_FIELD_KEYS.has(key) && !LEGACY_FIELD_PREFIX.test(key)))
+  return Object.fromEntries(
+    Object.entries(values)
+      .filter(([key]) => !LEGACY_FIELD_KEYS.has(key) && !LEGACY_FIELD_PREFIX.test(key))
+      .map(([key, value]) =>
+        typeof value === 'string' && LEGACY_VALUE.test(value) ? [key, DEFAULT_FIELD_VALUES[key] ?? ''] : [key, value],
+      ),
+  )
 }
 
 export function readDataSheet(): DataSheet | null {

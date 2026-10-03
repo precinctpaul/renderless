@@ -104,6 +104,11 @@ function quoteScene(id: string, name: string, height: number, look: TemplateLook
   // Short quotes run big; longer ones shrink until they fit the line limit.
   const quoteSize = tall ? 96 : 84
   const authorSize = tall ? 92 : 80
+  // Signal: a broadcast split. Blue holds the headshot and quote; the name tag sits on the seam
+  // with the title in the ink footer below.
+  const signal = style.id === 'signal'
+  const tagHeight = Math.round(authorSize * 1.12 + 26)
+  const seam = Math.round(height * (tall ? 0.84 : 0.82))
 
   const decorations: SceneLayer[] =
     style.id === 'retro'
@@ -112,7 +117,7 @@ function quoteScene(id: string, name: string, height: number, look: TemplateLook
           ...stripes(`${id}-stripe-bottom`, [...(style.stripes ?? [])].reverse(), 0, height - 56 - 3 * 14 - 2 * 8, width, 14, 8, 'x'),
         ]
       : style.id === 'signal'
-        ? [rect(`${id}-band`, 'Band', 0, height - 28, width, 28, BRAND.ink)]
+        ? [rect(`${id}-panel`, 'Lower Panel', 0, seam, width, height - seam, BRAND.ink)]
         : []
 
   const layers: SceneLayer[] = [
@@ -152,7 +157,8 @@ function quoteScene(id: string, name: string, height: number, look: TemplateLook
       lineHeight: 1.12,
       fit: { maxLines: tall ? 7 : 5, minFontSize: 36 },
     }),
-    rect(`${id}-rule`, 'Rule', (width - 96) / 2, top + headshot + 470, 96, 8, style.rule),
+    // Signal's tag on the seam does the rule's job.
+    rect(`${id}-rule`, 'Rule', (width - 96) / 2, top + headshot + 470, 96, 8, style.rule, { visible: style.id !== 'signal' }),
     text({
       id: `${id}-author`,
       name: 'Speaker',
@@ -167,8 +173,12 @@ function quoteScene(id: string, name: string, height: number, look: TemplateLook
       fontFamily: DRUK,
       fontWeight: 700,
       fit: { maxLines: 1, minFontSize: 40 },
+      // Druk's letters sit low in their line: a taller line and more padding below keep them inside the tag.
       ...(style.tag
-        ? { box: { fill: style.tag.fill, paddingTop: 10, paddingRight: 34, paddingBottom: 6, paddingLeft: 34, radius: style.tag.radius } }
+        ? {
+            lineHeight: 1.12,
+            box: { fill: style.tag.fill, paddingTop: 12, paddingRight: 34, paddingBottom: 14, paddingLeft: 34, radius: style.tag.radius },
+          }
         : {}),
     }),
     text({
@@ -190,22 +200,47 @@ function quoteScene(id: string, name: string, height: number, look: TemplateLook
     }),
   ]
 
-  const flows: SceneFlow[] = [
-    {
-      id: `${id}-stack`,
-      axis: 'y',
-      start: top,
-      end: bottom,
-      justify: 'center',
-      items: [
-        { layerId: `${id}-headshot`, gap: 0, with: [`${id}-headshot-ring`] },
-        { layerId: `${id}-quote`, gap: 56, with: [`${id}-mark-open`] },
-        { layerId: `${id}-rule`, gap: 44 },
-        { layerId: `${id}-author`, gap: 28 },
-        { layerId: `${id}-title`, gap: 14 },
-      ],
-    },
-  ]
+  const flows: SceneFlow[] = signal
+    ? [
+        {
+          id: `${id}-stack`,
+          axis: 'y',
+          start: Math.round(height * 0.07),
+          end: seam - tagHeight / 2 - 48,
+          justify: 'center',
+          items: [
+            { layerId: `${id}-headshot`, gap: 0, with: [`${id}-headshot-ring`] },
+            { layerId: `${id}-quote`, gap: 56, with: [`${id}-mark-open`] },
+          ],
+        },
+        {
+          id: `${id}-byline`,
+          axis: 'y',
+          start: seam - Math.round(tagHeight / 2),
+          end: height - 40,
+          justify: 'start',
+          items: [
+            { layerId: `${id}-author`, gap: 0 },
+            { layerId: `${id}-title`, gap: 24 },
+          ],
+        },
+      ]
+    : [
+        {
+          id: `${id}-stack`,
+          axis: 'y',
+          start: top,
+          end: bottom,
+          justify: 'center',
+          items: [
+            { layerId: `${id}-headshot`, gap: 0, with: [`${id}-headshot-ring`] },
+            { layerId: `${id}-quote`, gap: 56, with: [`${id}-mark-open`] },
+            { layerId: `${id}-rule`, gap: 44 },
+            { layerId: `${id}-author`, gap: 28 },
+            { layerId: `${id}-title`, gap: 14 },
+          ],
+        },
+      ]
 
   return { id, name, width, height, background: style.bg, layers, flows }
 }
@@ -312,7 +347,8 @@ function youtubeScene(look: TemplateLook): SceneDefinition {
   // Text column: beside the photo, across the whole frame when the photo is off, or along the bottom.
   const column = wide || photoOff ? { x: 60, width: 1160 } : layout === 'text-right' ? { x: 700, width: 520 } : { x: 60, width: 540 }
   const align = wide ? 'center' : 'left'
-  const accentWidth = 120
+  // Wide photo: the bar spans the title-safe area (80% of the width) so it frames the headline.
+  const accentWidth = wide ? Math.round(width * 0.8) : 120
   const accentX = align === 'center' ? (width - accentWidth) / 2 : column.x
 
   const accents: SceneLayer[] = style.stripes
