@@ -18,11 +18,15 @@ function readAsDataUrl(file: File): Promise<string> {
   })
 }
 
-/** Center column: the template's fill-in fields and replaceable images. Nothing here can move the layout. */
+/**
+ * Center column: the template's fill-in fields and replaceable images. Only leaving a photo out
+ * moves anything (its text closes the gap); the template itself never changes.
+ */
 export function FillPanel({ make, overflowKeys }: FillPanelProps) {
-  const { template, fields, values, imageSlots, swaps, libraryImages, setValue, clearValues, swapImage } = make
+  const { template, fields, values, imageSlots, swaps, hiddenImages, libraryImages, setValue, clearValues, swapImage, setImageHidden } = make
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
-  const hasContent = Object.values(values).some((value) => value.trim()) || Object.keys(swaps).length > 0
+  const hasContent =
+    Object.values(values).some((value) => value.trim()) || Object.keys(swaps).length > 0 || hiddenImages.length > 0
 
   if (!template) {
     return (
@@ -88,54 +92,65 @@ export function FillPanel({ make, overflowKeys }: FillPanelProps) {
 
       {imageSlots.map((slot) => {
         const current = swaps[slot.id] ?? slot.src
+        const isHidden = hiddenImages.includes(slot.id)
         return (
           <div key={slot.id} className="make-image">
-            <div className="make-field__label">{slot.name}</div>
-            <div className="make-image__row">
-              <img className="make-image__thumb" src={current} alt="" />
-              <div className="make-image__actions">
-                <input
-                  ref={(node) => {
-                    fileInputs.current[slot.id] = node
-                  }}
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0]
-                    event.target.value = ''
-                    if (file) swapImage(slot.id, await readAsDataUrl(file))
-                  }}
-                />
-                <button type="button" className="btn btn--small" onClick={() => fileInputs.current[slot.id]?.click()}>
-                  <ImageUp size={14} />
-                  Upload photo
-                </button>
-                {libraryImages.length > 0 ? (
-                  <select
-                    className="make-image__library"
-                    aria-label={`Choose ${slot.name} from the team library`}
-                    value=""
-                    onChange={(event) => {
-                      const entry = libraryImages.find((image) => image.id === event.target.value)
-                      if (entry) swapImage(slot.id, entry.dataUrl)
-                    }}
-                  >
-                    <option value="">From library…</option>
-                    {libraryImages.map((image) => (
-                      <option key={image.id} value={image.id}>
-                        {image.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                {swaps[slot.id] ? (
-                  <button type="button" className="btn btn--small btn--ghost" onClick={() => swapImage(slot.id, null)}>
-                    Use original
-                  </button>
-                ) : null}
-              </div>
+            <div className="make-image__head">
+              <div className="make-field__label">{slot.name}</div>
+              <label className="make-image__hide">
+                <input type="checkbox" checked={isHidden} onChange={(event) => setImageHidden(slot.id, event.target.checked)} />
+                No {slot.name.toLowerCase()}
+              </label>
             </div>
+            {isHidden ? (
+              <p className="make-image__hidden-note">Left out of this graphic. Untick to bring it back.</p>
+            ) : (
+              <div className="make-image__row">
+                <img className="make-image__thumb" src={current} alt="" />
+                <div className="make-image__actions">
+                  <input
+                    ref={(node) => {
+                      fileInputs.current[slot.id] = node
+                    }}
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file) swapImage(slot.id, await readAsDataUrl(file))
+                    }}
+                  />
+                  <button type="button" className="btn btn--small" onClick={() => fileInputs.current[slot.id]?.click()}>
+                    <ImageUp size={14} />
+                    Upload photo
+                  </button>
+                  {libraryImages.length > 0 ? (
+                    <select
+                      className="make-image__library"
+                      aria-label={`Choose ${slot.name} from the team library`}
+                      value=""
+                      onChange={(event) => {
+                        const entry = libraryImages.find((image) => image.id === event.target.value)
+                        if (entry) swapImage(slot.id, entry.dataUrl)
+                      }}
+                    >
+                      <option value="">From library…</option>
+                      {libraryImages.map((image) => (
+                        <option key={image.id} value={image.id}>
+                          {image.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  {swaps[slot.id] ? (
+                    <button type="button" className="btn btn--small btn--ghost" onClick={() => swapImage(slot.id, null)}>
+                      Use original
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )}
           </div>
         )
       })}

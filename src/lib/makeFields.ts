@@ -1,5 +1,5 @@
 import { STORY_FIELD_DEFS, labelFromKey } from '../data/storySchema'
-import type { ImageLayer, SceneDefinition, TemplateDefinition, TextLayer } from '../types/scene'
+import type { ImageLayer, SceneDefinition, SceneLayer, TemplateDefinition, TextLayer } from '../types/scene'
 
 /** A fill-in field in Make: one per data field the template's text layers use. */
 export interface MakeField {
@@ -59,6 +59,56 @@ export function withImageSwaps(scene: SceneDefinition, swaps: Record<string, str
       layer.kind === 'image' && layer.swappable && swaps[layer.id] ? { ...layer, src: swaps[layer.id] } : layer,
     ),
   }
+}
+
+/** A shape drawn just around the photo (a ring, frame or backing) belongs to it: at most 25% bigger each way. */
+function framesImage(layer: SceneLayer, image: ImageLayer): boolean {
+  return (
+    layer.kind === 'shape' &&
+    layer.x <= image.x &&
+    layer.y <= image.y &&
+    layer.x + layer.width >= image.x + image.width &&
+    layer.y + layer.height >= image.y + image.height &&
+    layer.width <= image.width * 1.25 &&
+    layer.height <= image.height * 1.25
+  )
+}
+
+const sharesColumn = (layer: SceneLayer, image: ImageLayer) => layer.x < image.x + image.width && layer.x + layer.width > image.x
+
+/**
+ * The scene with some swappable images left out. The photo and any shape framing it are hidden,
+ * and text stacked above or below it (sharing its column) closes the gap from both sides, so a
+ * centered stack stays centered.
+ */
+export function withHiddenImages(scene: SceneDefinition, hiddenIds: string[]): SceneDefinition {
+  const hidden = scene.layers.filter(
+    (layer): layer is ImageLayer => layer.kind === 'image' && Boolean(layer.swappable) && layer.visible && hiddenIds.includes(layer.id),
+  )
+  if (hidden.length === 0) return scene
+
+  let layers = scene.layers
+  for (const image of hidden) {
+    const hideIds = new Set([image.id, ...layers.filter((layer) => framesImage(layer, image)).map((layer) => layer.id)])
+    const stack = layers.filter((layer) => layer.kind === 'text' && layer.visible && sharesColumn(layer, image))
+    const below = stack.filter((layer) => layer.y >= image.y + image.height)
+    const above = stack.filter((layer) => layer.y + layer.height <= image.y)
+    const belowTop = below.length > 0 ? Math.min(...below.map((layer) => layer.y)) : null
+    const aboveBottom = above.length > 0 ? Math.max(...above.map((layer) => layer.y + layer.height)) : null
+    const hole = (belowTop ?? image.y + image.height) - (aboveBottom ?? image.y)
+    // With text on both sides, keep one gap between them.
+    const keep = belowTop !== null && aboveBottom !== null ? Math.min(belowTop - image.y - image.height, image.y - aboveBottom) : 0
+    const shift = belowTop !== null || aboveBottom !== null ? Math.max(0, hole - keep) / 2 : 0
+    const belowIds = new Set(below.map((layer) => layer.id))
+    const aboveIds = new Set(above.map((layer) => layer.id))
+    layers = layers.map((layer) => {
+      if (hideIds.has(layer.id)) return { ...layer, visible: false }
+      if (belowIds.has(layer.id)) return { ...layer, y: layer.y - shift }
+      if (aboveIds.has(layer.id)) return { ...layer, y: layer.y + shift }
+      return layer
+    })
+  }
+  return { ...scene, layers }
 }
 
 /** Feed (square and 4:5), story (9:16) or wide (16:9). */

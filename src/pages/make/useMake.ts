@@ -9,7 +9,7 @@ import {
   registerFontEntries,
   type MediaLibraryEntry,
 } from '../../lib/mediaLibrary'
-import { makeFieldsOf, swappableImagesOf, withImageSwaps } from '../../lib/makeFields'
+import { makeFieldsOf, swappableImagesOf, withHiddenImages, withImageSwaps } from '../../lib/makeFields'
 import type { DataSheet } from '../../lib/dataSheet'
 import { matchSheet, readManualMapping, rowValues, withManualChoice, writeManualMapping, type ManualMapping } from '../../lib/sheetMatching'
 import type { StoryState } from '../../types/scene'
@@ -20,6 +20,8 @@ interface StoredMake {
   templateId?: string
   /** Typed values per template, so switching templates keeps each one's text. */
   values?: Record<string, Record<string, string>>
+  /** Photo slots left out, per template. */
+  hidden?: Record<string, string[]>
 }
 
 function readStored(): StoredMake {
@@ -59,10 +61,14 @@ export function useMake() {
   const templateId = template?.id ?? ''
   const values = useMemo(() => stored.values?.[templateId] ?? {}, [stored.values, templateId])
   const templateSwaps = useMemo(() => swaps[templateId] ?? {}, [swaps, templateId])
+  const hiddenImages = useMemo(() => stored.hidden?.[templateId] ?? [], [stored.hidden, templateId])
 
   const fields = useMemo(() => (template ? makeFieldsOf(template.scene) : []), [template])
   const imageSlots = useMemo(() => (template ? swappableImagesOf(template.scene) : []), [template])
-  const scene = useMemo(() => (template ? withImageSwaps(template.scene, templateSwaps) : null), [template, templateSwaps])
+  const scene = useMemo(
+    () => (template ? withHiddenImages(withImageSwaps(template.scene, templateSwaps), hiddenImages) : null),
+    [template, templateSwaps, hiddenImages],
+  )
   const story = useMemo<StoryState>(() => ({ bindings: { ...values } }), [values])
   const manual = useMemo(() => manualByTemplate[templateId] ?? readManualMapping(templateId), [manualByTemplate, templateId])
   const match = useMemo(() => (sheet ? matchSheet(sheet, fields, manual) : null), [sheet, fields, manual])
@@ -147,7 +153,9 @@ export function useMake() {
     update((current) => {
       const rest = { ...current.values }
       delete rest[templateId]
-      return { ...current, values: rest }
+      const hidden = { ...current.hidden }
+      delete hidden[templateId]
+      return { ...current, values: rest, hidden }
     })
     setSwaps((current) => {
       const rest = { ...current }
@@ -165,6 +173,15 @@ export function useMake() {
         return { ...current, [templateId]: forTemplate }
       }),
     [templateId],
+  )
+
+  const setImageHidden = useCallback(
+    (layerId: string, hide: boolean) =>
+      update((current) => {
+        const others = (current.hidden?.[templateId] ?? []).filter((id) => id !== layerId)
+        return { ...current, hidden: { ...current.hidden, [templateId]: hide ? [...others, layerId] : others } }
+      }),
+    [templateId, update],
   )
 
   // Team images (for the "choose from library" picker) and uploaded fonts, which templates may use.
@@ -212,6 +229,7 @@ export function useMake() {
     values,
     imageSlots,
     swaps: templateSwaps,
+    hiddenImages,
     libraryImages,
     sheet,
     rowIndex,
@@ -224,6 +242,7 @@ export function useMake() {
     setValue,
     clearValues,
     swapImage,
+    setImageHidden,
   }
 }
 
