@@ -426,6 +426,7 @@ export function SceneRenderer({
         {scene.layers.map((layer) => (
           <div
             key={layer.id}
+            data-layer-id={layer.id}
             className="scene-renderer__layer"
             style={layerStyle(layer)}
             onMouseDown={(event) => {

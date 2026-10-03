@@ -349,6 +349,7 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       kind: 'image',
       src,
       fit,
+      ...(record.swappable === true ? { swappable: true } : {}),
     }
   }
 

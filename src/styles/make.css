@@ -1,0 +1,485 @@
+/* ---------- Top nav: Make | Studio menu ---------- */
+
+/* Two items now, so the strip never scrolls; it must not clip the Studio menu either. */
+.nav-tabs {
+  overflow: visible;
+}
+
+.nav-studio {
+  position: relative;
+  display: flex;
+}
+
+.nav-studio__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.nav-studio__page {
+  text-transform: none;
+  letter-spacing: 0.3px;
+}
+
+.nav-studio__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.nav-studio__note {
+  padding: 6px 10px 8px;
+  font-size: 11px;
+  color: var(--zinc-300);
+}
+
+.nav-studio__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 10px 10px 12px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--milk);
+  border-left: 3px solid transparent;
+}
+
+.nav-studio__item:hover,
+.nav-studio__item:focus-visible {
+  background: var(--bg-button);
+  color: var(--milk);
+}
+
+.nav-studio__item--active {
+  border-left-color: var(--acid);
+  background: var(--bg-list);
+}
+
+.inspector-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- Make: template · fill · preview ---------- */
+
+.screen--make {
+  container: make-screen / inline-size;
+  min-height: 0;
+}
+
+.make-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(280px, 1fr) minmax(320px, 1.25fr);
+  gap: 10px;
+}
+
+.make-layout > .panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.make-empty {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--zinc-300);
+}
+
+/* Template list */
+.make-templates__tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.make-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+  background: var(--bg-field);
+  color: var(--zinc-300);
+}
+
+.make-search input {
+  flex: 1;
+  min-width: 0;
+  background: transparent !important;
+}
+
+.make-shapes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.make-chip {
+  min-height: 30px;
+  padding: 0 10px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--zinc-200);
+  background: var(--bg-button);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.make-chip:hover {
+  background: var(--bg-button-hover);
+  color: var(--milk);
+}
+
+.make-chip--active {
+  background: var(--milk);
+  color: var(--ink);
+}
+
+.make-chip--active:hover {
+  background: var(--milk);
+  color: var(--ink);
+}
+
+.make-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.make-template {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  text-align: left;
+  color: var(--milk);
+  background: var(--bg-list);
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+
+.make-template:hover {
+  background: var(--row-hover);
+}
+
+.make-template--active {
+  border-left-color: var(--acid);
+  background: var(--bg-field);
+}
+
+.make-template__thumb {
+  position: relative;
+  flex: none;
+  width: 64px;
+  max-height: 88px;
+  overflow: hidden;
+  background: var(--bg-main);
+}
+
+.make-template__thumb > .scene-renderer,
+.make-preview__frame > .scene-renderer {
+  position: absolute;
+  inset: 0;
+  /* Read-only: the canvas never takes a click, so no layer can be selected or dragged. */
+  pointer-events: none;
+}
+
+.make-template__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.make-template__name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.make-template__size {
+  font-size: 11px;
+  color: var(--zinc-300);
+}
+
+/* Fill-in fields */
+.make-fill__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.make-field,
+.make-image {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.make-field__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--milk);
+}
+
+.make-field input,
+.make-field textarea {
+  width: 100%;
+  font-size: 15px;
+  line-height: 1.4;
+  padding: 10px 12px;
+}
+
+.make-field textarea {
+  resize: vertical;
+  min-height: 96px;
+}
+
+.make-field--overflow input,
+.make-field--overflow textarea {
+  border-bottom-color: var(--red) !important;
+}
+
+.make-field__hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
+  font-size: 12px;
+  color: var(--zinc-300);
+}
+
+.make-field__warning {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--milk);
+}
+
+.make-field__warning svg {
+  color: var(--red);
+}
+
+.make-image__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.make-image__thumb {
+  flex: none;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  background: var(--bg-main);
+}
+
+.make-image__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.make-image__library {
+  min-height: 30px;
+  max-width: 100%;
+}
+
+/* Preview and export */
+.make-preview__frame {
+  position: relative;
+  flex: 1;
+  min-height: 220px;
+  background: var(--bg-main);
+}
+
+.make-preview__meta {
+  font-size: 12px;
+  color: var(--zinc-300);
+}
+
+.make-export {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.make-export__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--zinc-200);
+}
+
+.make-export__button {
+  width: 100%;
+  min-height: 64px;
+  gap: 10px;
+  font-size: 18px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.make-export__status {
+  margin: 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: var(--zinc-200);
+}
+
+/* Medium screens: templates become a strip across the top; fill and preview side by side. */
+@container make-screen (max-width: 1100px) {
+  .make-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .make-templates {
+    grid-column: 1 / -1;
+    gap: 8px;
+  }
+
+  .make-templates__tools {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .make-search {
+    flex: 1 1 200px;
+  }
+
+  .make-template-list {
+    flex-direction: row;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .make-template {
+    flex: none;
+    flex-direction: column;
+    align-items: stretch;
+    width: 116px;
+    padding: 4px;
+    gap: 4px;
+    border-left-width: 1px;
+    border-bottom: 3px solid transparent;
+  }
+
+  .make-template--active {
+    border-left-color: transparent;
+    border-bottom-color: var(--acid);
+  }
+
+  .make-template__thumb {
+    width: 100%;
+    height: 60px;
+    max-height: none;
+    aspect-ratio: auto !important;
+  }
+}
+
+/* Phones: one column. Template strip, preview, then fields; Export stays pinned to the bottom. */
+@media (max-width: 760px) {
+  .screen--make {
+    height: auto;
+    padding-bottom: 104px;
+  }
+
+  .make-layout {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .make-layout > .panel {
+    overflow: visible;
+  }
+
+  .make-preview {
+    order: 2;
+  }
+
+  .make-fill {
+    order: 3;
+  }
+
+  .make-template__name {
+    font-size: 12px;
+  }
+
+  .make-preview__frame {
+    flex: none;
+    width: 100%;
+    min-height: 0;
+    aspect-ratio: var(--make-aspect, 4 / 5);
+    max-height: 48vh;
+  }
+
+  .make-export {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    gap: 4px;
+  }
+
+  .make-export__button {
+    min-height: 56px;
+  }
+
+  .make-export__note,
+  .make-export__status:empty {
+    display: none;
+  }
+
+  .make-field input,
+  .make-field textarea {
+    font-size: 16px; /* stops iOS zooming into the field */
+  }
+}
+
+/* Medium screens: the preview gives way before Export does. */
+@container make-screen (max-width: 1100px) {
+  .make-preview__frame {
+    min-height: 160px;
+  }
+}
+
+/* Keep "Clear" from pushing the Fill in title below the other column titles. */
+.make-fill__head .btn {
+  min-height: 22px;
+  padding: 0 6px;
+}

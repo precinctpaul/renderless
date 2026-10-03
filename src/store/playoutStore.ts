@@ -5,6 +5,7 @@ import type {
   ProgramTemplateId,
   ProgramTransitionState,
   ShapeStylePatch,
+  ImageStylePatch,
   TextStylePatch,
   TransitionType,
   TransportConnectionStatus,
@@ -132,6 +133,7 @@ export interface PlayoutStore {
   distributePreviewLayers: (layerIds: string[], axis: LayerDistributeAxis, snapToGrid?: boolean) => void
   updatePreviewLayerTransform: (layerId: string, patch: SceneTransformPatch) => void
   updatePreviewShapeStyle: (layerId: string, patch: ShapeStylePatch) => void
+  updatePreviewImageStyle: (layerId: string, patch: ImageStylePatch) => void
   updatePreviewTextStyle: (layerId: string, patch: TextStylePatch) => void
   updatePreviewLayerBlendMode: (layerId: string, blendMode: LayerBlendMode) => void
   updatePreviewTextBinding: (layerId: string, binding: DataBindingKey | null) => void
@@ -469,6 +471,19 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
             fill: typeof patch.fill === 'string' && patch.fill.length > 0 ? patch.fill : layer.fill,
             opacity: nextOpacity,
           }
+        }),
+      }))
+    },
+    updatePreviewImageStyle: (layerId, patch) => {
+      commitPreviewScene((scene) => ({
+        ...scene,
+        layers: scene.layers.map((layer) => {
+          if (layer.id !== layerId || layer.kind !== 'image' || layer.locked) {
+            return layer
+          }
+          const next = { ...layer, ...patch }
+          if (!next.swappable) delete next.swappable
+          return next
         }),
       }))
     },

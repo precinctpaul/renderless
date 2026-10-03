@@ -385,7 +385,7 @@ export function DesignPage() {
   const handleDropAssetOnCanvas = (entryId: string, position: { x: number; y: number }) => {
     const entry = assetEntries.find((asset) => asset.id === entryId)
     if (!entry || !entry.dataUrl) {
-      setTransientStatus('Asset missing data URL. Re-import from Dashboard.')
+      setTransientStatus('Asset missing data URL. Re-import it in Studio → Library.')
       return
     }
     if (!isPlaceableImageEntry(entry)) {
@@ -470,7 +470,7 @@ export function DesignPage() {
           ) : (
             <div className="asset-list">
               {assetEntries.length === 0 && fontEntries.length === 0 ? (
-                <div className="inspector-empty">No assets found. Upload media in Dashboard and return here.</div>
+                <div className="inspector-empty">No assets found. Upload media in Studio → Library and return here.</div>
               ) : null}
               {assetEntries.length > 0 ? <div className="asset-list__section-title mono">ASSETS</div> : null}
               {assetEntries.map((entry) => (

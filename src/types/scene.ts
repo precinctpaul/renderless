@@ -81,6 +81,8 @@ export interface ImageLayer extends BaseLayer {
   kind: 'image'
   src: string
   fit?: 'contain' | 'cover' | 'stretch'
+  /** Staffers may replace this image in Make (e.g. a headshot); the layout stays put. */
+  swappable?: boolean
 }
 
 export type SceneLayer = ShapeLayer | TextLayer | ImageLayer

@@ -51,6 +51,7 @@ export function LayerInspector({ selectedLayers, activeSelectedLayerIds, fontOpt
   const setPreviewLayersPosition = usePlayoutStore((state) => state.setPreviewLayersPosition)
   const setPreviewLayersAnchor = usePlayoutStore((state) => state.setPreviewLayersAnchor)
   const updatePreviewShapeStyle = usePlayoutStore((state) => state.updatePreviewShapeStyle)
+  const updatePreviewImageStyle = usePlayoutStore((state) => state.updatePreviewImageStyle)
   const updatePreviewLayerBlendMode = usePlayoutStore((state) => state.updatePreviewLayerBlendMode)
   const updatePreviewTextBinding = usePlayoutStore((state) => state.updatePreviewTextBinding)
   const renamePreviewLayer = usePlayoutStore((state) => state.renamePreviewLayer)
@@ -325,8 +326,33 @@ export function LayerInspector({ selectedLayers, activeSelectedLayerIds, fontOpt
                       Source
                       <input className="mono" value={primarySelectedLayer.src} readOnly />
                     </label>
-                    <div className="binding-preview mono">FIT: {(primarySelectedLayer.fit ?? 'contain').toUpperCase()}</div>
-                    <div className="inspector-empty">Image layer styling currently uses default contain fit.</div>
+                    <label>
+                      Fit
+                      <select
+                        className="mono"
+                        value={primarySelectedLayer.fit ?? 'contain'}
+                        disabled={Boolean(primarySelectedLayer.locked)}
+                        onChange={(event) => updatePreviewImageStyle(primarySelectedLayer.id, { fit: event.target.value as 'contain' | 'cover' | 'stretch' })}
+                      >
+                        <option value="contain">Contain (whole image)</option>
+                        <option value="cover">Cover (fill and crop)</option>
+                        <option value="stretch">Stretch</option>
+                      </select>
+                    </label>
+                    <label className="inspector-check">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(primarySelectedLayer.swappable)}
+                        disabled={Boolean(primarySelectedLayer.locked)}
+                        onChange={(event) => updatePreviewImageStyle(primarySelectedLayer.id, { swappable: event.target.checked })}
+                      />
+                      Swappable in Make
+                    </label>
+                    <div className="inspector-empty">
+                      {primarySelectedLayer.swappable
+                        ? 'Staffers can replace this image in Make. Use Cover so any photo fills the frame.'
+                        : 'Turn on to let staffers replace this image (e.g. a headshot) in Make.'}
+                    </div>
                   </>
                 ) : primarySelectedLayer ? (
                   <>

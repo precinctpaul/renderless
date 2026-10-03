@@ -18,6 +18,34 @@ describe('Milestone 13 operator click-path regressions', () => {
     usePlayoutStore.getState().resetDemo()
   })
 
+  test('Make is the landing page: fill a field, no editor or switcher controls, layout untouched', async () => {
+    const user = userEvent.setup()
+    renderRoute('/')
+    const templatesBefore = JSON.stringify(usePlayoutStore.getState().templates)
+    const programBefore = JSON.stringify(usePlayoutStore.getState().story)
+
+    expect(await screen.findByRole('button', { name: /Export PNG/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'TAKE' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Reset Demo/ })).toBeNull()
+    expect(document.querySelector('.layer-list, .ruler, .scene-renderer__selection')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /Quote Card/ }))
+    const quote = screen.getByLabelText('Quote') as HTMLTextAreaElement
+    expect(quote.tagName).toBe('TEXTAREA')
+    await user.type(quote, 'We will win.')
+    expect(document.querySelector('.make-preview')?.textContent).toContain('We will win.')
+
+    // Make never writes to templates or to what Program shows.
+    expect(JSON.stringify(usePlayoutStore.getState().templates)).toBe(templatesBefore)
+    expect(JSON.stringify(usePlayoutStore.getState().story)).toBe(programBefore)
+
+    // Studio pages sit behind the Studio menu.
+    expect(screen.queryByRole('link', { name: 'Design' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: /^Studio/ }))
+    await user.click(screen.getByRole('link', { name: 'Design' }))
+    expect(screen.getByRole('button', { name: 'TAKE' })).toBeTruthy()
+  })
+
   test('dashboard mode/filter/dev/load interactions are all live', async () => {
     const user = userEvent.setup()
     renderRoute('/dashboard')
@@ -133,6 +161,7 @@ describe('Milestone 13 operator click-path regressions', () => {
     await user.click(screen.getByRole('button', { name: /^Left$/ }))
     expect(anchorX()).toBe(0)
 
+    await user.click(screen.getByRole('button', { name: /^Studio/ }))
     await user.click(screen.getByRole('link', { name: 'Control Room' }))
     expect(await screen.findByRole('heading', { name: 'Control Room' })).toBeTruthy()
 
