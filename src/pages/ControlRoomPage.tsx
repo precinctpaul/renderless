@@ -1,10 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { DataRowStepper } from '../components/DataRowStepper'
 import { Check, Copy, Keyboard, RefreshCw, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
 import { buildDefaultTransportWsUrl, buildOutputUrl } from '../lib/outputUrls'
 import { usePlayoutStore, type TransitionType } from '../store/playoutStore'
+import { takeBlocker } from '../store/takeReadiness'
+import { AirStatus } from '../components/AirStatus'
+
+/** How long C must be held to clear Program, so a stray keypress can't take a graphic off air. */
+const CLEAR_HOLD_MS = 400
 
 const TRANSITIONS: Array<{ id: TransitionType; label: string }> = [
   { id: 'cut', label: 'CUT' },
@@ -47,6 +52,11 @@ export function ControlRoomPage() {
   const [copyLabel, setCopyLabel] = useState<string>('')
   const [copiedFollow, setCopiedFollow] = useState<'preview' | 'program' | null>(null)
   const [confirmingNewRoom, setConfirmingNewRoom] = useState(false)
+  const takeBlockedBy = usePlayoutStore(takeBlocker)
+  const [clearArming, setClearArming] = useState(false)
+  const [clearHint, setClearHint] = useState('')
+  const clearTimer = useRef<number | null>(null)
+  const canClear = onAir || transitionInProgress
   const transportRoomId = usePlayoutStore((state) => state.transportRoomId)
   const rotateTransportRoom = usePlayoutStore((state) => state.rotateTransportRoom)
 
@@ -97,18 +107,44 @@ export function ControlRoomPage() {
 
       if (event.code === 'Space') {
         event.preventDefault()
-        take()
+        if (!takeBlocker(usePlayoutStore.getState())) take()
       }
 
-      if (event.key === 'c' || event.key === 'C') {
+      // CLEAR needs C held down; a tap only explains that.
+      if ((event.key === 'c' || event.key === 'C') && !event.repeat && canClear && clearTimer.current === null) {
         event.preventDefault()
-        clearProgram()
+        setClearArming(true)
+        setClearHint('')
+        clearTimer.current = window.setTimeout(() => {
+          clearTimer.current = null
+          setClearArming(false)
+          clearProgram()
+        }, CLEAR_HOLD_MS)
+      }
+    }
+    const onKeyUp = (event: KeyboardEvent) => {
+      if ((event.key === 'c' || event.key === 'C') && clearTimer.current !== null) {
+        window.clearTimeout(clearTimer.current)
+        clearTimer.current = null
+        setClearArming(false)
+        setClearHint('Hold C to clear Program')
+        window.setTimeout(() => setClearHint(''), 2000)
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [clearProgram, take])
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      // Leaving the page (or Program going off air) mid-hold cancels the clear.
+      if (clearTimer.current !== null) {
+        window.clearTimeout(clearTimer.current)
+        clearTimer.current = null
+        setClearArming(false)
+      }
+    }
+  }, [clearProgram, take, canClear])
 
   const copyFeedUrl = async (follow: 'preview' | 'program') => {
     // Only touch transport settings when they change, so copying never forces a reconnect.
@@ -250,18 +286,14 @@ export function ControlRoomPage() {
                     type="button"
                     className={`btn btn--take btn--wide btn--tactile ${transitionInProgress ? 'btn--take-pending' : ''}`.trim()}
                     onClick={take}
-                    disabled={!hasTemplates || transitionInProgress}
+                    disabled={Boolean(takeBlockedBy)}
+                    aria-describedby="take-reason"
                   >
                     {transitionInProgress ? 'TAKING...' : 'TAKE'}
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--wide btn--tactile"
-                    onClick={clearProgram}
-                    disabled={!onAir && !transitionInProgress}
-                  >
-                    CLEAR
-                  </button>
+                  <p id="take-reason" className="take-reason">
+                    {takeBlockedBy && !transitionInProgress ? takeBlockedBy : ''}
+                  </p>
                 </div>
 
                 <div className="console-section console-section--outputs">
@@ -299,7 +331,8 @@ export function ControlRoomPage() {
                 <div className="hotkey-strip mono">
                   <Keyboard size={14} />
                   <span>SPACE = TAKE</span>
-                  <span>C = CLEAR</span>
+                  <span>HOLD C = CLEAR</span>
+                  {clearHint ? <span className="clear-hint">{clearHint}</span> : null}
                   {transitionInProgress ? <span className="transition-status">TAKE IN PROGRESS</span> : null}
                 </div>
                 <span className="visually-hidden" role="status" aria-live="polite">
@@ -311,8 +344,17 @@ export function ControlRoomPage() {
                 <header>
                   <span>Program</span>
                   <span className="monitor-tile__meta">
-                    <span className={`badge badge--mono ${onAir ? 'badge--air' : ''}`.trim()}>{onAir ? 'ON AIR' : 'CLEAR'}</span>
+                    <AirStatus className="air-status--compact" />
                     {renderCopyButton('program')}
+                    <button
+                      type="button"
+                      className={`btn btn--small clear-button ${clearArming ? 'clear-button--arming' : ''}`.trim()}
+                      onClick={clearProgram}
+                      disabled={!canClear}
+                      title="Take Program off air (or hold C)"
+                    >
+                      CLEAR
+                    </button>
                   </span>
                 </header>
                 <div className="monitor-fit">

@@ -188,6 +188,23 @@ describe('Milestone 13 operator click-path regressions', () => {
     await user.click(screen.getByRole('button', { name: 'Local' }))
     expect(usePlayoutStore.getState().transportMode).toBe('local')
 
+    // Plain-words status, and CLEAR sits on the Program monitor, not beside TAKE.
+    expect(screen.getAllByText('LIVE · ON AIR').length).toBeGreaterThan(0)
+    expect(container.querySelector('.take-group')?.textContent).not.toContain('CLEAR')
+
+    // A tap of C only explains; holding it clears.
+    fireEvent.keyDown(window, { key: 'c' })
+    fireEvent.keyUp(window, { key: 'c' })
+    expect(usePlayoutStore.getState().onAir).toBe(true)
+    expect(screen.getByText('Hold C to clear Program')).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'c' })
+    await act(() => new Promise((resolve) => setTimeout(resolve, 500)))
+    expect(usePlayoutStore.getState().onAir).toBe(false)
+    expect(screen.getAllByText('OFF AIR').length).toBeGreaterThan(0)
+    fireEvent.keyUp(window, { key: 'c' })
+
+    // The CLEAR button still works with one click.
+    await user.click(within(monitorsPanel as HTMLElement).getByRole('button', { name: 'TAKE' }))
     await user.click(within(monitorsPanel as HTMLElement).getByRole('button', { name: 'CLEAR' }))
     expect(usePlayoutStore.getState().onAir).toBe(false)
     expect(usePlayoutStore.getState().programScene.name).toBe('Clear')

@@ -69,6 +69,7 @@ import { getRoomId, rotateRoomId } from '../lib/outputUrls'
 import { makeFieldsOf } from '../lib/makeFields'
 import { matchSheet, readManualMapping, rowValues, withManualChoice, writeManualMapping } from '../lib/sheetMatching'
 import { installTransportSync, transportHooks } from './transportSync'
+import { takeBlocker } from './takeReadiness'
 import { normalizeSnapshot, readStoredSnapshot } from './snapshot'
 
 // Types other modules use alongside the store.
@@ -260,7 +261,7 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
     },
     take: () => {
       const state = get()
-      if (state.transitionInProgress) {
+      if (takeBlocker(state)) {
         return
       }
 

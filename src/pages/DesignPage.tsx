@@ -332,14 +332,15 @@ export function DesignPage() {
     setTransientStatus(`Distributed ${selectedLayers.length} layer(s).`, 1200)
   }
 
-  const handleSaveTemplate = () => {
-    // Your own templates save in place; a built-in is saved as a new copy, so it needs a name.
-    const requested =
-      activeTemplate && !activeTemplate.builtIn ? activeTemplate.label : window.prompt('Save as a new template', `${activeTemplate?.label ?? scene.name} copy`)
-    if (!requested) return
-    const savedId = savePreviewTemplate(requested)
+  /**
+   * Edits to your own templates already autosave; this marks a named restore point in History.
+   * Built-ins can't be changed, only saved as new.
+   */
+  const handleSaveVersion = () => {
+    if (!activeTemplate || activeTemplate.builtIn) return
+    const savedId = savePreviewTemplate(activeTemplate.label)
     if (!savedId) return setTransientStatus('Template name is required.')
-    setTransientStatus(`Saved ${requested.trim()}.`, 2200)
+    setTransientStatus(`Saved a version of ${activeTemplate.label} (see History).`, 2600)
   }
   const handleSaveAsNewTemplate = () => {
     const requested = window.prompt('Save as a new template', `${activeTemplate?.label ?? scene.name} copy`)
@@ -539,8 +540,17 @@ export function DesignPage() {
                 History
               </button>
               <button type="button" className="btn btn--small btn--ghost" onClick={handleNewTemplate}>New Template</button>
-              <button type="button" className="btn btn--small btn--accent" onClick={handleSaveTemplate}>Save Template</button>
-              <button type="button" className="btn btn--small btn--ghost" onClick={handleSaveAsNewTemplate}>Save As New</button>
+              <button type="button" className="btn btn--small btn--accent" onClick={handleSaveAsNewTemplate}>Save As New</button>
+              {activeTemplate && !activeTemplate.builtIn ? (
+                <button
+                  type="button"
+                  className="btn btn--small btn--ghost"
+                  onClick={handleSaveVersion}
+                  title="Changes already autosave. This adds a restore point to History."
+                >
+                  Save Version
+                </button>
+              ) : null}
               <button type="button" className="btn btn--small btn--ghost" onClick={handleExportPackage}>Export Package</button>
               <button type="button" className="btn btn--small btn--ghost" disabled={isExportingPng} onClick={() => void handleExportPng()} title={`Download a ${scene.width}×${scene.height} PNG of the canvas`}>
                 <ImageDown size={14} />

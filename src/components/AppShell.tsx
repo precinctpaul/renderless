@@ -4,6 +4,8 @@ import { ChevronDown, ExternalLink, RotateCcw } from 'lucide-react'
 import { buildOutputPath, withBasePath } from '../lib/outputUrls'
 import { usePlayoutStore } from '../store/playoutStore'
 import { LibraryControl } from './LibraryControl'
+import { AirStatus } from './AirStatus'
+import { takeBlocker } from '../store/takeReadiness'
 
 /** Studio: the template builder and OBS operator pages, kept out of the staffer's way. */
 const STUDIO_ITEMS = [
@@ -23,7 +25,7 @@ function formatTime(date: Date): string {
 }
 
 export function AppShell() {
-  const onAir = usePlayoutStore((state) => state.onAir)
+  const takeBlockedBy = usePlayoutStore(takeBlocker)
   const { pathname } = useLocation()
   const take = usePlayoutStore((state) => state.take)
   const resetDemo = usePlayoutStore((state) => state.resetDemo)
@@ -115,15 +117,21 @@ export function AppShell() {
           <LibraryControl />
           {inStudio ? (
             <>
-              <span className="badge badge--ready">READY</span>
-              <span className="badge badge--mono">PROGRAM {onAir ? 'LOCKED' : 'CLEAR'} | {clock}</span>
+              <AirStatus />
+              <span className="badge badge--mono">{clock}</span>
 
               <button type="button" className="btn btn--warning" onClick={resetDemo}>
                 <RotateCcw size={16} />
                 Reset Demo
               </button>
 
-              <button type="button" className="btn btn--take" onClick={take}>
+              <button
+                type="button"
+                className="btn btn--take"
+                onClick={take}
+                disabled={Boolean(takeBlockedBy)}
+                title={takeBlockedBy ?? 'Put Preview on air'}
+              >
                 TAKE
               </button>
             </>
