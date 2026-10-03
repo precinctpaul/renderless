@@ -111,9 +111,7 @@ function layerStyle(layer: SceneLayer): CSSProperties {
   }
 
   if (layer.kind === 'image') {
-    return {
-      ...baseStyle,
-    }
+    return layer.radius ? { ...baseStyle, borderRadius: layer.radius, overflow: 'hidden' } : baseStyle
   }
 
   const textStyle: CSSProperties = {

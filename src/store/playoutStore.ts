@@ -483,6 +483,8 @@ export const usePlayoutStore = create<PlayoutStore>((set, get) => {
           }
           const next = { ...layer, ...patch }
           if (!next.swappable) delete next.swappable
+          if (next.radius !== undefined) next.radius = Math.max(0, Number.isFinite(next.radius) ? next.radius : 0)
+          if (!next.radius) delete next.radius
           return next
         }),
       }))

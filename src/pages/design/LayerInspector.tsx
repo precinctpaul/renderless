@@ -339,6 +339,15 @@ export function LayerInspector({ selectedLayers, activeSelectedLayerIds, fontOpt
                         <option value="stretch">Stretch</option>
                       </select>
                     </label>
+                    <label>
+                      Corner radius
+                      <NumberField
+                        min={0}
+                        value={primarySelectedLayer.radius ?? 0}
+                        disabled={Boolean(primarySelectedLayer.locked)}
+                        onCommit={(radius) => updatePreviewImageStyle(primarySelectedLayer.id, { radius })}
+                      />
+                    </label>
                     <label className="inspector-check">
                       <input
                         type="checkbox"

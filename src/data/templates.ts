@@ -28,14 +28,36 @@ const rect = (id: string, name: string, x: number, y: number, width: number, hei
   ...extra,
 } as SceneLayer)
 
+/** A neutral head-and-shoulders placeholder; staffers replace it with a real photo in Make. */
+function photoPlaceholder(background: string, figure: string, width: number, height: number): string {
+  const size = Math.min(width, height)
+  const cx = width / 2
+  const head = size * 0.2
+  const headY = height * 0.4
+  const shoulderY = headY + head * 1.25
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<rect width="100%" height="100%" fill="${background}"/>` +
+    `<circle cx="${cx}" cy="${headY}" r="${head}" fill="${figure}"/>` +
+    `<path d="M${cx - size * 0.42} ${height}C${cx - size * 0.42} ${shoulderY + head * 0.2} ${cx - size * 0.2} ${shoulderY} ${cx} ${shoulderY}` +
+    `S${cx + size * 0.42} ${shoulderY + head * 0.2} ${cx + size * 0.42} ${height}Z" fill="${figure}"/></svg>`
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
+}
+
+const HEADSHOT_SIZE = 220
+const HEADSHOT_RING = 12
+
 /** Quote card with a broken frame and acid quote marks; `size` scales the vertical layout. */
 function quoteScene(id: string, name: string, height: number): SceneDefinition {
   const width = 1080
   const frameTop = Math.round(height * 0.13)
   const frameBottom = Math.round(height * 0.87)
-  // Quote + author sit as one group in the middle of the frame (tall formats get no dead gap).
-  const quoteHeight = Math.min(440, frameBottom - frameTop - 360)
-  const quoteTop = Math.round((frameTop + frameBottom) / 2 - (quoteHeight + 100) / 2)
+  // Headshot, quote and author sit as one group in the middle of the frame (tall formats get no dead gap).
+  const quoteHeight = Math.min(440, frameBottom - frameTop - 640)
+  const groupHeight = HEADSHOT_SIZE + 30 + quoteHeight + 100
+  const headshotTop = Math.round((frameTop + frameBottom) / 2 - groupHeight / 2)
+  const quoteTop = headshotTop + HEADSHOT_SIZE + 30
+  const headshotLeft = (width - HEADSHOT_SIZE) / 2
   return {
     id,
     name,
@@ -78,6 +100,31 @@ function quoteScene(id: string, name: string, height: number): SceneDefinition {
         fontSize: 260,
         fontFamily: RECOLETA,
         fontWeight: 700,
+        opacity: 1,
+        visible: true,
+      },
+      rect(
+        `${id}-headshot-ring`,
+        'Headshot Ring',
+        headshotLeft - HEADSHOT_RING,
+        headshotTop - HEADSHOT_RING,
+        HEADSHOT_SIZE + HEADSHOT_RING * 2,
+        HEADSHOT_SIZE + HEADSHOT_RING * 2,
+        ACID,
+        { radius: HEADSHOT_SIZE / 2 + HEADSHOT_RING } as Partial<SceneLayer>,
+      ),
+      {
+        id: `${id}-headshot`,
+        kind: 'image',
+        name: 'Headshot',
+        x: headshotLeft,
+        y: headshotTop,
+        width: HEADSHOT_SIZE,
+        height: HEADSHOT_SIZE,
+        src: photoPlaceholder(INK, '#4A6F99', HEADSHOT_SIZE, HEADSHOT_SIZE),
+        fit: 'cover',
+        radius: HEADSHOT_SIZE / 2,
+        swappable: true,
         opacity: 1,
         visible: true,
       },
@@ -175,20 +222,17 @@ const youtubeThumbnailScene: SceneDefinition = {
   height: 720,
   background: INK,
   layers: [
-    rect('shape-yt-photo', 'Photo Area', 700, 0, 580, 720, '#2A2A2A'),
     {
-      id: 'text-yt-photo-hint',
-      kind: 'text',
-      name: 'Photo Hint (delete me)',
-      x: 720,
-      y: 330,
-      width: 540,
-      height: 60,
-      text: 'Drag a photo from Assets here',
-      color: '#777777',
-      fontSize: 30,
-      fontFamily: RECOLETA,
-      fontWeight: 500,
+      id: 'image-yt-photo',
+      kind: 'image',
+      name: 'Photo',
+      x: 700,
+      y: 0,
+      width: 580,
+      height: 720,
+      src: photoPlaceholder('#2A2A2A', '#3A3A3A', 580, 720),
+      fit: 'cover',
+      swappable: true,
       opacity: 1,
       visible: true,
     },

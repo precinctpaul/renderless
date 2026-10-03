@@ -334,6 +334,7 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
 
   if (kind === 'image') {
     const src = asNonEmptyString(record.src)
+    const radius = asFiniteNumber(record.radius)
     const fitRaw = asNonEmptyString(record.fit)
     const fit =
       fitRaw === 'contain' || fitRaw === 'cover' || fitRaw === 'stretch'
@@ -349,6 +350,7 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       kind: 'image',
       src,
       fit,
+      ...(radius !== null && radius > 0 ? { radius } : {}),
       ...(record.swappable === true ? { swappable: true } : {}),
     }
   }

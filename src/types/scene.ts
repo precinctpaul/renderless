@@ -81,6 +81,8 @@ export interface ImageLayer extends BaseLayer {
   kind: 'image'
   src: string
   fit?: 'contain' | 'cover' | 'stretch'
+  /** Corner radius in px; half the size makes a circle (e.g. a round headshot). */
+  radius?: number
   /** Staffers may replace this image in Make (e.g. a headshot); the layout stays put. */
   swappable?: boolean
 }

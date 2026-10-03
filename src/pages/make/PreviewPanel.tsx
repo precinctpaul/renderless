@@ -21,7 +21,7 @@ function sameKeys(a: Set<string>, b: Set<string>) {
  * takes no clicks at all, so nothing here can select or move a layer.
  */
 export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
-  const { template, scene, story, fields, values } = make
+  const { template, scene, story, fields, values, imageSlots, swaps } = make
   const frameRef = useRef<HTMLDivElement>(null)
   const lastOverflow = useRef<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
@@ -79,6 +79,8 @@ export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
   }
 
   const sampleFields = fields.filter((field) => !values[field.key]?.trim())
+  const placeholderImages = imageSlots.filter((slot) => !swaps[slot.id])
+  const stillSample = [...sampleFields.map((field) => field.label), ...placeholderImages.map((slot) => slot.name)]
   const fileName = makeFileName(template, fields, values)
 
   const handleExport = async () => {
@@ -105,11 +107,7 @@ export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
       </div>
 
       <div className="make-export">
-        {sampleFields.length > 0 ? (
-          <p className="make-export__note">
-            Still sample text: {sampleFields.map((field) => field.label).join(', ')}
-          </p>
-        ) : null}
+        {stillSample.length > 0 ? <p className="make-export__note">Still showing the sample: {stillSample.join(', ')}</p> : null}
         <button type="button" className="btn btn--take make-export__button" onClick={handleExport} disabled={exporting}>
           <Download size={20} />
           {exporting ? 'Exporting…' : 'Export PNG'}

@@ -17,7 +17,7 @@ export type ProgramTemplateId = string
 
 export type ShapeStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'shape' }>, 'fill' | 'opacity'>>
 
-export type ImageStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'image' }>, 'fit' | 'swappable'>>
+export type ImageStylePatch = Partial<Pick<Extract<SceneDefinition['layers'][number], { kind: 'image' }>, 'fit' | 'swappable' | 'radius'>>
 
 export type TextStylePatch = Partial<
   Pick<
