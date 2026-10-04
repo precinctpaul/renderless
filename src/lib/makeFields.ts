@@ -186,9 +186,17 @@ function slug(text: string): string {
     .replace(/-+$/g, '')
 }
 
-/** `quote-card_jane-doe.png`: the template plus the first filled field. */
+/** `quote-card_jane-doe.png`: the template plus the speaker, name or headline (else the first filled field). */
 export function makeFileName(template: Pick<TemplateDefinition, 'label'>, fields: MakeField[], values: Record<string, string>): string {
-  const first = fields.map((field) => values[field.key]?.trim()).find(Boolean)
+  // Who or what the graphic is about names it best ("quote-card_smith.png"), then whatever comes first.
+  const preferred = [...fields].sort((a, b) => namePriority(a.key) - namePriority(b.key))
+  const first = preferred.map((field) => values[field.key]?.trim()).find(Boolean)
   const parts = [slug(template.label) || 'graphic', first ? slug(first) : ''].filter(Boolean)
   return `${parts.join('_')}.png`
+}
+
+const NAME_FIELDS = ['quote_author', 'name', 'headline']
+const namePriority = (key: string) => {
+  const index = NAME_FIELDS.indexOf(key)
+  return index === -1 ? NAME_FIELDS.length : index
 }

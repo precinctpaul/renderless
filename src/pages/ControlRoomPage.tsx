@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DataRowStepper } from '../components/DataRowStepper'
-import { Check, Copy, Keyboard, RefreshCw, Star } from 'lucide-react'
+import { Check, Copy, RefreshCw, Star } from 'lucide-react'
 import { SceneRenderer } from '../components/SceneRenderer'
 import { ProgramTransitionSurface } from '../components/ProgramTransitionSurface'
 import { buildDefaultTransportWsUrl, buildOutputUrl } from '../lib/outputUrls'
@@ -11,14 +11,17 @@ import { StudioLookPicker } from '../components/StudioLookPicker'
 import { CheckerToggle } from '../components/CheckerToggle'
 import { useChecker } from '../lib/checkerPreference'
 import { AirStatus } from '../components/AirStatus'
+import { ConsoleDrawer } from '../components/ConsoleDrawer'
+import { smartTemplate } from '../data/templates'
+import { brandStyle } from '../data/brandStyles'
 
 /** How long C must be held to clear Program, so a stray keypress can't take a graphic off air. */
 const CLEAR_HOLD_MS = 400
 
 const TRANSITIONS: Array<{ id: TransitionType; label: string }> = [
-  { id: 'cut', label: 'CUT' },
-  { id: 'fade', label: 'FADE' },
-  { id: 'lumaWipe', label: 'LUMA WIPE' },
+  { id: 'cut', label: 'Cut' },
+  { id: 'fade', label: 'Fade' },
+  { id: 'lumaWipe', label: 'Luma wipe' },
 ]
 
 async function copyToClipboard(value: string): Promise<boolean> {
@@ -58,6 +61,15 @@ export function ControlRoomPage() {
   const [confirmingNewRoom, setConfirmingNewRoom] = useState(false)
   const takeBlockedBy = usePlayoutStore(takeBlocker)
   const checker = useChecker()
+  const studioStyle = usePlayoutStore((state) => state.studioStyle)
+  const studioLayouts = usePlayoutStore((state) => state.studioLayouts)
+  const previewIsBuiltIn = templates.find((template) => template.id === previewTemplateId)?.builtIn ?? false
+  const previewLayouts = previewIsBuiltIn ? (smartTemplate(previewTemplateId)?.layouts ?? []) : []
+  const lookSummary = previewIsBuiltIn
+    ? [brandStyle(studioStyle).name, previewLayouts.find((layout) => layout.id === (studioLayouts[previewTemplateId] ?? previewLayouts[0]?.id))?.label]
+        .filter(Boolean)
+        .join(' · ')
+    : 'Custom template'
   // Your unpublished draft is in Preview (from Design): offer the team's version instead. The draft is kept.
   const previewIsDraft = usePlayoutStore(previewHasUnpublishedEdits)
   const [clearArming, setClearArming] = useState(false)
@@ -105,6 +117,32 @@ export function ControlRoomPage() {
     return prioritized.slice(0, 6)
   }, [templates])
 
+  // CLEAR takes Program off air only after a short hold (C key or the button), so a slip can't.
+  const startClearHold = () => {
+    if (!canClear || clearTimer.current !== null) return
+    setClearArming(true)
+    setClearHint('')
+    clearTimer.current = window.setTimeout(() => {
+      clearTimer.current = null
+      setClearArming(false)
+      clearProgram()
+    }, CLEAR_HOLD_MS)
+  }
+  const cancelClearHold = (hint?: string) => {
+    if (clearTimer.current === null) return
+    window.clearTimeout(clearTimer.current)
+    clearTimer.current = null
+    setClearArming(false)
+    if (hint) {
+      setClearHint(hint)
+      window.setTimeout(() => setClearHint(''), 2000)
+    }
+  }
+  const clearHold = useRef({ start: startClearHold, cancel: cancelClearHold })
+  useEffect(() => {
+    clearHold.current = { start: startClearHold, cancel: cancelClearHold }
+  })
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const activeTag = (document.activeElement as HTMLElement | null)?.tagName
@@ -118,25 +156,13 @@ export function ControlRoomPage() {
       }
 
       // CLEAR needs C held down; a tap only explains that.
-      if ((event.key === 'c' || event.key === 'C') && !event.repeat && canClear && clearTimer.current === null) {
+      if ((event.key === 'c' || event.key === 'C') && !event.repeat) {
         event.preventDefault()
-        setClearArming(true)
-        setClearHint('')
-        clearTimer.current = window.setTimeout(() => {
-          clearTimer.current = null
-          setClearArming(false)
-          clearProgram()
-        }, CLEAR_HOLD_MS)
+        clearHold.current.start()
       }
     }
     const onKeyUp = (event: KeyboardEvent) => {
-      if ((event.key === 'c' || event.key === 'C') && clearTimer.current !== null) {
-        window.clearTimeout(clearTimer.current)
-        clearTimer.current = null
-        setClearArming(false)
-        setClearHint('Hold C to clear Program')
-        window.setTimeout(() => setClearHint(''), 2000)
-      }
+      if (event.key === 'c' || event.key === 'C') clearHold.current.cancel('Hold C to clear Program')
     }
 
     window.addEventListener('keydown', onKeyDown)
@@ -151,7 +177,7 @@ export function ControlRoomPage() {
         setClearArming(false)
       }
     }
-  }, [clearProgram, take, canClear])
+  }, [take])
 
   const copyFeedUrl = async (follow: 'preview' | 'program') => {
     // Only touch transport settings when they change, so copying never forces a reconnect.
@@ -256,44 +282,41 @@ export function ControlRoomPage() {
                     />
                   </div>
                 </div>
+                <ConsoleDrawer title="Look" summary={lookSummary} storageKey="look">
+                  <StudioLookPicker />
+                </ConsoleDrawer>
               </article>
 
-              <div className="transition-console">
-                <div className="console-section">
-                  <div className="panel-title">Look</div>
-                  <StudioLookPicker />
-                </div>
-
-                <div className="console-section">
-                  <div className="panel-title">Transitions</div>
-                  <div className="transition-group">
+              <div className="transition-console" aria-label="Take controls">
+                <label className="console-field">
+                  <span className="console-field__label">Transition</span>
+                  <select
+                    value={transitionType}
+                    onChange={(event) => setTransition(event.target.value as TransitionType)}
+                    disabled={transitionInProgress}
+                  >
                     {TRANSITIONS.map((transition) => (
-                      <button
-                        key={transition.id}
-                        type="button"
-                        className={`btn btn--small ${transitionType === transition.id ? 'btn--accent-soft' : 'btn--ghost'}`.trim()}
-                        aria-pressed={transitionType === transition.id}
-                        onClick={() => setTransition(transition.id)}
-                        disabled={transitionInProgress}
-                      >
+                      <option key={transition.id} value={transition.id}>
                         {transition.label}
-                      </button>
+                      </option>
                     ))}
-                  </div>
+                  </select>
+                </label>
 
-                  <label className="range-wrap mono">
-                    TRANSITION {transitionDurationMs}ms
-                    <input
-                      type="range"
-                      min={0}
-                      max={1000}
-                      step={50}
-                      value={transitionDurationMs}
-                      onChange={(event) => setTransitionDuration(Number(event.target.value))}
-                      disabled={transitionInProgress}
-                    />
-                  </label>
-                </div>
+                <label className="console-field">
+                  <span className="console-field__label">
+                    Duration <span className="mono">{transitionDurationMs} ms</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1000}
+                    step={50}
+                    value={transitionDurationMs}
+                    onChange={(event) => setTransitionDuration(Number(event.target.value))}
+                    disabled={transitionInProgress || transitionType === 'cut'}
+                  />
+                </label>
 
                 <div className="take-group">
                   <button
@@ -302,8 +325,10 @@ export function ControlRoomPage() {
                     onClick={take}
                     disabled={Boolean(takeBlockedBy)}
                     aria-describedby="take-reason"
+                    aria-keyshortcuts="Space"
                   >
-                    {transitionInProgress ? 'TAKING...' : 'TAKE'}
+                    <span>{transitionInProgress ? 'TAKING...' : 'TAKE'}</span>
+                    <kbd className="console-kbd" aria-hidden="true">Space</kbd>
                   </button>
                   <p id="take-reason" className="take-reason">
                     {takeBlockedBy && !transitionInProgress ? takeBlockedBy : ''}
@@ -315,8 +340,62 @@ export function ControlRoomPage() {
                   ) : null}
                 </div>
 
-                <div className="console-section console-section--outputs">
-                  <div className="panel-title">Output Transport</div>
+                <div className="clear-group">
+                  <button
+                    type="button"
+                    className={`btn btn--wide clear-button ${clearArming ? 'clear-button--arming' : ''}`.trim()}
+                    disabled={!canClear}
+                    aria-describedby="clear-help"
+                    aria-keyshortcuts="C"
+                    onPointerDown={(event) => {
+                      if (event.button === 0) startClearHold()
+                    }}
+                    onPointerUp={() => cancelClearHold('Hold to clear Program')}
+                    onPointerLeave={() => cancelClearHold()}
+                    onPointerCancel={() => cancelClearHold()}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.repeat) startClearHold()
+                    }}
+                    onKeyUp={(event) => {
+                      if (event.key === 'Enter') cancelClearHold('Hold to clear Program')
+                    }}
+                  >
+                    <span>CLEAR</span>
+                    <kbd className="console-kbd" aria-hidden="true">Hold C</kbd>
+                  </button>
+                  <p id="clear-help" className="take-reason">
+                    {clearHint || (canClear ? 'Press and hold to take Program off air.' : 'Nothing on air.')}
+                  </p>
+                </div>
+
+                {transitionInProgress ? <p className="transition-status mono">TAKE IN PROGRESS</p> : null}
+                <span className="visually-hidden" role="status" aria-live="polite">
+                  {copyLabel}
+                </span>
+              </div>
+
+              <article className="monitor-tile monitor-tile--program">
+                <header>
+                  <span>Program</span>
+                  <span className="monitor-tile__meta">
+                    <AirStatus className="air-status--compact" />
+                    <CheckerToggle iconOnly />
+                    {renderCopyButton('program')}
+                  </span>
+                </header>
+                <div className="monitor-fit">
+                  <div className={`monitor-surface ${checker ? 'monitor-surface--checker' : ''}`.trim()}>
+                    <ProgramTransitionSurface
+                      scene={programScene}
+                      story={story}
+                      transition={programTransition}
+                      showActionSafe
+                      showTitleSafe
+                      showCanvasBounds
+                    />
+                  </div>
+                </div>
+                <ConsoleDrawer title="Outputs" storageKey="outputs">
                   <div className="story-actions">
                     <button
                       type="button"
@@ -347,50 +426,7 @@ export function ControlRoomPage() {
                     <RefreshCw size={14} />
                     <span>{confirmingNewRoom ? (onAir ? 'On air: click to confirm' : 'Click to confirm') : 'New room'}</span>
                   </button>
-                </div>
-
-                <div className="hotkey-strip mono">
-                  <Keyboard size={14} />
-                  <span>SPACE = TAKE</span>
-                  <span>HOLD C = CLEAR</span>
-                  {clearHint ? <span className="clear-hint">{clearHint}</span> : null}
-                  {transitionInProgress ? <span className="transition-status">TAKE IN PROGRESS</span> : null}
-                </div>
-                <span className="visually-hidden" role="status" aria-live="polite">
-                  {copyLabel}
-                </span>
-              </div>
-
-              <article className="monitor-tile monitor-tile--program">
-                <header>
-                  <span>Program</span>
-                  <span className="monitor-tile__meta">
-                    <AirStatus className="air-status--compact" />
-                    <CheckerToggle iconOnly />
-                    {renderCopyButton('program')}
-                    <button
-                      type="button"
-                      className={`btn btn--small clear-button ${clearArming ? 'clear-button--arming' : ''}`.trim()}
-                      onClick={clearProgram}
-                      disabled={!canClear}
-                      title="Take Program off air (or hold C)"
-                    >
-                      CLEAR
-                    </button>
-                  </span>
-                </header>
-                <div className="monitor-fit">
-                  <div className={`monitor-surface ${checker ? 'monitor-surface--checker' : ''}`.trim()}>
-                    <ProgramTransitionSurface
-                      scene={programScene}
-                      story={story}
-                      transition={programTransition}
-                      showActionSafe
-                      showTitleSafe
-                      showCanvasBounds
-                    />
-                  </div>
-                </div>
+                </ConsoleDrawer>
               </article>
             </section>
 

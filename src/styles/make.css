@@ -1111,3 +1111,57 @@
   font-size: 12px;
   color: var(--red-text);
 }
+
+/* ---------- Batch export ---------- */
+.make-export__single {
+  align-self: center;
+}
+
+.make-batch-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--amber);
+}
+
+.make-batch-warning svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.make-batch-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--zinc-200);
+  background: var(--bg-field);
+  color: var(--milk);
+  font-size: 15px;
+}
+
+.make-batch-progress__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.make-batch-progress progress {
+  width: 100%;
+  height: 10px;
+  accent-color: var(--acid);
+}
+
+.make-done__problems {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--amber);
+}
+
+.make-export__plural {
+  text-transform: none;
+}

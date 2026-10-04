@@ -43,11 +43,11 @@ describe('Milestone 13 operator click-path regressions', () => {
     expect(screen.queryByRole('link', { name: 'Design' })).toBeNull()
     await user.click(screen.getByRole('button', { name: /^Studio/ }))
     await user.click(screen.getByRole('link', { name: 'Design' }))
-    // No live trigger while designing: the header TAKE is only on Control Room and Data.
-    expect(screen.queryByRole('button', { name: 'TAKE' })).toBeNull()
+    // No live trigger while designing or editing data: the header TAKE is only in the Control Room.
+    expect(screen.queryByRole('button', { name: /TAKE/ })).toBeNull()
     await user.click(screen.getByRole('button', { name: /^Studio/ }))
     await user.click(screen.getByRole('link', { name: 'Data' }))
-    expect(screen.getByRole('button', { name: 'TAKE' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /TAKE/ })).toBeNull()
   })
 
   test('dashboard mode/filter/load interactions are all live', async () => {
@@ -187,14 +187,18 @@ describe('Milestone 13 operator click-path regressions', () => {
     await user.click(screen.getByRole('button', { name: 'Copy Program URL' }))
     expect(screen.getByText(/PROGRAM URL copied|Clipboard unavailable/)).toBeTruthy()
 
+    // Output settings sit in a collapsible panel under Program.
+    await user.click(screen.getByRole('button', { name: 'Outputs' }))
     await user.click(screen.getByRole('button', { name: 'WebSocket' }))
     expect(usePlayoutStore.getState().transportMode).toBe('ws')
     await user.click(screen.getByRole('button', { name: 'Local' }))
     expect(usePlayoutStore.getState().transportMode).toBe('local')
 
-    // Plain-words status, and CLEAR sits on the Program monitor, not beside TAKE.
+    // Plain-words status; TAKE and CLEAR both live in the center console, in separate groups.
     expect(screen.getAllByText('LIVE · ON AIR').length).toBeGreaterThan(0)
     expect(container.querySelector('.take-group')?.textContent).not.toContain('CLEAR')
+    expect(container.querySelector('.transition-console .clear-group .clear-button')).toBeTruthy()
+    expect(container.querySelector('.monitor-tile--program .clear-button')).toBeNull()
 
     // A tap of C only explains; holding it clears.
     fireEvent.keyDown(window, { key: 'c' })
@@ -207,9 +211,15 @@ describe('Milestone 13 operator click-path regressions', () => {
     expect(screen.getAllByText('OFF AIR').length).toBeGreaterThan(0)
     fireEvent.keyUp(window, { key: 'c' })
 
-    // The CLEAR button still works with one click.
+    // The CLEAR button needs a short hold too: a click only explains.
     await user.click(within(monitorsPanel as HTMLElement).getByRole('button', { name: 'TAKE' }))
-    await user.click(within(monitorsPanel as HTMLElement).getByRole('button', { name: 'CLEAR' }))
+    const clearButton = within(monitorsPanel as HTMLElement).getByRole('button', { name: 'CLEAR' })
+    await user.click(clearButton)
+    expect(usePlayoutStore.getState().onAir).toBe(true)
+    expect(screen.getByText('Hold to clear Program')).toBeTruthy()
+    fireEvent.pointerDown(clearButton, { button: 0 })
+    await act(() => new Promise((resolve) => setTimeout(resolve, 500)))
+    fireEvent.pointerUp(clearButton)
     expect(usePlayoutStore.getState().onAir).toBe(false)
     expect(usePlayoutStore.getState().programScene.name).toBe('Clear')
   })

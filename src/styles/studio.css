@@ -223,3 +223,120 @@
     display: none;
   }
 }
+
+/* ---------- Control Room: execution lane + monitor drawers ---------- */
+.transition-console {
+  gap: 16px;
+}
+
+.console-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.console-field__label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--zinc-200);
+}
+
+.console-field select {
+  min-height: 40px;
+  font-size: 15px;
+}
+
+.console-field input[type='range'] {
+  width: 100%;
+  accent-color: var(--acid);
+}
+
+.transition-console .btn--take {
+  min-height: 96px;
+  font-size: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.console-kbd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+/* CLEAR: a red-outline secondary action, kept apart from TAKE, needing a short hold. */
+.clear-group {
+  margin-top: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.clear-group .clear-button {
+  min-height: 52px;
+  border-width: 2px;
+  font-size: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  touch-action: none;
+  user-select: none;
+}
+
+.transition-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.console-drawer {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}
+
+.console-drawer__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: var(--milk);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
+}
+
+.console-drawer__summary {
+  margin-left: auto;
+  color: var(--zinc-200);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+
+.console-drawer__body {
+  padding: 8px 0 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

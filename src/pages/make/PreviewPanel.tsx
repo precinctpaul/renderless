@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Download, X } from 'lucide-react'
+import { AlertTriangle, Archive, CheckCircle2, Download, X } from 'lucide-react'
+import { BATCH_SOFT_LIMIT, planBatch, renderBatchZip } from '../../lib/batchExport'
 import { CheckerToggle } from '../../components/CheckerToggle'
 import { useChecker } from '../../lib/checkerPreference'
 import { SceneRenderer } from '../../components/SceneRenderer'
@@ -24,14 +25,17 @@ function sameKeys(a: Set<string>, b: Set<string>) {
  * takes no clicks at all, so nothing here can select or move a layer.
  */
 export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
-  const { template, baseScene, scene, story, fields, values, imageSlots, swaps, toggles, clearValues } = make
+  const { template, baseScene, scene, story, fields, values, imageSlots, swaps, toggles, clearValues, sheet, match } = make
   const frameRef = useRef<HTMLDivElement>(null)
   const lastOverflow = useRef<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
   const checker = useChecker()
   const [status, setStatus] = useState('')
   // The export just made, until the graphic changes (then the confirmation goes away by itself).
-  const [done, setDone] = useState<{ scene: unknown; fileName: string } | null>(null)
+  const [done, setDone] = useState<{ scene: unknown; fileName: string; count?: number; problems?: string[] } | null>(null)
+  // Batch export: one graphic per spreadsheet row, packed into a ZIP.
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null)
+  const batchCancelled = useRef(false)
 
   // After each render (and once fonts load), find fields whose text spills out of its box,
   // or whose boxed text runs off the canvas.
@@ -92,6 +96,41 @@ export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
   const stillSample = [...sampleFields.map((field) => field.label), ...placeholderImages.map((slot) => slot.name)]
   const fileName = makeFileName(template, fields, values)
 
+  const batchCount = sheet && match && sheet.rows.length > 1 ? sheet.rows.length : 0
+
+  const handleBatchExport = async () => {
+    if (!sheet || !match) return
+    if (
+      batchCount > BATCH_SOFT_LIMIT &&
+      !window.confirm(
+        `Export all ${batchCount} graphics? Big batches can slow down or crash the browser. Splitting the sheet into batches of ${BATCH_SOFT_LIMIT} or fewer is safer.`,
+      )
+    )
+      return
+    const items = planBatch({ template, scene, fields, values, sheet, mapping: match.mapping })
+    batchCancelled.current = false
+    setStatus('')
+    setDone(null)
+    setBatchProgress({ done: 0, total: items.length })
+    try {
+      const zip = await renderBatchZip(items, renderScenePng, (count) => setBatchProgress({ done: count, total: items.length }), () => batchCancelled.current)
+      if (!zip) {
+        setStatus('Batch export cancelled. Nothing was saved.')
+        return
+      }
+      const zipName = `${fileName.split('_')[0].replace(/\.png$/, '')}_${items.length}-graphics.zip`
+      const url = URL.createObjectURL(zip)
+      downloadDataUrl(url, zipName)
+      window.setTimeout(() => URL.revokeObjectURL(url), 10_000)
+      const problems = items.filter((item) => item.problems.length > 0).map((item) => `Row ${item.row}: ${item.problems.join(', ')}`)
+      setDone({ scene, fileName: zipName, count: items.length, problems })
+    } catch (error) {
+      setStatus(`Batch export failed: ${error instanceof Error ? error.message : 'unknown error'}`)
+    } finally {
+      setBatchProgress(null)
+    }
+  }
+
   const handleExport = async () => {
     setExporting(true)
     setStatus('')
@@ -121,17 +160,56 @@ export function PreviewPanel({ make, onOverflowChange }: PreviewPanelProps) {
 
       <div className="make-export">
         {stillSample.length > 0 ? <p className="make-export__note">Still showing the sample: {stillSample.join(', ')}</p> : null}
-        <button type="button" className="btn btn--take make-export__button" onClick={handleExport} disabled={exporting}>
-          <Download size={20} />
-          {exporting ? 'Exporting…' : 'Export PNG'}
-        </button>
+        {batchProgress ? (
+          <div className="make-batch-progress">
+            <div className="make-batch-progress__row">
+              <span>
+                Exporting {batchProgress.done} of {batchProgress.total}…
+              </span>
+              <button type="button" className="btn btn--small btn--ghost" onClick={() => (batchCancelled.current = true)}>
+                Cancel
+              </button>
+            </div>
+            <progress max={batchProgress.total} value={batchProgress.done} aria-label="Batch export progress" />
+          </div>
+        ) : batchCount > 0 ? (
+          <>
+            {batchCount > BATCH_SOFT_LIMIT ? (
+              <p className="make-batch-warning">
+                <AlertTriangle size={13} aria-hidden="true" />
+                {batchCount} graphics is a big batch and may be slow. Batches of {BATCH_SOFT_LIMIT} or fewer are safer.
+              </p>
+            ) : null}
+            <button type="button" className="btn btn--take make-export__button" onClick={handleBatchExport}>
+              <Archive size={20} />
+              <span>
+                Batch export ({batchCount}) PNG<span className="make-export__plural">s</span>
+              </span>
+            </button>
+            <button type="button" className="btn btn--small btn--ghost make-export__single" onClick={handleExport} disabled={exporting}>
+              <Download size={14} />
+              {exporting ? 'Exporting…' : 'Export only this row'}
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn btn--take make-export__button" onClick={handleExport} disabled={exporting}>
+            <Download size={20} />
+            {exporting ? 'Exporting…' : 'Export PNG'}
+          </button>
+        )}
         <div role="status" aria-live="polite">
           {done && done.scene === scene ? (
             <div className="make-done">
               <CheckCircle2 size={20} aria-hidden="true" className="make-done__icon" />
               <div className="make-done__text">
-                <strong>Exported</strong>
+                <strong>{done.count ? `Exported ${done.count} graphics` : 'Exported'}</strong>
                 <span className="mono">{done.fileName}</span>
+                {done.problems && done.problems.length > 0 ? (
+                  <span className="make-done__problems">
+                    Check {done.problems.length === 1 ? 'this row' : `these ${done.problems.length} rows`}: {done.problems.slice(0, 4).join('; ')}
+                    {done.problems.length > 4 ? '; …' : ''}
+                  </span>
+                ) : null}
               </div>
               <button
                 type="button"

@@ -58,6 +58,11 @@ describe('canvasShapeOf / makeFileName', () => {
     expect(makeFileName({ label: 'Quote Card' }, fields, { name: '  Jané Doe! ' })).toBe('quote-card_jane-doe.png')
     expect(makeFileName({ label: 'Quote Card' }, fields, { title: 'Senator' })).toBe('quote-card_senator.png')
     expect(makeFileName({ label: '' }, fields, {})).toBe('graphic.png')
+
+    // A quote card is named after its speaker, not its quote.
+    const quoteFields = makeFieldsOf(scene([text('q', 'quote', 0, 300), text('a', 'quote_author', 400)]))
+    expect(makeFileName({ label: 'Quote Card' }, quoteFields, { quote: 'Long words here', quote_author: 'Smith' })).toBe('quote-card_smith.png')
+    expect(makeFileName({ label: 'Quote Card' }, quoteFields, { quote: 'Long words here' })).toBe('quote-card_long-words-here.png')
   })
 })
 

@@ -220,20 +220,6 @@
   white-space: nowrap;
 }
 
-.hotkey-strip {
-  flex: none;
-  min-height: 30px;
-  border: 1px solid var(--zinc-800);
-  border-radius: 0;
-  padding: 6px 10px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  color: var(--muted);
-  font-size: 12px;
-  letter-spacing: 0.03em;
-}
 
 .control-bins {
   display: grid;
@@ -336,14 +322,20 @@
     order: 3;
     flex: 1 1 100%;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
     align-items: start;
     overflow: visible;
   }
 
-  .hotkey-strip {
-    grid-column: 1 / -1;
+  /* In one row, CLEAR is set apart by a rule on its left instead of above. */
+  .transition-console .clear-group {
+    margin-top: 0;
+    padding-top: 0;
+    padding-left: 16px;
+    border-top: none;
+    border-left: 1px solid var(--border);
   }
+
 }
 
 /* Narrow space: single column, Program first. */
