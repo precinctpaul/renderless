@@ -1,23 +1,14 @@
-import { useRef } from 'react'
-import { AlertTriangle, ImageUp, RotateCcw } from 'lucide-react'
+import { AlertTriangle, RotateCcw } from 'lucide-react'
 import { SheetSection } from './SheetSection'
 import type { MakeState } from './useMake'
 import { fieldToggleKey, isToggleOn } from '../../lib/makeFields'
 import { LookPicker } from '../../components/LookPicker'
+import { PhotoSlot } from './PhotoSlot'
 
 interface FillPanelProps {
   make: MakeState
   /** Fields whose text no longer fits its box on the canvas. */
   overflowKeys: Set<string>
-}
-
-function readAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
 }
 
 /** One on/off control for everything a staffer can leave out (optional text, photos). */
@@ -44,8 +35,7 @@ function OnOffSwitch({ label, on, onChange }: { label: string; on: boolean; onCh
  * the only thing that moves the layout (the rest closes the gap); the template never changes.
  */
 export function FillPanel({ make, overflowKeys }: FillPanelProps) {
-  const { template, baseScene, fields, values, imageSlots, swaps, toggles, libraryImages, setValue, clearValues, swapImage, setToggle } = make
-  const fileInputs = useRef<Record<string, HTMLInputElement | null>>({})
+  const { template, baseScene, fields, values, imageSlots, swaps, toggles, setValue, clearValues, setToggle } = make
   const hasContent =
     Object.values(values).some((value) => value.trim()) || Object.keys(swaps).length > 0 || Object.keys(toggles).length > 0
 
@@ -122,7 +112,6 @@ export function FillPanel({ make, overflowKeys }: FillPanelProps) {
       })}
 
       {imageSlots.map((slot) => {
-        const current = swaps[slot.id] ?? slot.src
         const on = isToggleOn(baseScene ?? template.scene, toggles, slot.id)
         return (
           <div key={slot.id} className="make-image">
@@ -130,58 +119,12 @@ export function FillPanel({ make, overflowKeys }: FillPanelProps) {
               <div className="make-field__label">{slot.name}</div>
               <OnOffSwitch label={slot.name} on={on} onChange={(next) => setToggle(slot.id, next)} />
             </div>
-            {!on ? (
-              <p className="make-off-note">Off. Turn it on to add a {slot.name.toLowerCase()}.</p>
-            ) : (
-              <div className="make-image__row">
-                <img className="make-image__thumb" src={current} alt="" />
-                <div className="make-image__actions">
-                  <input
-                    ref={(node) => {
-                      fileInputs.current[slot.id] = node
-                    }}
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={async (event) => {
-                      const file = event.target.files?.[0]
-                      event.target.value = ''
-                      if (file) swapImage(slot.id, await readAsDataUrl(file))
-                    }}
-                  />
-                  <button type="button" className="btn btn--small" onClick={() => fileInputs.current[slot.id]?.click()}>
-                    <ImageUp size={14} />
-                    Upload photo
-                  </button>
-                  {libraryImages.length > 0 ? (
-                    <select
-                      className="make-image__library"
-                      aria-label={`Choose ${slot.name} from the team library`}
-                      value=""
-                      onChange={(event) => {
-                        const entry = libraryImages.find((image) => image.id === event.target.value)
-                        if (entry) swapImage(slot.id, entry.dataUrl)
-                      }}
-                    >
-                      <option value="">From library…</option>
-                      {libraryImages.map((image) => (
-                        <option key={image.id} value={image.id}>
-                          {image.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : null}
-                  {swaps[slot.id] ? (
-                    <button type="button" className="btn btn--small btn--ghost" onClick={() => swapImage(slot.id, null)}>
-                      Use original
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            )}
+            {on ? <PhotoSlot make={make} slot={slot} /> : <p className="make-off-note">Off. Turn it on to add a {slot.name.toLowerCase()}.</p>}
           </div>
         )
       })}
+      {make.photoError ? <p className="make-photo-error">{make.photoError}</p> : null}
+
       <div className="make-look">
         <div className="make-look__title">Look</div>
         <LookPicker

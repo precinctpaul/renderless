@@ -4,6 +4,7 @@ import { useElementSize } from '../hooks/useElementSize'
 import type { ImageLayer, SceneDefinition, SceneLayer, StoryState, TextLayer } from '../types/scene'
 import { layoutScene, resolvedText } from '../lib/sceneLayout'
 import { clearMeasureCache } from '../lib/textMeasure'
+import { framingImageStyle } from '../lib/imageFraming'
 import { resolveAnchor } from '../lib/layerAnchor'
 import { collectSnapTargets, computeSmartSnap, type SnapTargets } from '../lib/smartSnap'
 
@@ -122,7 +123,9 @@ function layerStyle(layer: SceneLayer): CSSProperties {
   }
 
   if (layer.kind === 'image') {
-    const clipped = layer.radius ? { ...baseStyle, borderRadius: layer.radius, overflow: 'hidden' as const } : baseStyle
+    // A zoomed (framed) photo is clipped to its slot like a rounded one.
+    const clipped =
+      layer.radius || layer.framing ? { ...baseStyle, borderRadius: layer.radius, overflow: 'hidden' as const } : baseStyle
     return clipped
   }
 
@@ -214,7 +217,10 @@ function renderImageContent(layer: ImageLayer) {
         alt={layer.name}
         draggable={false}
         className={`scene-renderer__image scene-renderer__image--${layer.fit ?? 'contain'}`.trim()}
-        style={tone ? { filter: `url(#${filterId})` } : undefined}
+        style={{
+          ...(tone ? { filter: `url(#${filterId})` } : {}),
+          ...(layer.framing && (layer.fit ?? 'contain') === 'cover' ? framingImageStyle(layer.framing, layer.width, layer.height) : {}),
+        }}
       />
     </>
   )

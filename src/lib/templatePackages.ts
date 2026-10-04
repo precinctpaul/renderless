@@ -1,6 +1,7 @@
 import {
   LAYER_BLEND_MODES,
   type DataBindingKey,
+  type ImageFraming,
   type LayerBlendMode,
   type SceneDefinition,
   type SceneLayer,
@@ -358,6 +359,7 @@ function parseLayer(rawLayer: unknown): SceneLayer | null {
       ...(radius !== null && radius > 0 ? { radius } : {}),
       ...(record.swappable === true ? { swappable: true } : {}),
       ...parseTone(record.tone),
+      ...parseFraming(record.framing),
     }
   }
 
@@ -371,6 +373,15 @@ function parseTextFit(raw: unknown): { fit?: TextFit } {
   const minFontSize = record ? asFiniteNumber(record.minFontSize) : null
   if (maxLines === null || minFontSize === null) return {}
   return { fit: { maxLines: Math.min(Math.max(Math.round(maxLines), 1), 20), minFontSize: Math.max(8, Math.round(minFontSize)) } }
+}
+
+function parseFraming(raw: unknown): { framing?: ImageFraming } {
+  const record = asRecord(raw)
+  if (!record) return {}
+  const [x, y, zoom, imageWidth, imageHeight] = ['x', 'y', 'zoom', 'imageWidth', 'imageHeight'].map((key) => asFiniteNumber(record[key]))
+  if (x === null || y === null || zoom === null || imageWidth === null || imageHeight === null || imageWidth <= 0 || imageHeight <= 0) return {}
+  const unit = (value: number) => Math.min(Math.max(value, 0), 1)
+  return { framing: { x: unit(x), y: unit(y), zoom: Math.min(Math.max(zoom, 1), 4), imageWidth, imageHeight } }
 }
 
 function parseTone(raw: unknown): { tone?: { dark: string; light: string } } {

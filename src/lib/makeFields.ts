@@ -1,5 +1,5 @@
 import { STORY_FIELD_DEFS, labelFromKey } from '../data/storySchema'
-import type { ImageLayer, SceneDefinition, SceneLayer, TemplateDefinition, TextLayer } from '../types/scene'
+import type { ImageFraming, ImageLayer, SceneDefinition, SceneLayer, TemplateDefinition, TextLayer } from '../types/scene'
 
 /** A fill-in field in Make: one per data field the template's text layers use. */
 export interface MakeField {
@@ -156,6 +156,15 @@ export function withVisibility(scene: SceneDefinition, toggles: Record<string, b
     }
   }
   return changed ? { ...scene, layers } : scene
+}
+
+/** The scene with framing (subject point + zoom) on replaced cover photos. */
+export function withImageFraming(scene: SceneDefinition, framing: Record<string, ImageFraming>): SceneDefinition {
+  if (Object.keys(framing).length === 0) return scene
+  return {
+    ...scene,
+    layers: scene.layers.map((layer) => (layer.kind === 'image' && layer.swappable && framing[layer.id] ? { ...layer, framing: framing[layer.id] } : layer)),
+  }
 }
 
 /** Feed (square and 4:5), story (9:16) or wide (16:9). */

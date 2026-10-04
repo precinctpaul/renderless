@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePlayoutStore } from '../../store/playoutStore'
 import {
   FONT_STORAGE_KEY,
@@ -9,12 +9,13 @@ import {
   registerFontEntries,
   type MediaLibraryEntry,
 } from '../../lib/mediaLibrary'
-import { makeFieldsOf, swappableImagesOf, withImageSwaps, withVisibility } from '../../lib/makeFields'
+import { makeFieldsOf, swappableImagesOf, withImageFraming, withImageSwaps, withVisibility } from '../../lib/makeFields'
+import { imageSize, preparePhoto, savePhotoToLibrary } from '../../lib/photoUpload'
 import { buildSmartScene, smartTemplate } from '../../data/templates'
 import { DEFAULT_STYLE_ID, isStyleId, type StyleId } from '../../data/brandStyles'
 import type { DataSheet } from '../../lib/dataSheet'
 import { matchSheet, readManualMapping, rowValues, withManualChoice, writeManualMapping, type ManualMapping } from '../../lib/sheetMatching'
-import type { StoryState } from '../../types/scene'
+import type { ImageFraming, StoryState } from '../../types/scene'
 
 const STORAGE_KEY = 'renderless.make.v1'
 
@@ -66,6 +67,11 @@ export function useMake() {
   const [stored, setStored] = useState<StoredMake>(readStored)
   // Replaced images live for this visit only (photos are too big for local storage).
   const [swaps, setSwaps] = useState<Record<string, Record<string, string>>>({})
+  // How each replaced photo is framed (subject point + zoom), per template, for this visit.
+  const [framing, setFramingState] = useState<Record<string, Record<string, ImageFraming>>>({})
+  const [photoError, setPhotoError] = useState('')
+  // A photo remembers where its subject is: placed again (another template or slot), it starts framed the same.
+  const subjectBySrc = useRef(new Map<string, Pick<ImageFraming, 'x' | 'y' | 'zoom'>>())
   const [libraryImages, setLibraryImages] = useState<MediaLibraryEntry[]>([])
   // A pasted sheet lasts for this visit and carries across templates; each template matches it on its own.
   const [sheet, setSheet] = useState<DataSheet | null>(null)
@@ -76,6 +82,7 @@ export function useMake() {
   const templateId = template?.id ?? ''
   const values = useMemo(() => stored.values?.[templateId] ?? {}, [stored.values, templateId])
   const templateSwaps = useMemo(() => swaps[templateId] ?? {}, [swaps, templateId])
+  const templateFraming = useMemo(() => framing[templateId] ?? {}, [framing, templateId])
   const toggles = useMemo(() => stored.toggles?.[templateId] ?? {}, [stored.toggles, templateId])
   const smart = template?.builtIn ? smartTemplate(templateId) : undefined
   const layouts = useMemo(() => smart?.layouts ?? [], [smart])
@@ -97,9 +104,9 @@ export function useMake() {
       if (!template) return null
       const chosen = (on: boolean) => new Set(Object.entries(toggles).filter(([key, value]) => value === on && !key.startsWith('field:')).map(([key]) => key))
       const base = (smart && buildSmartScene(templateId, { style: styleId, layout, off: chosen(false), on: chosen(true) })) || template.scene
-      return withVisibility(withImageSwaps(base, templateSwaps), toggles)
+      return withVisibility(withImageFraming(withImageSwaps(base, templateSwaps), templateFraming), toggles)
     },
-    [template, smart, templateId, styleId, toggles, templateSwaps],
+    [template, smart, templateId, styleId, toggles, templateSwaps, templateFraming],
   )
   const scene = useMemo(() => sceneFor(layoutId), [sceneFor, layoutId])
   const layoutScenes = useMemo(
@@ -199,17 +206,73 @@ export function useMake() {
       delete rest[templateId]
       return rest
     })
+    setFramingState((current) => {
+      const rest = { ...current }
+      delete rest[templateId]
+      return rest
+    })
   }, [templateId, update])
 
+  /** Puts a photo in a slot (null: back to the template's own), starting it framed on the middle. */
   const swapImage = useCallback(
-    (layerId: string, src: string | null) =>
+    (layerId: string, src: string | null, size?: { width: number; height: number }) => {
       setSwaps((current) => {
         const forTemplate = { ...current[templateId] }
         if (src) forTemplate[layerId] = src
         else delete forTemplate[layerId]
         return { ...current, [templateId]: forTemplate }
-      }),
+      })
+      setFramingState((current) => {
+        const forTemplate = { ...current[templateId] }
+        if (src && size) {
+          const subject = subjectBySrc.current.get(src) ?? { x: 0.5, y: 0.45, zoom: 1 }
+          forTemplate[layerId] = { ...subject, imageWidth: size.width, imageHeight: size.height }
+        }
+        else delete forTemplate[layerId]
+        return { ...current, [templateId]: forTemplate }
+      })
+      setPhotoError('')
+    },
     [templateId],
+  )
+
+  const setFraming = useCallback(
+    (layerId: string, patch: Partial<Pick<ImageFraming, 'x' | 'y' | 'zoom'>>) =>
+      setFramingState((current) => {
+        const existing = current[templateId]?.[layerId]
+        if (!existing) return current
+        const next = { ...existing, ...patch }
+        const src = swaps[templateId]?.[layerId]
+        if (src) subjectBySrc.current.set(src, { x: next.x, y: next.y, zoom: next.zoom })
+        return { ...current, [templateId]: { ...current[templateId], [layerId]: next } }
+      }),
+    [templateId, swaps],
+  )
+
+  /** An uploaded photo: shrunk if huge, kept in the team library (so it shows in recents), and placed. */
+  const uploadPhoto = useCallback(
+    async (layerId: string, file: File) => {
+      try {
+        const photo = await preparePhoto(file)
+        swapImage(layerId, photo.dataUrl, photo)
+        await savePhotoToLibrary(file.name, photo).catch(() => undefined)
+      } catch (error) {
+        setPhotoError(error instanceof Error ? error.message : 'Could not read that photo.')
+      }
+    },
+    [swapImage],
+  )
+
+  /** A library image (recents or the full list), placed once its size is known. */
+  const pickLibraryPhoto = useCallback(
+    async (layerId: string, entry: MediaLibraryEntry) => {
+      try {
+        swapImage(layerId, entry.dataUrl, await imageSize(entry.dataUrl))
+      } catch {
+        setPhotoError(`Could not load ${entry.name}.`)
+      }
+    },
+    [swapImage],
   )
 
   const setToggle = useCallback(
@@ -282,6 +345,12 @@ export function useMake() {
     layoutId,
     layoutScenes,
     libraryImages,
+    recentImages: [...libraryImages].sort((a, b) => b.modifiedAt - a.modifiedAt).slice(0, 12),
+    framing: templateFraming,
+    setFraming,
+    uploadPhoto,
+    pickLibraryPhoto,
+    photoError,
     sheet,
     rowIndex,
     match,

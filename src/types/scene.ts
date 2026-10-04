@@ -96,6 +96,21 @@ export interface ImageLayer extends BaseLayer {
   swappable?: boolean
   /** Duotone: the photo in two colors, dark for shadows and light for highlights. */
   tone?: { dark: string; light: string }
+  /** Framing for cover-fit photos: what to keep centered, and how far to zoom in. */
+  framing?: ImageFraming
+}
+
+/**
+ * Where a photo's subject is (x, y as 0-1 of the image) and the zoom (1 = just fills the slot).
+ * The photo's pixel size lets every slot shape keep that point centered as far as it can
+ * without showing past the photo's edge, so one framing works in every layout.
+ */
+export interface ImageFraming {
+  x: number
+  y: number
+  zoom: number
+  imageWidth: number
+  imageHeight: number
 }
 
 export type SceneLayer = ShapeLayer | TextLayer | ImageLayer
